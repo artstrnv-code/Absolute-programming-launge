@@ -893,6 +893,42 @@ func vm.apply_assign(current, op, value) {
   return NONE
 }
 
+func vm.coerce_value(value, value_type) {
+  if value == NONE {
+    return NONE
+  }
+
+  if value_type == "Int" {
+    return int(value)
+  }
+
+  if value_type == "Float" {
+    return float(value)
+  }
+
+  if value_type == "Bool" {
+    return bool(value)
+  }
+
+  if value_type == "Str" {
+    return str(value)
+  }
+
+  if value_type == "Bytes" {
+    return bytes(value)
+  }
+
+  if value_type == "Json" {
+    return json(value)
+  }
+
+  return value
+}
+
+func vm.coerce_state(value_state, value_type) {
+  return [vm.coerce_value(get(value_state, 0), value_type), get(value_state, 1), get(value_state, 2), get(value_state, 3)]
+}
+
 func vm.add_public_reason(output, value_state, fallback) {
   VTime next_output = get(value_state, 2)
 
@@ -922,6 +958,7 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime decl_keyword = get(instruction, 1)
     VTime name = get(instruction, 2)
     VTime value_state = vm.eval_expr(get(instruction, 3), env, output, functions)
+    value_state = vm.coerce_state(value_state, vm.decl_type(decl_keyword))
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
@@ -963,6 +1000,14 @@ func vm.exec_instruction(instruction, env, output, functions) {
     env = get(value_state, 1)
     output = get(value_state, 2)
     VTime current = vm.env_get(env, name)
+
+    if op == "=" {
+      VTime coerced_state = vm.coerce_state(value_state, vm.env_type(env, name))
+      value = get(coerced_state, 0)
+      env = get(coerced_state, 1)
+      output = get(coerced_state, 2)
+    }
+
     return [vm.FLOW_OK, vm.env_put_meta(env, name, vm.apply_assign(current, op, value), vm.max_kind(vm.env_kind(env, name), get(value_state, 3)), vm.env_type(env, name)), output]
   }
 

@@ -234,6 +234,8 @@ VM-executed code. Tagged values like `value:ASV` and `value:SASV` are parsed, an
 values keep per-element protection labels for `get`/`pop`. `input` and
 `secret input` read from an explicit VM input stream when using
 `vm.run_source_with_input(source, inputs)`; exhausted input becomes `NONE`.
+Absolute declarations and `=` assignments in VM-executed code coerce values to
+their declared type, so invalid typed input becomes `NONE`.
 The bootstrap parser now handles expression
 precedence for arithmetic, comparisons, and `and`/`or`, including `Float`
 literals and unary `-`/`not` expressions:
@@ -339,6 +341,10 @@ build\bat_test_vm_input\target\debug\test_vm_input_compiled.exe
 .\run_aplc.bat build\test_vm_input_stream.aplc
 .\compile_apl.bat examples\test_vm_input_stream.apl build\bat_test_vm_input_stream
 build\bat_test_vm_input_stream\target\debug\test_vm_input_stream_compiled.exe
+.\emit_aplc.bat examples\test_vm_typed_input.apl build\test_vm_typed_input.aplc
+.\run_aplc.bat build\test_vm_typed_input.aplc
+.\compile_apl.bat examples\test_vm_typed_input.apl build\bat_test_vm_typed_input
+build\bat_test_vm_typed_input\target\debug\test_vm_typed_input_compiled.exe
 ```
 
 Open the minimal GUI runner:

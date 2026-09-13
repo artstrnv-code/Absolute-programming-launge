@@ -2540,6 +2540,27 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt good = input AVInt bad = input AVFloat ratio = input AVBool flag = input AVStr text = input AVInt assigned = 0 assigned = input out good out bad out ratio out flag out text out assigned"
+            VTime vm_output = vm.run_source_with_input(source, ["42", "oops", "2.5", "true", "abc", "7"])
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            out get(vm_output, 2)
+            out get(vm_output, 3)
+            out get(vm_output, 4)
+            out get(vm_output, 5)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "6\n42\nNONE\n2.5\ntrue\nabc\n7\n");
+    }
+
+    #[test]
     fn checker_keeps_split_secret_values_off_output() {
         let program = apl_parser::parse_program(
             r#"

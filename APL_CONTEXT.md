@@ -501,8 +501,10 @@ APL-owned runtime code:
   `secret input` in VM-executed code consume an explicit input stream through
   `vm.run_source_with_input(source, inputs)` / `vm.run_ir_with_input(program, inputs)`.
   Exhausted input becomes `NONE`; `secret input` carries `ASV`
-  protection. `vm.run_source(source)` still uses an empty stream. The APL parser bootstrap handles arithmetic, comparison, and
-  logical expression precedence before lowering to IR. This proves
+  protection. `vm.run_source(source)` still uses an empty stream. Absolute
+  declarations and `=` assignments in VM-executed code coerce values to their
+  declared type, so invalid typed input becomes `NONE`. The APL parser bootstrap
+  handles arithmetic, comparison, and logical expression precedence before lowering to IR. This proves
   runtime behavior can be compiled and executed from APL code itself.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
@@ -516,7 +518,8 @@ APL-owned runtime code:
   `examples/test_vm_pow.apl`, `examples/test_vm_self.apl`,
   `examples/test_vm_conversions.apl`, `examples/test_vm_secretup.apl`,
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,
-  `examples/test_vm_input.apl`, and `examples/test_vm_input_stream.apl` are the
+  `examples/test_vm_input.apl`, `examples/test_vm_input_stream.apl`, and
+  `examples/test_vm_typed_input.apl` are the
   current VM smoke-tests.
 
 Rust-hosted builtins that support the APL prelude:
@@ -720,6 +723,10 @@ build\bat_test_vm_input\target\debug\test_vm_input_compiled.exe
 .\run_aplc.bat build\test_vm_input_stream.aplc
 .\compile_apl.bat examples\test_vm_input_stream.apl build\bat_test_vm_input_stream
 build\bat_test_vm_input_stream\target\debug\test_vm_input_stream_compiled.exe
+.\emit_aplc.bat examples\test_vm_typed_input.apl build\test_vm_typed_input.aplc
+.\run_aplc.bat build\test_vm_typed_input.aplc
+.\compile_apl.bat examples\test_vm_typed_input.apl build\bat_test_vm_typed_input
+build\bat_test_vm_typed_input\target\debug\test_vm_typed_input_compiled.exe
 powershell -ExecutionPolicy Bypass -File tools\apl_gui.ps1
 ```
 
