@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/apl_cli",
+    "crates/apl_compiler",
+    "crates/apl_core",
+    "crates/apl_ir",
+    "crates/apl_parser",
+    "crates/apl_runtime",
+    "crates/apl_router",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"

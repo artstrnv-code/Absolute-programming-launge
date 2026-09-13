@@ -1,0 +1,12 @@
+[package]
+name = "apl_runtime"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+apl_core = { path = "../apl_core" }
+apl_ir = { path = "../apl_ir" }
+
+[dev-dependencies]
+apl_parser = { path = "../apl_parser" }

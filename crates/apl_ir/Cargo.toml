@@ -1,0 +1,9 @@
+[package]
+name = "apl_ir"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+apl_core = { path = "../apl_core" }
+
