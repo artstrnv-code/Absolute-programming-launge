@@ -2522,6 +2522,24 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_apl_vm_input_stream_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVStr public = input ASVStr secret = secret input AVStr missing = input out public out secret out missing"
+            VTime vm_output = vm.run_source_with_input(source, ["hello", "token"])
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            out get(vm_output, 2)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "3\nhello\nDENIED\nNONE\n");
+    }
+
+    #[test]
     fn checker_keeps_split_secret_values_off_output() {
         let program = apl_parser::parse_program(
             r#"

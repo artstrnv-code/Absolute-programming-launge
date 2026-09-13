@@ -232,8 +232,9 @@ absolute-variable protection inside the VM. String/list helpers such as
 `split`, `join`, `contains`, `ord`, `char`, and `pow` are available in
 VM-executed code. Tagged values like `value:ASV` and `value:SASV` are parsed, and VM list
 values keep per-element protection labels for `get`/`pop`. `input` and
-`secret input` are recognized by the VM bootstrap as `NONE` placeholders until
-the VM gets a real input stream. The bootstrap parser now handles expression
+`secret input` read from an explicit VM input stream when using
+`vm.run_source_with_input(source, inputs)`; exhausted input becomes `NONE`.
+The bootstrap parser now handles expression
 precedence for arithmetic, comparisons, and `and`/`or`, including `Float`
 literals and unary `-`/`not` expressions:
 
@@ -334,6 +335,10 @@ build\bat_test_vm_tagged_list\target\debug\test_vm_tagged_list_compiled.exe
 .\run_aplc.bat build\test_vm_input.aplc
 .\compile_apl.bat examples\test_vm_input.apl build\bat_test_vm_input
 build\bat_test_vm_input\target\debug\test_vm_input_compiled.exe
+.\emit_aplc.bat examples\test_vm_input_stream.apl build\test_vm_input_stream.aplc
+.\run_aplc.bat build\test_vm_input_stream.aplc
+.\compile_apl.bat examples\test_vm_input_stream.apl build\bat_test_vm_input_stream
+build\bat_test_vm_input_stream\target\debug\test_vm_input_stream_compiled.exe
 ```
 
 Open the minimal GUI runner:

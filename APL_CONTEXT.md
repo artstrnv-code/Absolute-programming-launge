@@ -498,9 +498,10 @@ APL-owned runtime code:
   raise VM expression protection. VM list values keep a parallel per-element
   protection label table for `get`, `pop`, and slices; whole-list external
   output still uses the strongest aggregate list protection. `input` and
-  `secret input` are recognized in VM-executed code as `NONE` placeholders
-  until the VM gets a real input stream; `secret input` carries `ASV`
-  protection. The APL parser bootstrap handles arithmetic, comparison, and
+  `secret input` in VM-executed code consume an explicit input stream through
+  `vm.run_source_with_input(source, inputs)` / `vm.run_ir_with_input(program, inputs)`.
+  Exhausted input becomes `NONE`; `secret input` carries `ASV`
+  protection. `vm.run_source(source)` still uses an empty stream. The APL parser bootstrap handles arithmetic, comparison, and
   logical expression precedence before lowering to IR. This proves
   runtime behavior can be compiled and executed from APL code itself.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
@@ -514,8 +515,9 @@ APL-owned runtime code:
   `examples/test_vm_float.apl`, `examples/test_vm_unary.apl`,
   `examples/test_vm_pow.apl`, `examples/test_vm_self.apl`,
   `examples/test_vm_conversions.apl`, `examples/test_vm_secretup.apl`,
-  `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`, and
-  `examples/test_vm_input.apl` are the current VM smoke-tests.
+  `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,
+  `examples/test_vm_input.apl`, and `examples/test_vm_input_stream.apl` are the
+  current VM smoke-tests.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -714,6 +716,10 @@ build\bat_test_vm_tagged_list\target\debug\test_vm_tagged_list_compiled.exe
 .\run_aplc.bat build\test_vm_input.aplc
 .\compile_apl.bat examples\test_vm_input.apl build\bat_test_vm_input
 build\bat_test_vm_input\target\debug\test_vm_input_compiled.exe
+.\emit_aplc.bat examples\test_vm_input_stream.apl build\test_vm_input_stream.aplc
+.\run_aplc.bat build\test_vm_input_stream.aplc
+.\compile_apl.bat examples\test_vm_input_stream.apl build\bat_test_vm_input_stream
+build\bat_test_vm_input_stream\target\debug\test_vm_input_stream_compiled.exe
 powershell -ExecutionPolicy Bypass -File tools\apl_gui.ps1
 ```
 

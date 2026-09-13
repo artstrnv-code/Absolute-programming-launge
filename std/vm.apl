@@ -11,7 +11,11 @@ AVStr vm.FLOW_RETURN = "RETURN"
 AVStr vm.KIND_LIST = "LIST_KIND"
 
 func vm.new_env() {
-  return [[], [], [], [], []]
+  return vm.new_env_with_input([])
+}
+
+func vm.new_env_with_input(inputs) {
+  return [[], [], [], [], [], inputs, 0]
 }
 
 func vm.env_names(env) {
@@ -34,18 +38,43 @@ func vm.env_initials(env) {
   return get(env, 4)
 }
 
+func vm.env_inputs(env) {
+  return get(env, 5)
+}
+
+func vm.env_input_index(env) {
+  return get(env, 6)
+}
+
+func vm.env_with_input_index(env, input_index) {
+  return [vm.env_names(env), vm.env_values(env), vm.env_kinds(env), vm.env_types(env), vm.env_initials(env), vm.env_inputs(env), input_index]
+}
+
+func vm.env_read_input(env) {
+  VTime inputs = vm.env_inputs(env)
+  VTime input_index = vm.env_input_index(env)
+
+  if input_index >= len(inputs) {
+    return [NONE, env]
+  }
+
+  return [get(inputs, input_index), vm.env_with_input_index(env, input_index + 1)]
+}
+
 func vm.env_put(env, name, value) {
   VTime names = vm.env_names(env)
   VTime values = vm.env_values(env)
   VTime kinds = vm.env_kinds(env)
   VTime types = vm.env_types(env)
   VTime initials = vm.env_initials(env)
+  VTime inputs = vm.env_inputs(env)
+  VTime input_index = vm.env_input_index(env)
   add(names, name)
   add(values, value)
   add(kinds, vm.env_kind(env, name))
   add(types, vm.env_type(env, name))
   add(initials, vm.env_initial(env, name))
-  return [names, values, kinds, types, initials]
+  return [names, values, kinds, types, initials, inputs, input_index]
 }
 
 func vm.env_put_meta(env, name, value, kind, value_type) {
@@ -54,12 +83,14 @@ func vm.env_put_meta(env, name, value, kind, value_type) {
   VTime kinds = vm.env_kinds(env)
   VTime types = vm.env_types(env)
   VTime initials = vm.env_initials(env)
+  VTime inputs = vm.env_inputs(env)
+  VTime input_index = vm.env_input_index(env)
   add(names, name)
   add(values, value)
   add(kinds, kind)
   add(types, value_type)
   add(initials, vm.env_initial_or_value(env, name, value))
-  return [names, values, kinds, types, initials]
+  return [names, values, kinds, types, initials, inputs, input_index]
 }
 
 func vm.env_get(env, name) {
@@ -321,6 +352,8 @@ func vm.env_without(env, name) {
   VTime old_kinds = vm.env_kinds(env)
   VTime old_types = vm.env_types(env)
   VTime old_initials = vm.env_initials(env)
+  VTime inputs = vm.env_inputs(env)
+  VTime input_index = vm.env_input_index(env)
   VTime names = []
   VTime values = []
   VTime kinds = []
@@ -340,7 +373,7 @@ func vm.env_without(env, name) {
     index += 1
   }
 
-  return [names, values, kinds, types, initials]
+  return [names, values, kinds, types, initials, inputs, input_index]
 }
 
 func vm.new_functions() {
@@ -430,11 +463,13 @@ func vm.eval_expr(expression, env, output, functions) {
   }
 
   if opcode == ir.EXPR_INPUT {
-    return [NONE, env, output, "AV"]
+    VTime input_state = vm.env_read_input(env)
+    return [get(input_state, 0), get(input_state, 1), output, "AV"]
   }
 
   if opcode == ir.EXPR_SECRET_INPUT {
-    return [NONE, env, output, "ASV"]
+    VTime input_state = vm.env_read_input(env)
+    return [get(input_state, 0), get(input_state, 1), output, "ASV"]
   }
 
   if opcode == ir.EXPR_CALL {
@@ -1098,6 +1133,15 @@ func vm.run_ir(program) {
   return get(state, 2)
 }
 
+func vm.run_ir_with_input(program, inputs) {
+  VTime state = vm.run_ir_state(program, vm.new_env_with_input(inputs), [], vm.collect_functions(program))
+  return get(state, 2)
+}
+
 func vm.run_source(source) {
   return vm.run_ir(ir.compile_source(source))
+}
+
+func vm.run_source_with_input(source, inputs) {
+  return vm.run_ir_with_input(ir.compile_source(source), inputs)
 }
