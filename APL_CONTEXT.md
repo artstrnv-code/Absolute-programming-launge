@@ -147,10 +147,12 @@ Rules:
 - `Int / Int` returns `Int`;
 - no implicit `Int` to `Float` conversion;
 - no string concatenation with `+`;
-- roots, powers, trigonometry, and heavy math belong in functions or external
+- roots, trigonometry, and heavy math belong in functions or external
   languages.
 
-Power can be implemented as a normal APL function if needed.
+Power is exposed as `pow(base, exponent)`. The exponent is an integer; negative
+exponents return `NONE`. `**` is recognized by the lexer for future grammar
+work, but it is not currently an expression operator.
 
 ## Comparisons
 
@@ -489,8 +491,8 @@ APL-owned runtime code:
   declaration value kept in the VM environment. Conversion calls `int`, `float`,
   `bool`, `str`, `bytes`, and `json` are VM builtins and preserve the source
   value protection label. String/list helpers `split`, `join`, `contains`,
-  `ord`, and `char` are also available inside VM-executed code and preserve the
-  strongest argument protection label. `secretup(name)` raises
+  `ord`, `char`, and `pow` are also available inside VM-executed code and
+  preserve the strongest argument protection label. `secretup(name)` raises
   absolute-variable protection from `AV` to `ASV` and from `ASV` to `SASV`
   while preserving initial values. Tagged values `value:ASV` and `value:SASV`
   raise VM expression protection. VM list values keep a parallel per-element
@@ -510,7 +512,7 @@ APL-owned runtime code:
   `examples/test_vm_secret_flow.apl`, `examples/test_vm_stop_fail.apl`,
   `examples/test_vm_logic.apl`, `examples/test_vm_precedence.apl`,
   `examples/test_vm_float.apl`, `examples/test_vm_unary.apl`,
-  `examples/test_vm_self.apl`,
+  `examples/test_vm_pow.apl`, `examples/test_vm_self.apl`,
   `examples/test_vm_conversions.apl`, `examples/test_vm_secretup.apl`,
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`, and
   `examples/test_vm_input.apl` are the current VM smoke-tests.
@@ -525,7 +527,9 @@ Rust-hosted builtins that support the APL prelude:
   string.
 - `char(value)`: returns a one-character string from an integer Unicode code
   point.
-- `split` and `contains` preserve the strongest protection level of their
+- `pow(base, exponent)`: raises an `Int` or `Float` base to a non-negative
+  integer exponent and returns `NONE` for negative exponents or invalid inputs.
+- `split`, `contains`, and `pow` preserve the strongest protection level of their
   inputs. Secret-derived pieces remain secret and cannot be sent to `out`.
 - Local `VTime` lists can be mutated with `add(vtime_list, value)` and
   `pop(vtime_list)`, which lets APL runtime code build temporary buffers inside
@@ -580,7 +584,7 @@ Runtime v0.1 covers:
 - list literals, nested lists, `add`, `get`, `pop`;
 - indexing and slicing;
 - string/list helper builtins: `split`, `len`, `contains`, `join`, `ord`,
-  `char`;
+  `char`, `pow`;
 - `input`, `secret input`, `out`;
 - `info`, conversions, `secretup`, `stop`, `fail`;
 - recursive list protection checks before output/error text.
@@ -682,6 +686,10 @@ build\bat_test_vm_float\target\debug\test_vm_float_compiled.exe
 .\run_aplc.bat build\test_vm_unary.aplc
 .\compile_apl.bat examples\test_vm_unary.apl build\bat_test_vm_unary
 build\bat_test_vm_unary\target\debug\test_vm_unary_compiled.exe
+.\emit_aplc.bat examples\test_vm_pow.apl build\test_vm_pow.aplc
+.\run_aplc.bat build\test_vm_pow.aplc
+.\compile_apl.bat examples\test_vm_pow.apl build\bat_test_vm_pow
+build\bat_test_vm_pow\target\debug\test_vm_pow_compiled.exe
 .\emit_aplc.bat examples\test_vm_self.apl build\test_vm_self.aplc
 .\run_aplc.bat build\test_vm_self.aplc
 .\compile_apl.bat examples\test_vm_self.apl build\bat_test_vm_self

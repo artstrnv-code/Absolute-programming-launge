@@ -1056,6 +1056,40 @@ impl<'a> Runtime<'a> {
                 };
                 Ok(RuntimeValue::str(ch.to_string()).with_protection(protection))
             }
+            "pow" => {
+                let base = args[0].clone();
+                let exponent = args[1].clone();
+                let protection = base
+                    .effective_protection()
+                    .max(exponent.effective_protection());
+                let RuntimeData::Int(exponent) = exponent.data else {
+                    return Ok(RuntimeValue::none(protection));
+                };
+                if exponent < 0 {
+                    return Ok(RuntimeValue::none(protection));
+                }
+                match base.data {
+                    RuntimeData::Int(base) => {
+                        let Ok(exponent) = u32::try_from(exponent) else {
+                            return Ok(RuntimeValue::none(protection));
+                        };
+                        let Some(value) = base.checked_pow(exponent) else {
+                            return Ok(RuntimeValue::none(protection));
+                        };
+                        Ok(RuntimeValue::new(RuntimeData::Int(value), protection))
+                    }
+                    RuntimeData::Float(base) => {
+                        let Ok(exponent) = i32::try_from(exponent) else {
+                            return Ok(RuntimeValue::none(protection));
+                        };
+                        Ok(RuntimeValue::new(
+                            RuntimeData::Float(base.powi(exponent)),
+                            protection,
+                        ))
+                    }
+                    _ => Ok(RuntimeValue::none(protection)),
+                }
+            }
             _ => {
                 let Some(function) = self
                     .program
@@ -1821,6 +1855,25 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_pow_builtin() {
+        let output = run_source(
+            r#"
+            AVInt x = pow(2, 3)
+            AVFloat y = pow(2.0, 3)
+            AVInt bad = pow(2, -1)
+            ASVInt hidden = 2
+            ASVInt hidden_pow = pow(hidden, 2)
+            out x
+            out y == 8.0
+            out bad
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "8\ntrue\nNONE\n");
+    }
+
+    #[test]
     fn runs_while_with_limit() {
         let output = run(vec![
             Statement::VariableDecl(VariableDecl {
@@ -2327,6 +2380,25 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "4\n-4\n-1.5\ntrue\n-5\n");
+    }
+
+    #[test]
+    fn source_runtime_uses_apl_vm_pow_builtin_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt x = pow(2, 3) AVFloat y = pow(2.0, 3) AVInt bad = pow(2, -1) ASVInt hidden = 2 out x out y == 8.0 out bad out pow(hidden, 2)"
+            VTime vm_output = vm.run_source(source)
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            out get(vm_output, 2)
+            out get(vm_output, 3)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "4\n8\ntrue\nNONE\nDENIED\n");
     }
 
     #[test]

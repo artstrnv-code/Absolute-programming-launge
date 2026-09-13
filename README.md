@@ -41,8 +41,8 @@ The core idea is simple:
 - `VTime` values can hold local lists, and `add(vtime_list, value)` /
   `pop(vtime_list)` work inside functions and loops;
 - `split(value, separator)`, `join(values, separator)`, `len(value)`,
-  `contains(value, needle)`, `ord(value)`, and `char(value)` provide minimal
-  string/list runtime helpers;
+  `contains(value, needle)`, `ord(value)`, `char(value)`, and
+  `pow(base, exponent)` provide minimal runtime helpers;
 - `value[index]` reads one item and `value[start:end:step]` creates a slice;
 - slice `start`, `end`, and `step` are optional, as in `items[:3]`,
   `items[1:]`, and `items[::2]`;
@@ -229,8 +229,8 @@ logical operators such as `(a == true) and (b != true)`. Expressions support
 `=self=` checks against the initial absolute-variable value and explicit
 conversion calls such as `int(raw)` and `str(value)`. `secretup(name)` raises
 absolute-variable protection inside the VM. String/list helpers such as
-`split`, `join`, `contains`, `ord`, and `char` are available in VM-executed
-code. Tagged values like `value:ASV` and `value:SASV` are parsed, and VM list
+`split`, `join`, `contains`, `ord`, `char`, and `pow` are available in
+VM-executed code. Tagged values like `value:ASV` and `value:SASV` are parsed, and VM list
 values keep per-element protection labels for `get`/`pop`. `input` and
 `secret input` are recognized by the VM bootstrap as `NONE` placeholders until
 the VM gets a real input stream. The bootstrap parser now handles expression
@@ -306,6 +306,10 @@ build\bat_test_vm_float\target\debug\test_vm_float_compiled.exe
 .\run_aplc.bat build\test_vm_unary.aplc
 .\compile_apl.bat examples\test_vm_unary.apl build\bat_test_vm_unary
 build\bat_test_vm_unary\target\debug\test_vm_unary_compiled.exe
+.\emit_aplc.bat examples\test_vm_pow.apl build\test_vm_pow.aplc
+.\run_aplc.bat build\test_vm_pow.aplc
+.\compile_apl.bat examples\test_vm_pow.apl build\bat_test_vm_pow
+build\bat_test_vm_pow\target\debug\test_vm_pow_compiled.exe
 .\emit_aplc.bat examples\test_vm_self.apl build\test_vm_self.aplc
 .\run_aplc.bat build\test_vm_self.aplc
 .\compile_apl.bat examples\test_vm_self.apl build\bat_test_vm_self

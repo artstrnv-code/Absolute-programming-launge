@@ -1054,6 +1054,36 @@ impl Checker {
                 }
                 return Ok(ExpressionInfo::value(ValueType::Str, value.protection));
             }
+            "pow" => {
+                if args.len() != 2 {
+                    return Err(CheckError::WrongArgumentCount {
+                        name: name.to_owned(),
+                        expected: 2,
+                        actual: args.len(),
+                    });
+                }
+                let base = self.check_expression(&args[0])?;
+                let exponent = self.check_expression(&args[1])?;
+                if !matches!(
+                    base.value_type,
+                    DynamicType::Value(ValueType::Int | ValueType::Float) | DynamicType::VTime
+                ) || !matches!(
+                    exponent.value_type,
+                    DynamicType::Value(ValueType::Int) | DynamicType::VTime
+                ) {
+                    return Err(CheckError::InvalidOperation(
+                        "pow(base, exponent) requires Int/Float and Int".to_owned(),
+                    ));
+                }
+                let value_type = match base.value_type {
+                    DynamicType::Value(value_type) => DynamicType::Value(value_type),
+                    _ => DynamicType::VTime,
+                };
+                return Ok(ExpressionInfo {
+                    value_type,
+                    protection: base.protection.max(exponent.protection),
+                });
+            }
             _ => {}
         }
 
@@ -1425,6 +1455,7 @@ fn is_reserved_word(name: &str) -> bool {
             | "join"
             | "ord"
             | "char"
+            | "pow"
             | "AVInt"
             | "AVFloat"
             | "AVBool"

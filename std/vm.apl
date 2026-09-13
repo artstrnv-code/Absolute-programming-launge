@@ -557,6 +557,10 @@ func vm.is_builtin_call(name) {
     return true
   }
 
+  if name == "pow" {
+    return true
+  }
+
   if name == "pop" {
     return true
   }
@@ -670,6 +674,26 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
 
   if name == "char" {
     return [char(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+  }
+
+  if name == "pow" {
+    VTime base = get(args, 0)
+    VTime exponent = get(args, 1)
+    VTime kind = vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1))
+
+    if exponent < 0 {
+      return [NONE, env, output, kind]
+    }
+
+    VTime result = 1
+    VTime index = 0
+
+    while (index < exponent) (-1) {
+      result *= base
+      index += 1
+    }
+
+    return [result, env, output, kind]
   }
 
   if name == "int" {
