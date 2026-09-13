@@ -2305,6 +2305,27 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_rejects_apl_vm_duplicate_names_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr duplicate_var = join(["AVInt x = 1 out x AVStr x = ", char(34), "bad", char(34), " out x"], "")
+            AVStr duplicate_func = "func same() { return 1 } func same() { return 2 } out same()"
+            VTime var_output = vm.run_source(duplicate_var)
+            VTime func_output = vm.run_source(duplicate_func)
+
+            out len(var_output)
+            out get(var_output, 0)
+            out get(var_output, 1)
+            out len(func_output)
+            out get(func_output, 0)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "1\n1\nNONE\n0\nNONE\n");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_secret_aware_stop_fail_prelude() {
         let output = run_source_with_prelude(
             r#"

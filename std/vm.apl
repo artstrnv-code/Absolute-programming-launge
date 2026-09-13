@@ -109,6 +109,21 @@ func vm.env_get(env, name) {
   return NONE
 }
 
+func vm.env_has(env, name) {
+  VTime names = vm.env_names(env)
+  VTime index = len(names) - 1
+
+  while (index >= 0) (-1) {
+    if get(names, index) == name {
+      return true
+    }
+
+    index -= 1
+  }
+
+  return false
+}
+
 func vm.env_kind(env, name) {
   VTime names = vm.env_names(env)
   VTime kinds = vm.env_kinds(env)
@@ -381,7 +396,7 @@ func vm.env_without(env, name) {
 }
 
 func vm.new_functions() {
-  return [[], [], []]
+  return [[], [], [], true]
 }
 
 func vm.func_names(functions) {
@@ -396,6 +411,14 @@ func vm.func_bodies(functions) {
   return get(functions, 2)
 }
 
+func vm.functions_ok(functions) {
+  return get(functions, 3)
+}
+
+func vm.functions_fail(functions) {
+  return [vm.func_names(functions), vm.func_params(functions), vm.func_bodies(functions), false]
+}
+
 func vm.func_put(functions, name, params, body) {
   VTime names = vm.func_names(functions)
   VTime params_list = vm.func_params(functions)
@@ -403,7 +426,7 @@ func vm.func_put(functions, name, params, body) {
   add(names, name)
   add(params_list, params)
   add(bodies, body)
-  return [names, params_list, bodies]
+  return [names, params_list, bodies, vm.functions_ok(functions)]
 }
 
 func vm.func_index(functions, name) {
@@ -421,11 +444,19 @@ func vm.func_index(functions, name) {
   return NONE
 }
 
+func vm.func_has(functions, name) {
+  return vm.func_index(functions, name) != NONE
+}
+
 func vm.collect_functions(program) {
   VTime functions = vm.new_functions()
 
   pick(program): instruction {
     if ir.opcode(instruction) == ir.OP_FUNC {
+      if vm.func_has(functions, get(instruction, 1)) {
+        return vm.functions_fail(functions)
+      }
+
       functions = vm.func_put(functions, get(instruction, 1), get(instruction, 2), get(instruction, 3))
     }
   }
@@ -961,6 +992,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
   if opcode == ir.OP_DECL {
     VTime decl_keyword = get(instruction, 1)
     VTime name = get(instruction, 2)
+
+    if vm.env_has(env, name) {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
     VTime value_state = vm.eval_expr(get(instruction, 3), env, output, functions)
     value_state = vm.coerce_state(value_state, vm.decl_type(decl_keyword))
     VTime value = get(value_state, 0)
@@ -977,6 +1013,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
 
   if opcode == ir.OP_LIST_DECL {
     VTime name = get(instruction, 1)
+
+    if vm.env_has(env, name) {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
     VTime value_state = vm.eval_expr(get(instruction, 2), env, output, functions)
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
@@ -986,6 +1027,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
 
   if opcode == ir.OP_VTIME_DECL {
     VTime name = get(instruction, 1)
+
+    if vm.env_has(env, name) {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
     VTime value_state = vm.eval_expr(get(instruction, 2), env, output, functions)
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
@@ -1188,12 +1234,24 @@ func vm.run_ir_state(program, env, output, functions) {
 }
 
 func vm.run_ir(program) {
-  VTime state = vm.run_ir_state(program, vm.new_env(), [], vm.collect_functions(program))
+  VTime functions = vm.collect_functions(program)
+
+  if vm.functions_ok(functions) != true {
+    return []
+  }
+
+  VTime state = vm.run_ir_state(program, vm.new_env(), [], functions)
   return get(state, 2)
 }
 
 func vm.run_ir_with_input(program, inputs) {
-  VTime state = vm.run_ir_state(program, vm.new_env_with_input(inputs), [], vm.collect_functions(program))
+  VTime functions = vm.collect_functions(program)
+
+  if vm.functions_ok(functions) != true {
+    return []
+  }
+
+  VTime state = vm.run_ir_state(program, vm.new_env_with_input(inputs), [], functions)
   return get(state, 2)
 }
 

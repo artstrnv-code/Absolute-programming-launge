@@ -224,7 +224,8 @@ indexing/slicing, `info()` metadata reads, assignments, `if/else if/else` blocks
 bounded `while`, loop flow with `break`/`continue`, `pick`, functions, `return`,
 `out`, `stop`, and `fail`. It also denies direct and derived `out` of
 `ASV`/`SASV` values for the current bootstrap expression set, and applies the
-same rule to `stop`/`fail` reasons. Conditions can use comparisons and grouped
+same rule to `stop`/`fail` reasons. It rejects duplicate runtime declarations
+instead of silently shadowing absolute/list names. Conditions can use comparisons and grouped
 logical operators such as `(a == true) and (b != true)`. Expressions support
 `=self=` checks against the initial absolute-variable value and explicit
 conversion calls such as `int(raw)` and `str(value)`. `secretup(name)` raises
@@ -286,6 +287,10 @@ build\bat_test_vm_pick\target\debug\test_vm_pick_compiled.exe
 .\run_aplc.bat build\test_vm_security.aplc
 .\compile_apl.bat examples\test_vm_security.apl build\bat_test_vm_security
 build\bat_test_vm_security\target\debug\test_vm_security_compiled.exe
+.\emit_aplc.bat examples\test_vm_duplicate_names.apl build\test_vm_duplicate_names.aplc
+.\run_aplc.bat build\test_vm_duplicate_names.aplc
+.\compile_apl.bat examples\test_vm_duplicate_names.apl build\bat_test_vm_duplicate_names
+build\bat_test_vm_duplicate_names\target\debug\test_vm_duplicate_names_compiled.exe
 .\emit_aplc.bat examples\test_vm_secret_flow.apl build\test_vm_secret_flow.aplc
 .\run_aplc.bat build\test_vm_secret_flow.aplc
 .\compile_apl.bat examples\test_vm_secret_flow.apl build\bat_test_vm_secret_flow
