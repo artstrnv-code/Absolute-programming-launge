@@ -1051,6 +1051,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
   if opcode == ir.OP_ASSIGN {
     VTime name = get(instruction, 1)
     VTime op = get(instruction, 2)
+
+    if vm.env_has(env, name) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
     VTime value_state = vm.eval_expr(get(instruction, 3), env, output, functions)
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
@@ -1117,6 +1122,19 @@ func vm.exec_instruction(instruction, env, output, functions) {
 
   if opcode == ir.OP_SECRETUP {
     VTime name = get(instruction, 1)
+
+    if vm.env_has(env, name) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    if vm.env_type(env, name) == "VTime" {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    if vm.env_type(env, name) == "List" {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
     return [vm.FLOW_OK, vm.env_put_meta(env, name, vm.env_get(env, name), vm.up_kind(vm.env_kind(env, name)), vm.env_type(env, name)), output]
   }
 

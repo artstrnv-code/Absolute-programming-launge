@@ -2326,6 +2326,28 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_rejects_apl_vm_unknown_mutation_targets_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr assign_source = join(["out ", char(34), "before", char(34), " missing = 4 out ", char(34), "after", char(34)], "")
+            AVStr secretup_source = join(["out ", char(34), "start", char(34), " secretup(missing) out ", char(34), "after", char(34)], "")
+            VTime assign_output = vm.run_source(assign_source)
+            VTime secretup_output = vm.run_source(secretup_source)
+
+            out len(assign_output)
+            out get(assign_output, 0)
+            out get(assign_output, 1)
+            out len(secretup_output)
+            out get(secretup_output, 0)
+            out get(secretup_output, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "1\nbefore\nNONE\n1\nstart\nNONE\n");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_secret_aware_stop_fail_prelude() {
         let output = run_source_with_prelude(
             r#"
