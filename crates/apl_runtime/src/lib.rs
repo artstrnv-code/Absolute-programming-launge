@@ -2288,6 +2288,23 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_rejects_apl_vm_secret_downgrade_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = join(["out ", char(34), "before", char(34), " ASVStr token = ", char(34), "root", char(34), " VTime tmp = token AVStr public = tmp out public out ", char(34), "after", char(34)], "")
+            VTime vm_output = vm.run_source(source)
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "1\nbefore\nNONE\n");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_secret_aware_stop_fail_prelude() {
         let output = run_source_with_prelude(
             r#"

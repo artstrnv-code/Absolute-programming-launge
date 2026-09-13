@@ -314,6 +314,10 @@ func vm.max_kind(left, right) {
   return right
 }
 
+func vm.kind_allows(target, source) {
+  return vm.kind_rank(target) >= vm.kind_rank(source)
+}
+
 func vm.up_kind(kind) {
   if kind == "AV" {
     return "ASV"
@@ -962,7 +966,13 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
-    return [vm.FLOW_OK, vm.env_put_meta(env, name, value, vm.max_kind(vm.decl_kind(decl_keyword), get(value_state, 3)), vm.decl_type(decl_keyword)), output]
+    VTime target_kind = vm.decl_kind(decl_keyword)
+
+    if vm.kind_allows(target_kind, get(value_state, 3)) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    return [vm.FLOW_OK, vm.env_put_meta(env, name, value, target_kind, vm.decl_type(decl_keyword)), output]
   }
 
   if opcode == ir.OP_LIST_DECL {
@@ -1008,7 +1018,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
       output = get(coerced_state, 2)
     }
 
-    return [vm.FLOW_OK, vm.env_put_meta(env, name, vm.apply_assign(current, op, value), vm.max_kind(vm.env_kind(env, name), get(value_state, 3)), vm.env_type(env, name)), output]
+    if vm.kind_allows(vm.env_kind(env, name), get(value_state, 3)) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    return [vm.FLOW_OK, vm.env_put_meta(env, name, vm.apply_assign(current, op, value), vm.env_kind(env, name), vm.env_type(env, name)), output]
   }
 
   if opcode == ir.OP_EXPR {

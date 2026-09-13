@@ -228,7 +228,8 @@ same rule to `stop`/`fail` reasons. Conditions can use comparisons and grouped
 logical operators such as `(a == true) and (b != true)`. Expressions support
 `=self=` checks against the initial absolute-variable value and explicit
 conversion calls such as `int(raw)` and `str(value)`. `secretup(name)` raises
-absolute-variable protection inside the VM. String/list helpers such as
+absolute-variable protection inside the VM, and the VM rejects attempts to
+write `ASV`/`SASV` values into lower-protection absolute variables. String/list helpers such as
 `split`, `join`, `contains`, `ord`, `char`, and `pow` are available in
 VM-executed code. Tagged values like `value:ASV` and `value:SASV` are parsed, and VM list
 values keep per-element protection labels for `get`/`pop`. `input` and
@@ -289,6 +290,10 @@ build\bat_test_vm_security\target\debug\test_vm_security_compiled.exe
 .\run_aplc.bat build\test_vm_secret_flow.aplc
 .\compile_apl.bat examples\test_vm_secret_flow.apl build\bat_test_vm_secret_flow
 build\bat_test_vm_secret_flow\target\debug\test_vm_secret_flow_compiled.exe
+.\emit_aplc.bat examples\test_vm_secret_downgrade.apl build\test_vm_secret_downgrade.aplc
+.\run_aplc.bat build\test_vm_secret_downgrade.aplc
+.\compile_apl.bat examples\test_vm_secret_downgrade.apl build\bat_test_vm_secret_downgrade
+build\bat_test_vm_secret_downgrade\target\debug\test_vm_secret_downgrade_compiled.exe
 .\emit_aplc.bat examples\test_vm_stop_fail.apl build\test_vm_stop_fail.aplc
 .\run_aplc.bat build\test_vm_stop_fail.aplc
 .\compile_apl.bat examples\test_vm_stop_fail.apl build\bat_test_vm_stop_fail

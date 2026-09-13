@@ -480,9 +480,11 @@ APL-owned runtime code:
   as a list of strings. Direct and derived `out` of `ASV`/`SASV` values is
   denied by the APL
   VM bootstrap for variable loads, `VTime` copies, binary expressions, list
-  literals, and `get` from secret-derived lists. The same external-channel rule
-  is applied to `stop`/`fail` reasons: public reasons are captured, secret
-  reasons become `DENIED`. VM expressions can now evaluate variable loads,
+  literals, and `get` from secret-derived lists. The VM also rejects attempts
+  to write `ASV`/`SASV` values into lower-protection absolute variables, while
+  `VTime` and list values can continue carrying their own protection labels.
+  The same external-channel rule is applied to `stop`/`fail` reasons: public
+  reasons are captured, secret reasons become `DENIED`. VM expressions can now evaluate variable loads,
   literals, list literals, builtin calls, indexing, slicing, function calls,
   unary `-`/`not`, arithmetic operators `+`, `-`, `*`, `/`, comparison
   operators `==`, `!=`, `>`, `<`, `>=`, `<=`, grouped expressions, and logical
@@ -512,7 +514,8 @@ APL-owned runtime code:
   `examples/test_vm_loop_flow.apl`, `examples/test_vm_func.apl`,
   `examples/test_vm_list.apl`, `examples/test_vm_index_slice.apl`, and
   `examples/test_vm_pick.apl`, `examples/test_vm_security.apl`,
-  `examples/test_vm_secret_flow.apl`, `examples/test_vm_stop_fail.apl`,
+  `examples/test_vm_secret_flow.apl`, `examples/test_vm_secret_downgrade.apl`,
+  `examples/test_vm_stop_fail.apl`,
   `examples/test_vm_logic.apl`, `examples/test_vm_precedence.apl`,
   `examples/test_vm_float.apl`, `examples/test_vm_unary.apl`,
   `examples/test_vm_pow.apl`, `examples/test_vm_self.apl`,
@@ -593,6 +596,7 @@ Runtime v0.1 covers:
 - `input`, `secret input`, `out`;
 - `info`, conversions, `secretup`, `stop`, `fail`;
 - recursive list protection checks before output/error text.
+- secret downgrade rejection for absolute variables.
 
 Useful commands:
 
@@ -671,6 +675,10 @@ build\bat_test_vm_security\target\debug\test_vm_security_compiled.exe
 .\run_aplc.bat build\test_vm_secret_flow.aplc
 .\compile_apl.bat examples\test_vm_secret_flow.apl build\bat_test_vm_secret_flow
 build\bat_test_vm_secret_flow\target\debug\test_vm_secret_flow_compiled.exe
+.\emit_aplc.bat examples\test_vm_secret_downgrade.apl build\test_vm_secret_downgrade.aplc
+.\run_aplc.bat build\test_vm_secret_downgrade.aplc
+.\compile_apl.bat examples\test_vm_secret_downgrade.apl build\bat_test_vm_secret_downgrade
+build\bat_test_vm_secret_downgrade\target\debug\test_vm_secret_downgrade_compiled.exe
 .\emit_aplc.bat examples\test_vm_stop_fail.apl build\test_vm_stop_fail.aplc
 .\run_aplc.bat build\test_vm_stop_fail.aplc
 .\compile_apl.bat examples\test_vm_stop_fail.apl build\bat_test_vm_stop_fail
