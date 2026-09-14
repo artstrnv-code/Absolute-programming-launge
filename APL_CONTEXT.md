@@ -519,9 +519,12 @@ APL-owned runtime code:
   runtime behavior can be compiled and executed from APL code itself.
 - `std/bootstrap.apl`: the public APL-level facade over the bootstrap compiler
   and VM pipeline. It exposes `bootstrap.tokens(source)`,
-  `bootstrap.ast(source)`, `bootstrap.ir(source)`, `bootstrap.run(source)`, and
+  `bootstrap.ast(source)`, `bootstrap.ir(source)`,
+  `bootstrap.compile_report(source)`, `bootstrap.run(source)`, and
   `bootstrap.run_with_input(source, inputs)`, so compiled APL programs can drive
   the APL-written runtime without directly stitching lexer/parser/IR/VM calls.
+  Compile reports return `[OK, program]` or `[FAIL, message]` and prevent VM
+  execution when parser/IR lowering produced `ERROR`.
   Status-preserving variants `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
   where status is `OK`, `STOP`, or `FAIL`.
@@ -543,9 +546,10 @@ APL-owned runtime code:
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,
   `examples/test_vm_input.apl`, `examples/test_vm_input_stream.apl`, and
   `examples/test_vm_typed_input.apl` are the
-  current VM smoke-tests. `examples/test_bootstrap.apl` and
-  `examples/test_bootstrap_report.apl` are smoke-tests for the APL-level
-  bootstrap facade.
+  current VM smoke-tests. `examples/test_bootstrap.apl`,
+  `examples/test_bootstrap_report.apl`, and
+  `examples/test_bootstrap_compile_report.apl` are smoke-tests for the
+  APL-level bootstrap facade.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -659,6 +663,10 @@ build\bat_test_bootstrap\target\debug\test_bootstrap_compiled.exe
 .\run_aplc.bat build\test_bootstrap_report.aplc
 .\compile_apl.bat examples\test_bootstrap_report.apl build\bat_test_bootstrap_report
 build\bat_test_bootstrap_report\target\debug\test_bootstrap_report_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_compile_report.apl build\test_bootstrap_compile_report.aplc
+.\run_aplc.bat build\test_bootstrap_compile_report.aplc
+.\compile_apl.bat examples\test_bootstrap_compile_report.apl build\bat_test_bootstrap_compile_report
+build\bat_test_bootstrap_compile_report\target\debug\test_bootstrap_compile_report_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer

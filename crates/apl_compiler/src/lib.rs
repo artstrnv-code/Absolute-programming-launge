@@ -253,6 +253,7 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func parser.parse_source"));
         assert!(STANDARD_PRELUDE.contains("func ir.compile_source"));
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input_report"));
     }

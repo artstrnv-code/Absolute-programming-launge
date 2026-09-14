@@ -2743,6 +2743,33 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_apl_bootstrap_compile_report_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr ok_source = "AVInt x = 1 out x"
+            AVStr bad_source = "AVInt x 1 out x"
+
+            VTime ok_report = bootstrap.compile_report(ok_source)
+            VTime bad_report = bootstrap.compile_report(bad_source)
+            VTime bad_run = bootstrap.run_report(bad_source)
+
+            out get(ok_report, 0)
+            out ir.opcode(get(get(ok_report, 1), 0))
+            out get(bad_report, 0)
+            out get(bad_report, 1)
+            out get(bad_run, 0)
+            out get(get(bad_run, 1), 0)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nDECL\nFAIL\ndeclaration expects =\nFAIL\ndeclaration expects =\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"
