@@ -486,7 +486,9 @@ APL-owned runtime code:
   Duplicate runtime declarations are rejected in the APL VM instead of silently
   shadowing absolute/list names; duplicate function names make the VM run return
   an empty output list. Assignment and `secretup` against unknown names are
-  rejected by the VM instead of creating implicit variables.
+  rejected by the VM instead of creating implicit variables. Compound assignment
+  in the VM is limited to `VTime` or public numeric absolute variables, matching
+  the Rust checker contract.
   The same external-channel rule is applied to `stop`/`fail` reasons: public
   reasons are captured, secret reasons become `DENIED`. VM expressions can now evaluate variable loads,
   literals, list literals, builtin calls, indexing, slicing, function calls,
@@ -519,6 +521,7 @@ APL-owned runtime code:
   `examples/test_vm_list.apl`, `examples/test_vm_index_slice.apl`, and
   `examples/test_vm_pick.apl`, `examples/test_vm_security.apl`,
   `examples/test_vm_duplicate_names.apl`, `examples/test_vm_unknown_targets.apl`,
+  `examples/test_vm_compound_guards.apl`,
   `examples/test_vm_secret_flow.apl`, `examples/test_vm_secret_downgrade.apl`,
   `examples/test_vm_stop_fail.apl`,
   `examples/test_vm_logic.apl`, `examples/test_vm_precedence.apl`,
@@ -604,6 +607,7 @@ Runtime v0.1 covers:
 - secret downgrade rejection for absolute variables.
 - duplicate declaration rejection in the APL VM.
 - unknown mutation target rejection in the APL VM.
+- compound assignment guards in the APL VM.
 
 Useful commands:
 
@@ -686,6 +690,10 @@ build\bat_test_vm_duplicate_names\target\debug\test_vm_duplicate_names_compiled.
 .\run_aplc.bat build\test_vm_unknown_targets.aplc
 .\compile_apl.bat examples\test_vm_unknown_targets.apl build\bat_test_vm_unknown_targets
 build\bat_test_vm_unknown_targets\target\debug\test_vm_unknown_targets_compiled.exe
+.\emit_aplc.bat examples\test_vm_compound_guards.apl build\test_vm_compound_guards.aplc
+.\run_aplc.bat build\test_vm_compound_guards.aplc
+.\compile_apl.bat examples\test_vm_compound_guards.apl build\bat_test_vm_compound_guards
+build\bat_test_vm_compound_guards\target\debug\test_vm_compound_guards_compiled.exe
 .\emit_aplc.bat examples\test_vm_secret_flow.apl build\test_vm_secret_flow.aplc
 .\run_aplc.bat build\test_vm_secret_flow.aplc
 .\compile_apl.bat examples\test_vm_secret_flow.apl build\bat_test_vm_secret_flow

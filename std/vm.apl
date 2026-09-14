@@ -928,6 +928,44 @@ func vm.apply_assign(current, op, value) {
   return NONE
 }
 
+func vm.is_compound_assign(op) {
+  return op != "="
+}
+
+func vm.type_allows_compound(value_type) {
+  if value_type == "Int" {
+    return true
+  }
+
+  if value_type == "Float" {
+    return true
+  }
+
+  return false
+}
+
+func vm.target_allows_assignment(env, name, op) {
+  VTime value_type = vm.env_type(env, name)
+
+  if value_type == "List" {
+    return false
+  }
+
+  if value_type == "VTime" {
+    return true
+  }
+
+  if vm.is_compound_assign(op) {
+    if vm.env_kind(env, name) != "AV" {
+      return false
+    }
+
+    return vm.type_allows_compound(value_type)
+  }
+
+  return true
+}
+
 func vm.coerce_value(value, value_type) {
   if value == NONE {
     return NONE
@@ -1053,6 +1091,10 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime op = get(instruction, 2)
 
     if vm.env_has(env, name) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    if vm.target_allows_assignment(env, name, op) != true {
       return [vm.FLOW_FAIL, env, output]
     }
 
