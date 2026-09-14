@@ -232,13 +232,19 @@ build\bat_test_parser\target\debug\test_parser_compiled.exe
 ```
 
 `std/checker.apl` is the first APL-written semantic checker layer. It currently
-validates duplicate declaration/function names before IR lowering:
+validates duplicate declaration/function names, unknown assignment targets,
+invalid `secretup` targets, and invalid `info()` targets/sources before IR
+lowering:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
 .\run_aplc.bat build\test_checker.aplc
 .\compile_apl.bat examples\test_checker.apl build\bat_test_checker
 build\bat_test_checker\target\debug\test_checker_compiled.exe
+.\emit_aplc.bat examples\test_checker_targets.apl build\test_checker_targets.aplc
+.\run_aplc.bat build\test_checker_targets.aplc
+.\compile_apl.bat examples\test_checker_targets.apl build\bat_test_checker_targets
+build\bat_test_checker_targets\target\debug\test_checker_targets_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

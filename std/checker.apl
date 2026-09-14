@@ -5,14 +5,41 @@
 AVStr checker.STATUS_OK = "OK"
 AVStr checker.STATUS_FAIL = "FAIL"
 
+func checker.entry_name(entry) {
+  return get(entry, 0)
+}
+
+func checker.entry_role(entry) {
+  return get(entry, 1)
+}
+
+func checker.entry_type(entry) {
+  return get(entry, 2)
+}
+
 func checker.name_exists(names, name) {
   pick(names): existing {
-    if existing == name {
+    if checker.entry_name(existing) == name {
       return true
     }
   }
 
   return false
+}
+
+func checker.find_name(names, name) {
+  pick(names): existing {
+    if checker.entry_name(existing) == name {
+      return existing
+    }
+  }
+
+  return NONE
+}
+
+func checker.add_name(names, name, role, typ) {
+  add(names, [name, role, typ])
+  return names
 }
 
 func checker.declared_name(node) {
@@ -26,8 +53,56 @@ func checker.declared_name(node) {
     return get(node, 1)
   }
 
+  if kind == parser.NODE_VTIME_DECL {
+    return get(node, 1)
+  }
+
   if kind == parser.NODE_FUNC {
     return get(node, 1)
+  }
+
+  return NONE
+}
+
+func checker.declared_role(node) {
+  VTime kind = parser.node_kind(node)
+
+  if kind == parser.NODE_DECL {
+    return "Absolute"
+  }
+
+  if kind == parser.NODE_LIST_DECL {
+    return "List"
+  }
+
+  if kind == parser.NODE_VTIME_DECL {
+    return "VTime"
+  }
+
+  if kind == parser.NODE_FUNC {
+    return "Func"
+  }
+
+  return NONE
+}
+
+func checker.declared_type(node) {
+  VTime kind = parser.node_kind(node)
+
+  if kind == parser.NODE_DECL {
+    return get(node, 1)
+  }
+
+  if kind == parser.NODE_LIST_DECL {
+    return "List"
+  }
+
+  if kind == parser.NODE_VTIME_DECL {
+    return "VTime"
+  }
+
+  if kind == parser.NODE_FUNC {
+    return "Func"
   }
 
   return NONE
@@ -52,7 +127,76 @@ func checker.validate_decl_name(node, names) {
     return checker.fail(names, join(["duplicate name `", name, "`"], ""))
   }
 
-  add(names, name)
+  names = checker.add_name(names, name, checker.declared_role(node), checker.declared_type(node))
+  return checker.ok(names)
+}
+
+func checker.require_name(names, name, message) {
+  if checker.name_exists(names, name) {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join([message, " `", name, "`"], ""))
+}
+
+func checker.validate_assignment_target(node, names) {
+  VTime name = get(node, 1)
+  return checker.require_name(names, name, "unknown assignment target")
+}
+
+func checker.validate_secretup_target(node, names) {
+  VTime name = get(node, 1)
+  VTime entry = checker.find_name(names, name)
+
+  if entry == NONE {
+    return checker.fail(names, join(["unknown secretup target `", name, "`"], ""))
+  }
+
+  if checker.entry_role(entry) != "Absolute" {
+    return checker.fail(names, join(["invalid secretup target `", name, "`"], ""))
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_info_target(names, name) {
+  VTime entry = checker.find_name(names, name)
+
+  if entry == NONE {
+    return checker.fail(names, join(["unknown info target `", name, "`"], ""))
+  }
+
+  if checker.entry_type(entry) != "AVStr" {
+    return checker.fail(names, join(["invalid info target `", name, "`"], ""))
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_info_assignment(node, names) {
+  VTime type_state = checker.validate_info_target(names, get(node, 1))
+
+  if get(type_state, 0) != checker.STATUS_OK {
+    return type_state
+  }
+
+  VTime protection_state = checker.validate_info_target(names, get(node, 2))
+
+  if get(protection_state, 0) != checker.STATUS_OK {
+    return protection_state
+  }
+
+  VTime source = get(node, 3)
+  VTime source_entry = checker.find_name(names, source)
+
+  if source_entry == NONE {
+    return checker.fail(names, join(["unknown info source `", source, "`"], ""))
+  }
+
+  if checker.entry_role(source_entry) != "Absolute" {
+    return checker.fail(names, join(["invalid info source `", source, "`"], ""))
+  }
+
   return checker.ok(names)
 }
 
@@ -70,8 +214,26 @@ func checker.validate_statement(node, names) {
     return name_state
   }
 
+  if kind == parser.NODE_ASSIGN {
+    return checker.validate_assignment_target(node, names)
+  }
+
+  if kind == parser.NODE_SECRETUP {
+    return checker.validate_secretup_target(node, names)
+  }
+
+  if kind == parser.NODE_INFO_ASSIGN {
+    return checker.validate_info_assignment(node, names)
+  }
+
   if kind == parser.NODE_FUNC {
-    return checker.validate_block(get(node, 3), names)
+    VTime local_names = names[:]
+
+    pick(get(node, 2)): param {
+      local_names = checker.add_name(local_names, param, "VTime", "VTime")
+    }
+
+    return checker.validate_block(get(node, 3), local_names)
   }
 
   if kind == parser.NODE_IF {
@@ -90,7 +252,8 @@ func checker.validate_statement(node, names) {
   }
 
   if kind == parser.NODE_PICK {
-    return checker.validate_block(get(node, 3), names)
+    VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
+    return checker.validate_block(get(node, 3), local_names)
   }
 
   return checker.ok(names)

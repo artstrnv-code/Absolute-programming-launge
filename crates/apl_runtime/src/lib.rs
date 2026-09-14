@@ -2804,6 +2804,46 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_rejects_unknown_mutation_targets_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr missing_assign = "missing = 1 out missing"
+            AVStr missing_secretup = "secretup(missing)"
+            AVStr list_secretup = "List items = [] secretup(items)"
+            AVStr missing_info_target = join(["AVStr level = ", char(34), char(34), " typ, level = info(level)"], "")
+            AVStr bad_info_target = join(["AVInt typ = 1 AVStr level = ", char(34), char(34), " typ, level = info(typ)"], "")
+            AVStr missing_info_source = join(["AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " typ, level = info(missing)"], "")
+
+            VTime assign_report = bootstrap.compile_report(missing_assign)
+            VTime secretup_report = bootstrap.compile_report(missing_secretup)
+            VTime list_report = bootstrap.compile_report(list_secretup)
+            VTime info_target_report = bootstrap.compile_report(missing_info_target)
+            VTime bad_info_report = bootstrap.compile_report(bad_info_target)
+            VTime info_source_report = bootstrap.compile_report(missing_info_source)
+
+            out get(assign_report, 0)
+            out get(assign_report, 1)
+            out get(secretup_report, 0)
+            out get(secretup_report, 1)
+            out get(list_report, 0)
+            out get(list_report, 1)
+            out get(info_target_report, 0)
+            out get(info_target_report, 1)
+            out get(bad_info_report, 0)
+            out get(bad_info_report, 1)
+            out get(info_source_report, 0)
+            out get(info_source_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "FAIL\nunknown assignment target `missing`\nFAIL\nunknown secretup target `missing`\nFAIL\ninvalid secretup target `items`\nFAIL\nunknown info target `typ`\nFAIL\ninvalid info target `typ`\nFAIL\nunknown info source `missing`\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"
