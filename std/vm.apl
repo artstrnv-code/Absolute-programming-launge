@@ -684,13 +684,18 @@ func vm.eval_arg_values(arg_exprs, env, output, functions) {
 func vm.call_builtin(name, arg_exprs, env, output, functions) {
   if name == "add" {
     VTime list_expr = get(arg_exprs, 0)
-    VTime value_state = vm.eval_expr(get(arg_exprs, 1), env, output, functions)
-    VTime value = get(value_state, 0)
-    env = get(value_state, 1)
-    output = get(value_state, 2)
 
     if ir.expr_opcode(list_expr) == ir.EXPR_LOAD {
       VTime add_name = ir.expr_value(list_expr)
+
+      if vm.target_allows_list_mutation(env, add_name) != true {
+        return [NONE, env, output, "AV"]
+      }
+
+      VTime value_state = vm.eval_expr(get(arg_exprs, 1), env, output, functions)
+      VTime value = get(value_state, 0)
+      env = get(value_state, 1)
+      output = get(value_state, 2)
       VTime target = vm.env_get(env, add_name)
       add(target, value)
       return [NONE, vm.env_put_meta(env, add_name, target, vm.list_kind_after_add(vm.env_kind(env, add_name), get(value_state, 3)), vm.env_type(env, add_name)), output, "AV"]
@@ -704,6 +709,11 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
 
     if ir.expr_opcode(list_expr) == ir.EXPR_LOAD {
       VTime pop_name = ir.expr_value(list_expr)
+
+      if vm.target_allows_list_mutation(env, pop_name) != true {
+        return [NONE, env, output, "AV"]
+      }
+
       VTime target = vm.env_get(env, pop_name)
       VTime value = pop(target)
       VTime item_kind = vm.list_item_kind(vm.env_kind(env, pop_name), len(target))
@@ -964,6 +974,22 @@ func vm.target_allows_assignment(env, name, op) {
   }
 
   return true
+}
+
+func vm.target_allows_list_mutation(env, name) {
+  if vm.env_has(env, name) != true {
+    return false
+  }
+
+  if vm.env_type(env, name) == "List" {
+    return true
+  }
+
+  if vm.env_type(env, name) == "VTime" {
+    return true
+  }
+
+  return false
 }
 
 func vm.is_av_str_target(env, name) {

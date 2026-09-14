@@ -2398,6 +2398,27 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_guards_apl_vm_list_mutation_builtins_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "List items = [1] add(items, 2) AVInt x = 7 VTime bad_add = add(x, 9) VTime missing_add = add(missing, 1) VTime missing_pop = pop(missing) out len(items) out pop(items) out len(items) out bad_add out missing_add out missing_pop"
+            VTime vm_output = vm.run_source(source)
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            out get(vm_output, 2)
+            out get(vm_output, 3)
+            out get(vm_output, 4)
+            out get(vm_output, 5)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "6\n2\n2\n1\nNONE\nNONE\nNONE\n");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_secret_aware_stop_fail_prelude() {
         let output = run_source_with_prelude(
             r#"

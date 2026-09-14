@@ -227,8 +227,9 @@ bounded `while`, loop flow with `break`/`continue`, `pick`, functions, `return`,
 same rule to `stop`/`fail` reasons. It rejects duplicate runtime declarations
 instead of silently shadowing absolute/list names, and rejects assignment or
 `secretup` against unknown names. Compound assignment in the VM is limited to
-`VTime` or public numeric absolute variables. `info()` requires existing
-public string targets and rejects `VTime` sources. Conditions can use comparisons and grouped
+`VTime` or public numeric absolute variables. `add`/`pop` only mutate existing
+`List` or `VTime` targets. `info()` requires existing public string targets and
+rejects `VTime` sources. Conditions can use comparisons and grouped
 logical operators such as `(a == true) and (b != true)`. Expressions support
 `=self=` checks against the initial absolute-variable value and explicit
 conversion calls such as `int(raw)` and `str(value)`. `secretup(name)` raises
@@ -278,6 +279,10 @@ build\bat_test_vm_func\target\debug\test_vm_func_compiled.exe
 .\run_aplc.bat build\test_vm_list.aplc
 .\compile_apl.bat examples\test_vm_list.apl build\bat_test_vm_list
 build\bat_test_vm_list\target\debug\test_vm_list_compiled.exe
+.\emit_aplc.bat examples\test_vm_list_mutation_guards.apl build\test_vm_list_mutation_guards.aplc
+.\run_aplc.bat build\test_vm_list_mutation_guards.aplc
+.\compile_apl.bat examples\test_vm_list_mutation_guards.apl build\bat_test_vm_list_mutation_guards
+build\bat_test_vm_list_mutation_guards\target\debug\test_vm_list_mutation_guards_compiled.exe
 .\emit_aplc.bat examples\test_vm_index_slice.apl build\test_vm_index_slice.aplc
 .\run_aplc.bat build\test_vm_index_slice.aplc
 .\compile_apl.bat examples\test_vm_index_slice.apl build\bat_test_vm_index_slice

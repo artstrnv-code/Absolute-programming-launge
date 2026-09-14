@@ -488,9 +488,10 @@ APL-owned runtime code:
   an empty output list. Assignment and `secretup` against unknown names are
   rejected by the VM instead of creating implicit variables. Compound assignment
   in the VM is limited to `VTime` or public numeric absolute variables, matching
-  the Rust checker contract. `info()` in the VM requires existing `AVStr`
-  targets and rejects `VTime` sources; `info(SASV)` remains allowed because it
-  exposes metadata, not value.
+  the Rust checker contract. `add`/`pop` only mutate existing `List` or `VTime`
+  targets; invalid list mutation returns `NONE` without changing VM state.
+  `info()` in the VM requires existing `AVStr` targets and rejects `VTime`
+  sources; `info(SASV)` remains allowed because it exposes metadata, not value.
   The same external-channel rule is applied to `stop`/`fail` reasons: public
   reasons are captured, secret reasons become `DENIED`. VM expressions can now evaluate variable loads,
   literals, list literals, builtin calls, indexing, slicing, function calls,
@@ -520,7 +521,8 @@ APL-owned runtime code:
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
   `examples/test_vm_while.apl`, and
   `examples/test_vm_loop_flow.apl`, `examples/test_vm_func.apl`,
-  `examples/test_vm_list.apl`, `examples/test_vm_index_slice.apl`, and
+  `examples/test_vm_list.apl`, `examples/test_vm_list_mutation_guards.apl`,
+  `examples/test_vm_index_slice.apl`, and
   `examples/test_vm_pick.apl`, `examples/test_vm_security.apl`,
   `examples/test_vm_duplicate_names.apl`, `examples/test_vm_unknown_targets.apl`,
   `examples/test_vm_compound_guards.apl`, `examples/test_vm_info_guards.apl`,
@@ -610,6 +612,7 @@ Runtime v0.1 covers:
 - duplicate declaration rejection in the APL VM.
 - unknown mutation target rejection in the APL VM.
 - compound assignment guards in the APL VM.
+- list mutation guards in the APL VM.
 - `info()` target/source guards in the APL VM.
 
 Useful commands:
@@ -673,6 +676,10 @@ build\bat_test_vm_func\target\debug\test_vm_func_compiled.exe
 .\run_aplc.bat build\test_vm_list.aplc
 .\compile_apl.bat examples\test_vm_list.apl build\bat_test_vm_list
 build\bat_test_vm_list\target\debug\test_vm_list_compiled.exe
+.\emit_aplc.bat examples\test_vm_list_mutation_guards.apl build\test_vm_list_mutation_guards.aplc
+.\run_aplc.bat build\test_vm_list_mutation_guards.aplc
+.\compile_apl.bat examples\test_vm_list_mutation_guards.apl build\bat_test_vm_list_mutation_guards
+build\bat_test_vm_list_mutation_guards\target\debug\test_vm_list_mutation_guards_compiled.exe
 .\emit_aplc.bat examples\test_vm_index_slice.apl build\test_vm_index_slice.aplc
 .\run_aplc.bat build\test_vm_index_slice.aplc
 .\compile_apl.bat examples\test_vm_index_slice.apl build\bat_test_vm_index_slice
