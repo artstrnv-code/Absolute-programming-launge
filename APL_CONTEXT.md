@@ -461,6 +461,11 @@ APL-owned runtime code:
   expressions, and binary expressions with precedence levels for `*`/`/`,
   `+`/`-`, comparisons, `and`, and `or`.
 - `examples/test_parser.apl` is the current parser smoke-test.
+- `std/checker.apl`: the first APL-written semantic checker layer. It validates
+  duplicate declaration/function names before IR lowering, including names found
+  in nested `if`, `while`, `pick`, and function bodies. This moves the global
+  name uniqueness rule into compiled APL-owned runtime code.
+- `examples/test_checker.apl` is the checker smoke-test.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,
@@ -675,6 +680,10 @@ build\bat_test_lexer\target\debug\test_lexer_compiled.exe
 .\run_aplc.bat build\test_parser.aplc
 .\compile_apl.bat examples\test_parser.apl build\bat_test_parser
 build\bat_test_parser\target\debug\test_parser_compiled.exe
+.\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
+.\run_aplc.bat build\test_checker.aplc
+.\compile_apl.bat examples\test_checker.apl build\bat_test_checker
+build\bat_test_checker\target\debug\test_checker_compiled.exe
 .\emit_aplc.bat examples\test_ir.apl build\test_ir.aplc
 .\run_aplc.bat build\test_ir.aplc
 .\compile_apl.bat examples\test_ir.apl build\bat_test_ir

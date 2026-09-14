@@ -35,7 +35,14 @@ func bootstrap.ir_error(program) {
 }
 
 func bootstrap.compile_report(source) {
-  VTime program = bootstrap.ir(source)
+  VTime ast = bootstrap.ast(source)
+  VTime checked = checker.validate_report(ast)
+
+  if get(checked, 0) != checker.STATUS_OK {
+    return [vm.FLOW_FAIL, get(checked, 1)]
+  }
+
+  VTime program = ir.compile_ast(get(checked, 1))
 
   if bootstrap.ir_has_error(program) {
     return [vm.FLOW_FAIL, bootstrap.ir_error(program)]

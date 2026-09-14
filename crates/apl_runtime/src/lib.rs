@@ -1812,6 +1812,8 @@ mod tests {
             "\n\n",
             include_str!("../../../std/parser.apl"),
             "\n\n",
+            include_str!("../../../std/checker.apl"),
+            "\n\n",
             include_str!("../../../std/ir.apl"),
             "\n\n",
             include_str!("../../../std/vm.apl"),
@@ -2766,6 +2768,38 @@ mod tests {
         assert_eq!(
             output,
             "OK\nDECL\nFAIL\ndeclaration expects =\nFAIL\ndeclaration expects =\n"
+        );
+    }
+
+    #[test]
+    fn source_runtime_uses_apl_checker_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr ok_source = "AVInt x = 1 List items = [x] func done() { return x } out done()"
+            AVStr duplicate_var = "AVInt x = 1 AVStr x = 2 out x"
+            AVStr duplicate_func = "func go() { return 1 } func go() { return 2 } out go()"
+            AVStr nested_duplicate = "AVInt x = 1 if true { AVInt x = 2 } out x"
+
+            VTime ok_report = bootstrap.compile_report(ok_source)
+            VTime var_report = bootstrap.compile_report(duplicate_var)
+            VTime func_report = bootstrap.compile_report(duplicate_func)
+            VTime nested_report = bootstrap.compile_report(nested_duplicate)
+
+            out get(ok_report, 0)
+            out ir.opcode(get(get(ok_report, 1), 0))
+            out get(var_report, 0)
+            out get(var_report, 1)
+            out get(func_report, 0)
+            out get(func_report, 1)
+            out get(nested_report, 0)
+            out get(nested_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nDECL\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\nFAIL\nduplicate name `x`\n"
         );
     }
 
