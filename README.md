@@ -185,6 +185,19 @@ Quick Windows batch wrappers:
 .\compile_apl.bat examples\compiled_runtime.apl build\compiled_runtime_bat
 ```
 
+`examples/bootstrap_runtime.apl` is the current self-host smoke-test. The
+standalone executable embeds compiled APL IR, runs the APL-written
+lexer/parser/IR/VM from the standard prelude, and that VM executes a nested APL
+program with input, secret input, functions, nested lists, and secret-aware
+output:
+
+```powershell
+.\emit_aplc.bat examples\bootstrap_runtime.apl build\bootstrap_runtime.aplc
+.\run_aplc.bat build\bootstrap_runtime.aplc
+.\compile_apl.bat examples\bootstrap_runtime.apl build\bat_bootstrap_runtime
+build\bat_bootstrap_runtime\target\debug\bootstrap_runtime_compiled.exe
+```
+
 The standard prelude already contains the first APL-written lexer in
 `std/lexer.apl`. It scans source text in APL and returns token records as
 `[kind, value]` lists. It handles whitespace, line comments, quoted strings,

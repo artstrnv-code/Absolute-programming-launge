@@ -2671,6 +2671,28 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_runs_compiled_bootstrap_scenario_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVStr public = input ASVStr secret = secret input AVInt age = input List values = [age, 2, [3, 4], secret:ASV] func inc(x) { return x + 1 } VTime next = inc(age) VTime first = values[0] out public out next out first out secret out values out len(values) AVStr missing = input out missing"
+            VTime vm_output = vm.run_source_with_input(source, ["hello", "token", "41"])
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            out get(vm_output, 2)
+            out get(vm_output, 3)
+            out get(vm_output, 4)
+            out get(vm_output, 5)
+            out get(vm_output, 6)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "7\nhello\n42\n41\nDENIED\nDENIED\nDENIED\nNONE\n");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"

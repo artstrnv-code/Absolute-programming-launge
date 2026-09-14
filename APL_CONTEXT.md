@@ -572,6 +572,11 @@ Compiled runtime path:
   generates the package and invokes `cargo build` for it.
 - The generated executable embeds `.aplc` IR bytes and enters through
   `apl_runtime::run_ir_bytes`.
+- `examples/bootstrap_runtime.apl` is the current self-host smoke-test: a
+  generated standalone executable embeds compiled APL IR, runs the APL-written
+  lexer/parser/IR/VM from the standard prelude, and that VM executes a nested
+  APL program with input, secret input, functions, nested lists, typed input
+  coercion, and secret-aware output.
 - `apl_runtime::compile_ir_bytes` loads IR into `CompiledProgram`, splitting
   executable entry code from the function table before execution.
 - `CompiledProgram` stores one linear statement opcode `code` segment. Blocks
@@ -632,6 +637,10 @@ build\compiled_runtime\target\debug\compiled_runtime_compiled.exe
 .\emit_aplc.bat examples\compiled_runtime.apl build\compiled_runtime.aplc
 .\run_aplc.bat build\compiled_runtime.aplc
 .\compile_apl.bat examples\compiled_runtime.apl build\compiled_runtime_bat
+.\emit_aplc.bat examples\bootstrap_runtime.apl build\bootstrap_runtime.aplc
+.\run_aplc.bat build\bootstrap_runtime.aplc
+.\compile_apl.bat examples\bootstrap_runtime.apl build\bat_bootstrap_runtime
+build\bat_bootstrap_runtime\target\debug\bootstrap_runtime_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer
