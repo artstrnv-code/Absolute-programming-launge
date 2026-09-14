@@ -966,6 +966,18 @@ func vm.target_allows_assignment(env, name, op) {
   return true
 }
 
+func vm.is_av_str_target(env, name) {
+  if vm.env_has(env, name) != true {
+    return false
+  }
+
+  if vm.env_kind(env, name) != "AV" {
+    return false
+  }
+
+  return vm.env_type(env, name) == "Str"
+}
+
 func vm.coerce_value(value, value_type) {
   if value == NONE {
     return NONE
@@ -1081,6 +1093,23 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime type_target = get(instruction, 1)
     VTime level_target = get(instruction, 2)
     VTime source = get(instruction, 3)
+
+    if vm.is_av_str_target(env, type_target) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    if vm.is_av_str_target(env, level_target) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    if vm.env_has(env, source) != true {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
+    if vm.env_type(env, source) == "VTime" {
+      return [vm.FLOW_FAIL, env, output]
+    }
+
     env = vm.env_put(env, type_target, vm.env_type(env, source))
     env = vm.env_put(env, level_target, vm.aggregate_kind(vm.env_kind(env, source)))
     return [vm.FLOW_OK, env, output]
