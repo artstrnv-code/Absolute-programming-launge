@@ -271,8 +271,10 @@ literals and unary `-`/`not` expressions:
 
 `std/bootstrap.apl` is the public APL-level facade over these modules. It
 exposes `bootstrap.tokens(source)`, `bootstrap.ast(source)`,
-`bootstrap.ir(source)`, `bootstrap.run(source)`, and
-`bootstrap.run_with_input(source, inputs)`.
+`bootstrap.ir(source)`, `bootstrap.run(source)`,
+`bootstrap.run_with_input(source, inputs)`, `bootstrap.run_report(source)`, and
+`bootstrap.run_with_input_report(source, inputs)`. Report calls return
+`[status, output]`, where status is `OK`, `STOP`, or `FAIL`.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc
@@ -403,6 +405,10 @@ build\bat_test_vm_input_stream\target\debug\test_vm_input_stream_compiled.exe
 .\run_aplc.bat build\test_vm_typed_input.aplc
 .\compile_apl.bat examples\test_vm_typed_input.apl build\bat_test_vm_typed_input
 build\bat_test_vm_typed_input\target\debug\test_vm_typed_input_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_report.apl build\test_bootstrap_report.aplc
+.\run_aplc.bat build\test_bootstrap_report.aplc
+.\compile_apl.bat examples\test_bootstrap_report.apl build\bat_test_bootstrap_report
+build\bat_test_bootstrap_report\target\debug\test_bootstrap_report_compiled.exe
 ```
 
 Open the minimal GUI runner:

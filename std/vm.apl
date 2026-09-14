@@ -1359,6 +1359,17 @@ func vm.run_ir(program) {
   return get(state, 2)
 }
 
+func vm.run_ir_report(program) {
+  VTime functions = vm.collect_functions(program)
+
+  if vm.functions_ok(functions) != true {
+    return [vm.FLOW_FAIL, []]
+  }
+
+  VTime state = vm.run_ir_state(program, vm.new_env(), [], functions)
+  return [get(state, 0), get(state, 2)]
+}
+
 func vm.run_ir_with_input(program, inputs) {
   VTime functions = vm.collect_functions(program)
 
@@ -1370,10 +1381,29 @@ func vm.run_ir_with_input(program, inputs) {
   return get(state, 2)
 }
 
+func vm.run_ir_with_input_report(program, inputs) {
+  VTime functions = vm.collect_functions(program)
+
+  if vm.functions_ok(functions) != true {
+    return [vm.FLOW_FAIL, []]
+  }
+
+  VTime state = vm.run_ir_state(program, vm.new_env_with_input(inputs), [], functions)
+  return [get(state, 0), get(state, 2)]
+}
+
 func vm.run_source(source) {
   return vm.run_ir(ir.compile_source(source))
 }
 
+func vm.run_source_report(source) {
+  return vm.run_ir_report(ir.compile_source(source))
+}
+
 func vm.run_source_with_input(source, inputs) {
   return vm.run_ir_with_input(ir.compile_source(source), inputs)
+}
+
+func vm.run_source_with_input_report(source, inputs) {
+  return vm.run_ir_with_input_report(ir.compile_source(source), inputs)
 }

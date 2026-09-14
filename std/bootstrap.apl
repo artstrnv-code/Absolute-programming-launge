@@ -18,6 +18,14 @@ func bootstrap.run(source) {
   return vm.run_ir(bootstrap.ir(source))
 }
 
+func bootstrap.run_report(source) {
+  return vm.run_ir_report(bootstrap.ir(source))
+}
+
 func bootstrap.run_with_input(source, inputs) {
   return vm.run_ir_with_input(bootstrap.ir(source), inputs)
+}
+
+func bootstrap.run_with_input_report(source, inputs) {
+  return vm.run_ir_with_input_report(bootstrap.ir(source), inputs)
 }

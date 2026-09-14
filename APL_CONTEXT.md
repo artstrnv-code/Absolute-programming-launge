@@ -522,6 +522,9 @@ APL-owned runtime code:
   `bootstrap.ast(source)`, `bootstrap.ir(source)`, `bootstrap.run(source)`, and
   `bootstrap.run_with_input(source, inputs)`, so compiled APL programs can drive
   the APL-written runtime without directly stitching lexer/parser/IR/VM calls.
+  Status-preserving variants `bootstrap.run_report(source)` and
+  `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
+  where status is `OK`, `STOP`, or `FAIL`.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
   `examples/test_vm_while.apl`, and
@@ -540,8 +543,9 @@ APL-owned runtime code:
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,
   `examples/test_vm_input.apl`, `examples/test_vm_input_stream.apl`, and
   `examples/test_vm_typed_input.apl` are the
-  current VM smoke-tests. `examples/test_bootstrap.apl` is the smoke-test for
-  the APL-level bootstrap facade.
+  current VM smoke-tests. `examples/test_bootstrap.apl` and
+  `examples/test_bootstrap_report.apl` are smoke-tests for the APL-level
+  bootstrap facade.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -651,6 +655,10 @@ build\bat_bootstrap_runtime\target\debug\bootstrap_runtime_compiled.exe
 .\run_aplc.bat build\test_bootstrap.aplc
 .\compile_apl.bat examples\test_bootstrap.apl build\bat_test_bootstrap
 build\bat_test_bootstrap\target\debug\test_bootstrap_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_report.apl build\test_bootstrap_report.aplc
+.\run_aplc.bat build\test_bootstrap_report.aplc
+.\compile_apl.bat examples\test_bootstrap_report.apl build\bat_test_bootstrap_report
+build\bat_test_bootstrap_report\target\debug\test_bootstrap_report_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer

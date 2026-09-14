@@ -2716,6 +2716,33 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_apl_bootstrap_report_facade_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr ok_source = "AVInt x = input x += 1 out x"
+            AVStr stop_source = join(["out ", char(34), "before", char(34), " stop ", char(34), "done", char(34), " out ", char(34), "after", char(34)], "")
+            AVStr fail_source = join(["out ", char(34), "before", char(34), " fail ", char(34), "bad", char(34), " out ", char(34), "after", char(34)], "")
+
+            VTime ok_report = bootstrap.run_with_input_report(ok_source, ["4"])
+            VTime stop_report = bootstrap.run_report(stop_source)
+            VTime fail_report = bootstrap.run_report(fail_source)
+
+            out get(ok_report, 0)
+            out get(get(ok_report, 1), 0)
+            out get(stop_report, 0)
+            out get(get(stop_report, 1), 0)
+            out get(get(stop_report, 1), 1)
+            out get(fail_report, 0)
+            out get(get(fail_report, 1), 0)
+            out get(get(fail_report, 1), 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "OK\n5\nSTOP\nbefore\ndone\nFAIL\nbefore\nbad\n");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"
