@@ -1814,7 +1814,9 @@ mod tests {
             "\n\n",
             include_str!("../../../std/ir.apl"),
             "\n\n",
-            include_str!("../../../std/vm.apl")
+            include_str!("../../../std/vm.apl"),
+            "\n\n",
+            include_str!("../../../std/bootstrap.apl")
         );
         let source = format!("{}\n\n{}\n", prelude.trim(), source.trim());
         let program = apl_parser::parse_program(&source).unwrap();
@@ -2675,7 +2677,7 @@ mod tests {
         let output = run_source_with_prelude(
             r#"
             AVStr source = "AVStr public = input ASVStr secret = secret input AVInt age = input List values = [age, 2, [3, 4], secret:ASV] func inc(x) { return x + 1 } VTime next = inc(age) VTime first = values[0] out public out next out first out secret out values out len(values) AVStr missing = input out missing"
-            VTime vm_output = vm.run_source_with_input(source, ["hello", "token", "41"])
+            VTime vm_output = bootstrap.run_with_input(source, ["hello", "token", "41"])
 
             out len(vm_output)
             out get(vm_output, 0)
@@ -2690,6 +2692,27 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "7\nhello\n42\n41\nDENIED\nDENIED\nDENIED\nNONE\n");
+    }
+
+    #[test]
+    fn source_runtime_uses_apl_bootstrap_facade_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt x = input x += 1 out x"
+            VTime tokens = bootstrap.tokens(source)
+            VTime ast = bootstrap.ast(source)
+            VTime program = bootstrap.ir(source)
+            VTime vm_output = bootstrap.run_with_input(source, ["4"])
+
+            out len(tokens)
+            out parser.node_kind(get(ast, 0))
+            out ir.opcode(get(program, 0))
+            out get(vm_output, 0)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "9\nDecl\nDECL\n5\n");
     }
 
     #[test]

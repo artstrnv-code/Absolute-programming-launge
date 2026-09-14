@@ -189,13 +189,23 @@ Quick Windows batch wrappers:
 standalone executable embeds compiled APL IR, runs the APL-written
 lexer/parser/IR/VM from the standard prelude, and that VM executes a nested APL
 program with input, secret input, functions, nested lists, and secret-aware
-output:
+output. User code reaches this through the APL-level `bootstrap.*` facade
+instead of calling each internal module directly:
 
 ```powershell
 .\emit_aplc.bat examples\bootstrap_runtime.apl build\bootstrap_runtime.aplc
 .\run_aplc.bat build\bootstrap_runtime.aplc
 .\compile_apl.bat examples\bootstrap_runtime.apl build\bat_bootstrap_runtime
 build\bat_bootstrap_runtime\target\debug\bootstrap_runtime_compiled.exe
+```
+
+The facade can also expose intermediate compiler/runtime layers:
+
+```powershell
+.\emit_aplc.bat examples\test_bootstrap.apl build\test_bootstrap.aplc
+.\run_aplc.bat build\test_bootstrap.aplc
+.\compile_apl.bat examples\test_bootstrap.apl build\bat_test_bootstrap
+build\bat_test_bootstrap\target\debug\test_bootstrap_compiled.exe
 ```
 
 The standard prelude already contains the first APL-written lexer in
@@ -258,6 +268,11 @@ their declared type, so invalid typed input becomes `NONE`.
 The bootstrap parser now handles expression
 precedence for arithmetic, comparisons, and `and`/`or`, including `Float`
 literals and unary `-`/`not` expressions:
+
+`std/bootstrap.apl` is the public APL-level facade over these modules. It
+exposes `bootstrap.tokens(source)`, `bootstrap.ast(source)`,
+`bootstrap.ir(source)`, `bootstrap.run(source)`, and
+`bootstrap.run_with_input(source, inputs)`.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc

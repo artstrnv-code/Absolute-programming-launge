@@ -517,6 +517,11 @@ APL-owned runtime code:
   declared type, so invalid typed input becomes `NONE`. The APL parser bootstrap
   handles arithmetic, comparison, and logical expression precedence before lowering to IR. This proves
   runtime behavior can be compiled and executed from APL code itself.
+- `std/bootstrap.apl`: the public APL-level facade over the bootstrap compiler
+  and VM pipeline. It exposes `bootstrap.tokens(source)`,
+  `bootstrap.ast(source)`, `bootstrap.ir(source)`, `bootstrap.run(source)`, and
+  `bootstrap.run_with_input(source, inputs)`, so compiled APL programs can drive
+  the APL-written runtime without directly stitching lexer/parser/IR/VM calls.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
   `examples/test_vm_while.apl`, and
@@ -535,7 +540,8 @@ APL-owned runtime code:
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,
   `examples/test_vm_input.apl`, `examples/test_vm_input_stream.apl`, and
   `examples/test_vm_typed_input.apl` are the
-  current VM smoke-tests.
+  current VM smoke-tests. `examples/test_bootstrap.apl` is the smoke-test for
+  the APL-level bootstrap facade.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -574,9 +580,9 @@ Compiled runtime path:
   `apl_runtime::run_ir_bytes`.
 - `examples/bootstrap_runtime.apl` is the current self-host smoke-test: a
   generated standalone executable embeds compiled APL IR, runs the APL-written
-  lexer/parser/IR/VM from the standard prelude, and that VM executes a nested
-  APL program with input, secret input, functions, nested lists, typed input
-  coercion, and secret-aware output.
+  lexer/parser/IR/VM from the standard prelude through `bootstrap.run_with_input`,
+  and that VM executes a nested APL program with input, secret input, functions,
+  nested lists, typed input coercion, and secret-aware output.
 - `apl_runtime::compile_ir_bytes` loads IR into `CompiledProgram`, splitting
   executable entry code from the function table before execution.
 - `CompiledProgram` stores one linear statement opcode `code` segment. Blocks
@@ -641,6 +647,10 @@ build\compiled_runtime\target\debug\compiled_runtime_compiled.exe
 .\run_aplc.bat build\bootstrap_runtime.aplc
 .\compile_apl.bat examples\bootstrap_runtime.apl build\bat_bootstrap_runtime
 build\bat_bootstrap_runtime\target\debug\bootstrap_runtime_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap.apl build\test_bootstrap.aplc
+.\run_aplc.bat build\test_bootstrap.aplc
+.\compile_apl.bat examples\test_bootstrap.apl build\bat_test_bootstrap
+build\bat_test_bootstrap\target\debug\test_bootstrap_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer
