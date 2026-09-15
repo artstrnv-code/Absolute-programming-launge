@@ -544,14 +544,23 @@ APL-owned runtime code:
   and VM pipeline. It exposes `bootstrap.tokens(source)`,
   `bootstrap.ast(source)`, `bootstrap.ir(source)`,
   `bootstrap.compile_report(source)`, `bootstrap.artifact_report(source)`,
-  `bootstrap.artifact(source)`, `bootstrap.run(source)`, and
-  `bootstrap.run_with_input(source, inputs)`, so compiled APL programs can drive
-  the APL-written runtime without directly stitching lexer/parser/IR/VM calls.
+  `bootstrap.artifact(source)`, `bootstrap.artifact_image_report(source)`,
+  `bootstrap.artifact_image(source)`, `bootstrap.run_artifact_image(image)`,
+  `bootstrap.run_artifact_image_report(image)`,
+  `bootstrap.run_artifact_image_with_input(image, inputs)`,
+  `bootstrap.run_artifact_image_with_input_report(image, inputs)`,
+  `bootstrap.run(source)`, and `bootstrap.run_with_input(source, inputs)`, so
+  compiled APL programs can drive the APL-written runtime without directly
+  stitching lexer/parser/IR/VM calls.
   Compile reports return `[OK, program]` or `[FAIL, message]` and prevent VM
   execution when parser/IR lowering produced `ERROR`.
   Artifact reports currently return `[OK, "APLIR1:..."]` or `[FAIL, message]`.
   This is a portable text IR image produced from APL code; binary `.aplc` and
   native output remain host-side/future stages.
+  Artifact image reports return `[OK, ["APLIR1", program]]` or
+  `[FAIL, message]`. These structured images can be run repeatedly through
+  `bootstrap.run_artifact_image*` without re-tokenizing, re-parsing, or
+  re-checking the original source text.
   Status-preserving variants `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
   where status is `OK`, `STOP`, or `FAIL`.
@@ -576,8 +585,9 @@ APL-owned runtime code:
   current VM smoke-tests. `examples/test_bootstrap.apl`,
   `examples/test_bootstrap_report.apl`, and
   `examples/test_bootstrap_compile_report.apl`,
-  `examples/test_bootstrap_artifact.apl` are smoke-tests for the APL-level
-  bootstrap facade.
+  `examples/test_bootstrap_artifact.apl`, and
+  `examples/test_bootstrap_artifact_image.apl` are smoke-tests for the
+  APL-level bootstrap facade.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -699,6 +709,10 @@ build\bat_test_bootstrap_compile_report\target\debug\test_bootstrap_compile_repo
 .\run_aplc.bat build\test_bootstrap_artifact.aplc
 .\compile_apl.bat examples\test_bootstrap_artifact.apl build\bat_test_bootstrap_artifact
 build\bat_test_bootstrap_artifact\target\debug\test_bootstrap_artifact_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_artifact_image.apl build\test_bootstrap_artifact_image.aplc
+.\run_aplc.bat build\test_bootstrap_artifact_image.aplc
+.\compile_apl.bat examples\test_bootstrap_artifact_image.apl build\bat_test_bootstrap_artifact_image
+build\bat_test_bootstrap_artifact_image\target\debug\test_bootstrap_artifact_image_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer

@@ -65,6 +65,52 @@ func bootstrap.artifact(source) {
   return get(bootstrap.artifact_report(source), 1)
 }
 
+func bootstrap.artifact_image_report(source) {
+  VTime compiled = bootstrap.compile_report(source)
+
+  if get(compiled, 0) != vm.FLOW_OK {
+    return compiled
+  }
+
+  return [vm.FLOW_OK, ["APLIR1", get(compiled, 1)]]
+}
+
+func bootstrap.artifact_image(source) {
+  return get(bootstrap.artifact_image_report(source), 1)
+}
+
+func bootstrap.artifact_image_is_valid(image) {
+  if len(image) < 2 {
+    return false
+  }
+
+  return get(image, 0) == "APLIR1"
+}
+
+func bootstrap.run_artifact_image(image) {
+  return get(bootstrap.run_artifact_image_report(image), 1)
+}
+
+func bootstrap.run_artifact_image_report(image) {
+  if bootstrap.artifact_image_is_valid(image) != true {
+    return [vm.FLOW_FAIL, ["invalid artifact image"]]
+  }
+
+  return vm.run_ir_report(get(image, 1))
+}
+
+func bootstrap.run_artifact_image_with_input(image, inputs) {
+  return get(bootstrap.run_artifact_image_with_input_report(image, inputs), 1)
+}
+
+func bootstrap.run_artifact_image_with_input_report(image, inputs) {
+  if bootstrap.artifact_image_is_valid(image) != true {
+    return [vm.FLOW_FAIL, ["invalid artifact image"]]
+  }
+
+  return vm.run_ir_with_input_report(get(image, 1), inputs)
+}
+
 func bootstrap.run(source) {
   return get(bootstrap.run_report(source), 1)
 }

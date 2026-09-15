@@ -304,13 +304,18 @@ literals and unary `-`/`not` expressions:
 exposes `bootstrap.tokens(source)`, `bootstrap.ast(source)`,
 `bootstrap.ir(source)`, `bootstrap.run(source)`,
 `bootstrap.compile_report(source)`, `bootstrap.run_with_input(source, inputs)`,
-`bootstrap.artifact_report(source)`, `bootstrap.run_report(source)`, and
+`bootstrap.artifact_report(source)`, `bootstrap.artifact_image_report(source)`,
+`bootstrap.run_artifact_image(image)`,
+`bootstrap.run_artifact_image_with_input(image, inputs)`,
+`bootstrap.run_report(source)`, and
 `bootstrap.run_with_input_report(source, inputs)`. Report calls return
 `[status, output]`, where status is `OK`, `STOP`, or `FAIL`. Compile reports
 return `[OK, program]` or `[FAIL, message]`, and `run_report` stops before VM
 execution when source cannot be lowered to IR. Artifact reports currently emit a
 portable text IR image with an `APLIR1:` header; binary `.aplc` and native
-output remain host-side/future stages.
+output remain host-side/future stages. Artifact image reports return structured
+`["APLIR1", program]` images that can be run repeatedly without re-tokenizing,
+re-parsing, or re-checking the original source text.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc
@@ -453,6 +458,10 @@ build\bat_test_bootstrap_compile_report\target\debug\test_bootstrap_compile_repo
 .\run_aplc.bat build\test_bootstrap_artifact.aplc
 .\compile_apl.bat examples\test_bootstrap_artifact.apl build\bat_test_bootstrap_artifact
 build\bat_test_bootstrap_artifact\target\debug\test_bootstrap_artifact_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_artifact_image.apl build\test_bootstrap_artifact_image.aplc
+.\run_aplc.bat build\test_bootstrap_artifact_image.aplc
+.\compile_apl.bat examples\test_bootstrap_artifact_image.apl build\bat_test_bootstrap_artifact_image
+build\bat_test_bootstrap_artifact_image\target\debug\test_bootstrap_artifact_image_compiled.exe
 ```
 
 Open the minimal GUI runner:

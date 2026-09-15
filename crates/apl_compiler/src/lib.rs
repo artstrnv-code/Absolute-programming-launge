@@ -259,6 +259,8 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_image_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.run_artifact_image_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input_report"));
     }
