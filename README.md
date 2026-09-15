@@ -234,7 +234,9 @@ build\bat_test_parser\target\debug\test_parser_compiled.exe
 `std/checker.apl` is the first APL-written semantic checker layer. It currently
 validates duplicate declaration/function names, unknown assignment targets,
 invalid `secretup` targets, and invalid `info()` targets/sources before IR
-lowering:
+lowering. Assignments are limited to absolute variables or `VTime`, and
+compound assignments are limited to `VTime` or public numeric absolute
+variables:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc

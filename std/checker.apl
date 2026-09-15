@@ -139,9 +139,48 @@ func checker.require_name(names, name, message) {
   return checker.fail(names, join([message, " `", name, "`"], ""))
 }
 
+func checker.type_is_public_numeric(typ) {
+  if typ == "AVInt" {
+    return true
+  }
+
+  if typ == "AVFloat" {
+    return true
+  }
+
+  return false
+}
+
 func checker.validate_assignment_target(node, names) {
   VTime name = get(node, 1)
-  return checker.require_name(names, name, "unknown assignment target")
+  VTime op = get(node, 2)
+  VTime entry = checker.find_name(names, name)
+
+  if entry == NONE {
+    return checker.fail(names, join(["unknown assignment target `", name, "`"], ""))
+  }
+
+  if checker.entry_role(entry) == "Func" {
+    return checker.fail(names, join(["invalid assignment target `", name, "`"], ""))
+  }
+
+  if checker.entry_role(entry) == "List" {
+    return checker.fail(names, join(["invalid assignment target `", name, "`"], ""))
+  }
+
+  if op == "=" {
+    return checker.ok(names)
+  }
+
+  if checker.entry_role(entry) == "VTime" {
+    return checker.ok(names)
+  }
+
+  if checker.type_is_public_numeric(checker.entry_type(entry)) {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join(["invalid compound assignment target `", name, "`"], ""))
 }
 
 func checker.validate_secretup_target(node, names) {

@@ -13,6 +13,12 @@ languages like Python/JS. Low-level work should be delegated to C/Rust/ASM.
 APL owns orchestration, contracts, routing, security boundaries, typed shared
 state, and future container/component composition.
 
+Long-term target: APL must become a native compiled language, not permanently a
+language hosted by a Rust runtime. The current Rust implementation is a
+bootstrap host. Later compiler stages should move toward native code or a
+native kernel-suitable runtime path, because APL is intended to be capable of
+OS-level development in the future.
+
 Core phrase:
 
 ```text
@@ -465,7 +471,9 @@ APL-owned runtime code:
   duplicate declaration/function names before IR lowering, including names found
   in nested `if`, `while`, `pick`, and function bodies. It also rejects unknown
   assignment targets, unknown/invalid `secretup` targets, and unknown/invalid
-  `info()` targets/sources before VM execution. This moves the global name
+  `info()` targets/sources before VM execution. Assignments are limited to
+  absolute variables or `VTime`, and compound assignments are limited to
+  `VTime` or public numeric absolute variables. This moves the global name
   uniqueness and basic mutation-target rules into compiled APL-owned runtime
   code.
 - `examples/test_checker.apl` and `examples/test_checker_targets.apl` are the
