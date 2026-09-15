@@ -238,7 +238,10 @@ lowering. Assignments are limited to absolute variables or `VTime`, and
 compound assignments are limited to `VTime` or public numeric absolute
 variables. Expression validation rejects unknown variable reads across
 declarations, assignments, output, conditions, function-call arguments, list
-literals, indexing/slicing, tags, and `=self=` targets:
+literals, indexing/slicing, tags, and `=self=` targets. It also validates
+function-call targets: VM builtins are allowed, user functions may be called
+before their top-level declaration, non-functions cannot be called, and
+user-function argument counts must match:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -253,6 +256,10 @@ build\bat_test_checker_targets\target\debug\test_checker_targets_compiled.exe
 .\run_aplc.bat build\test_checker_exprs.aplc
 .\compile_apl.bat examples\test_checker_exprs.apl build\bat_test_checker_exprs
 build\bat_test_checker_exprs\target\debug\test_checker_exprs_compiled.exe
+.\emit_aplc.bat examples\test_checker_calls.apl build\test_checker_calls.aplc
+.\run_aplc.bat build\test_checker_calls.aplc
+.\compile_apl.bat examples\test_checker_calls.apl build\bat_test_checker_calls
+build\bat_test_checker_calls\target\debug\test_checker_calls_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

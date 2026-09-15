@@ -2806,11 +2806,13 @@ mod tests {
             AVStr duplicate_var = "AVInt x = 1 AVStr x = 2 out x"
             AVStr duplicate_func = "func go() { return 1 } func go() { return 2 } out go()"
             AVStr nested_duplicate = "AVInt x = 1 if true { AVInt x = 2 } out x"
+            AVStr nested_func_duplicate = "func go() { return 1 } if true { func go() { return 2 } } out go()"
 
             VTime ok_report = bootstrap.compile_report(ok_source)
             VTime var_report = bootstrap.compile_report(duplicate_var)
             VTime func_report = bootstrap.compile_report(duplicate_func)
             VTime nested_report = bootstrap.compile_report(nested_duplicate)
+            VTime nested_func_report = bootstrap.compile_report(nested_func_duplicate)
 
             out get(ok_report, 0)
             out ir.opcode(get(get(ok_report, 1), 0))
@@ -2820,13 +2822,15 @@ mod tests {
             out get(func_report, 1)
             out get(nested_report, 0)
             out get(nested_report, 1)
+            out get(nested_func_report, 0)
+            out get(nested_func_report, 1)
             "#,
         )
         .unwrap();
 
         assert_eq!(
             output,
-            "OK\nDECL\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\nFAIL\nduplicate name `x`\n"
+            "OK\nDECL\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\n"
         );
     }
 
@@ -2935,6 +2939,46 @@ mod tests {
         assert_eq!(
             output,
             "OK\n2\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\ninvalid self target `temp`\nFAIL\nunknown variable `missing`\n"
+        );
+    }
+
+    #[test]
+    fn source_runtime_checker_validates_function_calls_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_forward = "out go() func go() { return 7 }"
+            AVStr builtin_ok = "out len([1, 2])"
+            AVStr missing_func = "out missing()"
+            AVStr var_as_func = "AVInt x = 1 out x()"
+            AVStr bad_arity = "func go(a) { return a } out go()"
+            AVStr missing_arg = "out len(missing)"
+
+            VTime valid_report = bootstrap.run_report(valid_forward)
+            VTime builtin_report = bootstrap.run_report(builtin_ok)
+            VTime missing_func_report = bootstrap.compile_report(missing_func)
+            VTime var_func_report = bootstrap.compile_report(var_as_func)
+            VTime arity_report = bootstrap.compile_report(bad_arity)
+            VTime missing_arg_report = bootstrap.compile_report(missing_arg)
+
+            out get(valid_report, 0)
+            out get(get(valid_report, 1), 0)
+            out get(builtin_report, 0)
+            out get(get(builtin_report, 1), 0)
+            out get(missing_func_report, 0)
+            out get(missing_func_report, 1)
+            out get(var_func_report, 0)
+            out get(var_func_report, 1)
+            out get(arity_report, 0)
+            out get(arity_report, 1)
+            out get(missing_arg_report, 0)
+            out get(missing_arg_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\n7\nOK\n2\nFAIL\nunknown function `missing`\nFAIL\ninvalid function `x`\nFAIL\nwrong argument count `go`\nFAIL\nunknown variable `missing`\n"
         );
     }
 

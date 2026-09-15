@@ -477,9 +477,13 @@ APL-owned runtime code:
   uniqueness and basic mutation-target rules into compiled APL-owned runtime
   code. Expression validation rejects unknown variable reads across
   declarations, assignments, output, conditions, function-call arguments, list
-  literals, indexing/slicing, tags, and `=self=` targets.
+  literals, indexing/slicing, tags, and `=self=` targets. Function-call
+  validation accepts known VM builtins, accepts user functions including
+  top-level forward calls, rejects unknown function names, rejects attempts to
+  call non-function values, and checks user-function argument counts.
 - `examples/test_checker.apl`, `examples/test_checker_targets.apl`, and
-  `examples/test_checker_exprs.apl` are the checker smoke-tests.
+  `examples/test_checker_exprs.apl`, and `examples/test_checker_calls.apl` are
+  the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,
@@ -715,6 +719,10 @@ build\bat_test_checker_targets\target\debug\test_checker_targets_compiled.exe
 .\run_aplc.bat build\test_checker_exprs.aplc
 .\compile_apl.bat examples\test_checker_exprs.apl build\bat_test_checker_exprs
 build\bat_test_checker_exprs\target\debug\test_checker_exprs_compiled.exe
+.\emit_aplc.bat examples\test_checker_calls.apl build\test_checker_calls.aplc
+.\run_aplc.bat build\test_checker_calls.aplc
+.\compile_apl.bat examples\test_checker_calls.apl build\bat_test_checker_calls
+build\bat_test_checker_calls\target\debug\test_checker_calls_compiled.exe
 .\emit_aplc.bat examples\test_ir.apl build\test_ir.aplc
 .\run_aplc.bat build\test_ir.aplc
 .\compile_apl.bat examples\test_ir.apl build\bat_test_ir

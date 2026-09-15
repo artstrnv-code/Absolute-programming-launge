@@ -102,7 +102,7 @@ func checker.declared_type(node) {
   }
 
   if kind == parser.NODE_FUNC {
-    return "Func"
+    return len(get(node, 2))
   }
 
   return NONE
@@ -116,11 +116,22 @@ func checker.ok(names) {
   return [checker.STATUS_OK, names, NONE]
 }
 
-func checker.validate_decl_name(node, names) {
+func checker.validate_decl_name(node, names, allow_predeclared_func) {
   VTime name = checker.declared_name(node)
+  VTime kind = parser.node_kind(node)
 
   if name == NONE {
     return checker.ok(names)
+  }
+
+  if kind == parser.NODE_FUNC {
+    VTime existing = checker.find_name(names, name)
+
+    if existing != NONE {
+      if (allow_predeclared_func == true) and (checker.entry_role(existing) == "Func") {
+        return checker.ok(names)
+      }
+    }
   }
 
   if checker.name_exists(names, name) {
@@ -149,6 +160,99 @@ func checker.type_is_public_numeric(typ) {
   }
 
   return false
+}
+
+func checker.is_builtin_call(name) {
+  if name == "get" {
+    return true
+  }
+
+  if name == "len" {
+    return true
+  }
+
+  if name == "split" {
+    return true
+  }
+
+  if name == "join" {
+    return true
+  }
+
+  if name == "contains" {
+    return true
+  }
+
+  if name == "ord" {
+    return true
+  }
+
+  if name == "char" {
+    return true
+  }
+
+  if name == "pow" {
+    return true
+  }
+
+  if name == "pop" {
+    return true
+  }
+
+  if name == "add" {
+    return true
+  }
+
+  if name == "int" {
+    return true
+  }
+
+  if name == "float" {
+    return true
+  }
+
+  if name == "bool" {
+    return true
+  }
+
+  if name == "str" {
+    return true
+  }
+
+  if name == "bytes" {
+    return true
+  }
+
+  if name == "json" {
+    return true
+  }
+
+  return false
+}
+
+func checker.validate_call_target(expression, names) {
+  VTime name = get(expression, 1)
+  VTime args = get(expression, 2)
+
+  if checker.is_builtin_call(name) {
+    return checker.ok(names)
+  }
+
+  VTime entry = checker.find_name(names, name)
+
+  if entry == NONE {
+    return checker.fail(names, join(["unknown function `", name, "`"], ""))
+  }
+
+  if checker.entry_role(entry) != "Func" {
+    return checker.fail(names, join(["invalid function `", name, "`"], ""))
+  }
+
+  if checker.entry_type(entry) != len(args) {
+    return checker.fail(names, join(["wrong argument count `", name, "`"], ""))
+  }
+
+  return checker.ok(names)
 }
 
 func checker.validate_assignment_target(node, names) {
@@ -282,6 +386,12 @@ func checker.validate_expr(expression, names) {
   }
 
   if kind == parser.EXPR_CALL {
+    VTime call_state = checker.validate_call_target(expression, names)
+
+    if get(call_state, 0) != checker.STATUS_OK {
+      return call_state
+    }
+
     pick(get(expression, 2)): arg {
       VTime arg_state = checker.validate_expr(arg, names)
 
@@ -368,7 +478,7 @@ func checker.validate_optional_expr(expression, names) {
   return checker.validate_expr(expression, names)
 }
 
-func checker.validate_statement(node, names) {
+func checker.validate_statement(node, names, allow_predeclared_func) {
   VTime kind = parser.node_kind(node)
 
   if kind == parser.NODE_ERROR {
@@ -399,7 +509,7 @@ func checker.validate_statement(node, names) {
     }
   }
 
-  VTime name_state = checker.validate_decl_name(node, names)
+  VTime name_state = checker.validate_decl_name(node, names, allow_predeclared_func)
   names = get(name_state, 1)
 
   if get(name_state, 0) != checker.STATUS_OK {
@@ -451,7 +561,7 @@ func checker.validate_statement(node, names) {
       local_names = checker.add_name(local_names, param, "VTime", "VTime")
     }
 
-    return checker.validate_block(get(node, 3), local_names)
+    return checker.validate_block(get(node, 3), local_names, false)
   }
 
   if kind == parser.NODE_IF {
@@ -461,14 +571,14 @@ func checker.validate_statement(node, names) {
       return condition_state
     }
 
-    VTime body_state = checker.validate_block(get(node, 2), names)
+    VTime body_state = checker.validate_block(get(node, 2), names, false)
     names = get(body_state, 1)
 
     if get(body_state, 0) != checker.STATUS_OK {
       return body_state
     }
 
-    return checker.validate_block(get(node, 3), names)
+    return checker.validate_block(get(node, 3), names, false)
   }
 
   if kind == parser.NODE_WHILE {
@@ -478,7 +588,7 @@ func checker.validate_statement(node, names) {
       return condition_state
     }
 
-    return checker.validate_block(get(node, 3), names)
+    return checker.validate_block(get(node, 3), names, false)
   }
 
   if kind == parser.NODE_PICK {
@@ -489,15 +599,15 @@ func checker.validate_statement(node, names) {
     }
 
     VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
-    return checker.validate_block(get(node, 3), local_names)
+    return checker.validate_block(get(node, 3), local_names, false)
   }
 
   return checker.ok(names)
 }
 
-func checker.validate_block(statements, names) {
+func checker.validate_block(statements, names, allow_predeclared_func) {
   pick(statements): statement {
-    VTime state = checker.validate_statement(statement, names)
+    VTime state = checker.validate_statement(statement, names, allow_predeclared_func)
     names = get(state, 1)
 
     if get(state, 0) != checker.STATUS_OK {
@@ -508,8 +618,30 @@ func checker.validate_block(statements, names) {
   return checker.ok(names)
 }
 
+func checker.collect_function_names(statements, names) {
+  pick(statements): statement {
+    if parser.node_kind(statement) == parser.NODE_FUNC {
+      VTime name = get(statement, 1)
+
+      if checker.name_exists(names, name) {
+        return checker.fail(names, join(["duplicate name `", name, "`"], ""))
+      }
+
+      names = checker.add_name(names, name, "Func", len(get(statement, 2)))
+    }
+  }
+
+  return checker.ok(names)
+}
+
 func checker.validate_report(statements) {
-  VTime state = checker.validate_block(statements, [])
+  VTime collect_state = checker.collect_function_names(statements, [])
+
+  if get(collect_state, 0) != checker.STATUS_OK {
+    return [get(collect_state, 0), get(collect_state, 2)]
+  }
+
+  VTime state = checker.validate_block(statements, get(collect_state, 1), true)
 
   if get(state, 0) != checker.STATUS_OK {
     return [get(state, 0), get(state, 2)]
