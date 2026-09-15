@@ -236,7 +236,9 @@ validates duplicate declaration/function names, unknown assignment targets,
 invalid `secretup` targets, and invalid `info()` targets/sources before IR
 lowering. Assignments are limited to absolute variables or `VTime`, and
 compound assignments are limited to `VTime` or public numeric absolute
-variables:
+variables. Expression validation rejects unknown variable reads across
+declarations, assignments, output, conditions, function-call arguments, list
+literals, indexing/slicing, tags, and `=self=` targets:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -247,6 +249,10 @@ build\bat_test_checker\target\debug\test_checker_compiled.exe
 .\run_aplc.bat build\test_checker_targets.aplc
 .\compile_apl.bat examples\test_checker_targets.apl build\bat_test_checker_targets
 build\bat_test_checker_targets\target\debug\test_checker_targets_compiled.exe
+.\emit_aplc.bat examples\test_checker_exprs.apl build\test_checker_exprs.aplc
+.\run_aplc.bat build\test_checker_exprs.aplc
+.\compile_apl.bat examples\test_checker_exprs.apl build\bat_test_checker_exprs
+build\bat_test_checker_exprs\target\debug\test_checker_exprs_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

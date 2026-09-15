@@ -239,11 +239,164 @@ func checker.validate_info_assignment(node, names) {
   return checker.ok(names)
 }
 
+func checker.validate_expr(expression, names) {
+  VTime kind = parser.expr_kind(expression)
+
+  if kind == parser.EXPR_VAR {
+    VTime name = parser.expr_value(expression)
+
+    if checker.name_exists(names, name) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, join(["unknown variable `", name, "`"], ""))
+  }
+
+  if kind == parser.EXPR_SELF {
+    VTime name = parser.expr_value(expression)
+    VTime entry = checker.find_name(names, name)
+
+    if entry == NONE {
+      return checker.fail(names, join(["unknown variable `", name, "`"], ""))
+    }
+
+    if checker.entry_role(entry) != "Absolute" {
+      return checker.fail(names, join(["invalid self target `", name, "`"], ""))
+    }
+
+    return checker.ok(names)
+  }
+
+  if kind == parser.EXPR_UNARY {
+    return checker.validate_expr(get(expression, 2), names)
+  }
+
+  if kind == parser.EXPR_BINARY {
+    VTime left_state = checker.validate_expr(get(expression, 2), names)
+
+    if get(left_state, 0) != checker.STATUS_OK {
+      return left_state
+    }
+
+    return checker.validate_expr(get(expression, 3), names)
+  }
+
+  if kind == parser.EXPR_CALL {
+    pick(get(expression, 2)): arg {
+      VTime arg_state = checker.validate_expr(arg, names)
+
+      if get(arg_state, 0) != checker.STATUS_OK {
+        return arg_state
+      }
+    }
+
+    return checker.ok(names)
+  }
+
+  if kind == parser.EXPR_LIST {
+    pick(get(expression, 1)): item {
+      VTime item_state = checker.validate_expr(item, names)
+
+      if get(item_state, 0) != checker.STATUS_OK {
+        return item_state
+      }
+    }
+
+    return checker.ok(names)
+  }
+
+  if kind == parser.EXPR_INDEX {
+    VTime target_state = checker.validate_expr(get(expression, 1), names)
+
+    if get(target_state, 0) != checker.STATUS_OK {
+      return target_state
+    }
+
+    return checker.validate_expr(get(expression, 2), names)
+  }
+
+  if kind == parser.EXPR_SLICE {
+    VTime target_state = checker.validate_expr(get(expression, 1), names)
+
+    if get(target_state, 0) != checker.STATUS_OK {
+      return target_state
+    }
+
+    VTime start = get(expression, 2)
+    VTime end = get(expression, 3)
+    VTime step = get(expression, 4)
+
+    if start != NONE {
+      VTime start_state = checker.validate_expr(start, names)
+
+      if get(start_state, 0) != checker.STATUS_OK {
+        return start_state
+      }
+    }
+
+    if end != NONE {
+      VTime end_state = checker.validate_expr(end, names)
+
+      if get(end_state, 0) != checker.STATUS_OK {
+        return end_state
+      }
+    }
+
+    if step != NONE {
+      VTime step_state = checker.validate_expr(step, names)
+
+      if get(step_state, 0) != checker.STATUS_OK {
+        return step_state
+      }
+    }
+
+    return checker.ok(names)
+  }
+
+  if kind == parser.EXPR_TAG {
+    return checker.validate_expr(get(expression, 1), names)
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_optional_expr(expression, names) {
+  if expression == NONE {
+    return checker.ok(names)
+  }
+
+  return checker.validate_expr(expression, names)
+}
+
 func checker.validate_statement(node, names) {
   VTime kind = parser.node_kind(node)
 
   if kind == parser.NODE_ERROR {
     return checker.fail(names, get(node, 1))
+  }
+
+  if kind == parser.NODE_DECL {
+    VTime init_state = checker.validate_expr(get(node, 3), names)
+
+    if get(init_state, 0) != checker.STATUS_OK {
+      return init_state
+    }
+  }
+
+  if kind == parser.NODE_LIST_DECL {
+    VTime list_state = checker.validate_expr(get(node, 2), names)
+
+    if get(list_state, 0) != checker.STATUS_OK {
+      return list_state
+    }
+  }
+
+  if kind == parser.NODE_VTIME_DECL {
+    VTime vtime_state = checker.validate_expr(get(node, 2), names)
+
+    if get(vtime_state, 0) != checker.STATUS_OK {
+      return vtime_state
+    }
   }
 
   VTime name_state = checker.validate_decl_name(node, names)
@@ -254,7 +407,13 @@ func checker.validate_statement(node, names) {
   }
 
   if kind == parser.NODE_ASSIGN {
-    return checker.validate_assignment_target(node, names)
+    VTime target_state = checker.validate_assignment_target(node, names)
+
+    if get(target_state, 0) != checker.STATUS_OK {
+      return target_state
+    }
+
+    return checker.validate_expr(get(node, 3), names)
   }
 
   if kind == parser.NODE_SECRETUP {
@@ -263,6 +422,26 @@ func checker.validate_statement(node, names) {
 
   if kind == parser.NODE_INFO_ASSIGN {
     return checker.validate_info_assignment(node, names)
+  }
+
+  if kind == parser.NODE_EXPR {
+    return checker.validate_expr(get(node, 1), names)
+  }
+
+  if kind == parser.NODE_OUT {
+    return checker.validate_expr(get(node, 1), names)
+  }
+
+  if kind == parser.NODE_STOP {
+    return checker.validate_optional_expr(get(node, 1), names)
+  }
+
+  if kind == parser.NODE_FAIL {
+    return checker.validate_expr(get(node, 1), names)
+  }
+
+  if kind == parser.NODE_RETURN {
+    return checker.validate_expr(get(node, 1), names)
   }
 
   if kind == parser.NODE_FUNC {
@@ -276,6 +455,12 @@ func checker.validate_statement(node, names) {
   }
 
   if kind == parser.NODE_IF {
+    VTime condition_state = checker.validate_expr(get(node, 1), names)
+
+    if get(condition_state, 0) != checker.STATUS_OK {
+      return condition_state
+    }
+
     VTime body_state = checker.validate_block(get(node, 2), names)
     names = get(body_state, 1)
 
@@ -287,10 +472,22 @@ func checker.validate_statement(node, names) {
   }
 
   if kind == parser.NODE_WHILE {
+    VTime condition_state = checker.validate_expr(get(node, 1), names)
+
+    if get(condition_state, 0) != checker.STATUS_OK {
+      return condition_state
+    }
+
     return checker.validate_block(get(node, 3), names)
   }
 
   if kind == parser.NODE_PICK {
+    VTime value_state = checker.validate_expr(get(node, 1), names)
+
+    if get(value_state, 0) != checker.STATUS_OK {
+      return value_state
+    }
+
     VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
     return checker.validate_block(get(node, 3), local_names)
   }

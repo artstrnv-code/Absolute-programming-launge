@@ -475,9 +475,11 @@ APL-owned runtime code:
   absolute variables or `VTime`, and compound assignments are limited to
   `VTime` or public numeric absolute variables. This moves the global name
   uniqueness and basic mutation-target rules into compiled APL-owned runtime
-  code.
-- `examples/test_checker.apl` and `examples/test_checker_targets.apl` are the
-  checker smoke-tests.
+  code. Expression validation rejects unknown variable reads across
+  declarations, assignments, output, conditions, function-call arguments, list
+  literals, indexing/slicing, tags, and `=self=` targets.
+- `examples/test_checker.apl`, `examples/test_checker_targets.apl`, and
+  `examples/test_checker_exprs.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,
@@ -709,6 +711,10 @@ build\bat_test_checker\target\debug\test_checker_compiled.exe
 .\run_aplc.bat build\test_checker_targets.aplc
 .\compile_apl.bat examples\test_checker_targets.apl build\bat_test_checker_targets
 build\bat_test_checker_targets\target\debug\test_checker_targets_compiled.exe
+.\emit_aplc.bat examples\test_checker_exprs.apl build\test_checker_exprs.aplc
+.\run_aplc.bat build\test_checker_exprs.aplc
+.\compile_apl.bat examples\test_checker_exprs.apl build\bat_test_checker_exprs
+build\bat_test_checker_exprs\target\debug\test_checker_exprs_compiled.exe
 .\emit_aplc.bat examples\test_ir.apl build\test_ir.aplc
 .\run_aplc.bat build\test_ir.aplc
 .\compile_apl.bat examples\test_ir.apl build\bat_test_ir
