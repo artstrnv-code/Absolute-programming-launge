@@ -379,7 +379,10 @@ AVInt result = add_one(4)
 ```
 
 Function arguments are scoped `VTime` variables. Return values are dynamic and
-are checked when written into typed absolute variables.
+are checked when written into typed absolute variables. Function parameters are
+local to the function body; the APL bootstrap checker uses them while validating
+the body, but does not leak parameter names into the outer declaration
+namespace.
 
 ## Conversions
 
@@ -540,6 +543,10 @@ APL-owned runtime code:
   declared type, so invalid typed input becomes `NONE`. The APL parser bootstrap
   handles arithmetic, comparison, and logical expression precedence before lowering to IR. This proves
   runtime behavior can be compiled and executed from APL code itself.
+  `vm.load_ir_report(program)` prepares a loaded image
+  `["APLLOAD1", program, functions]` by collecting the VM function table once.
+  `vm.run_loaded*` executes that loaded image repeatedly without re-collecting
+  functions from the IR.
 - `std/bootstrap.apl`: the public APL-level facade over the bootstrap compiler
   and VM pipeline. It exposes `bootstrap.tokens(source)`,
   `bootstrap.ast(source)`, `bootstrap.ir(source)`,
@@ -549,6 +556,12 @@ APL-owned runtime code:
   `bootstrap.run_artifact_image_report(image)`,
   `bootstrap.run_artifact_image_with_input(image, inputs)`,
   `bootstrap.run_artifact_image_with_input_report(image, inputs)`,
+  `bootstrap.load_artifact_image_report(image)`,
+  `bootstrap.load_artifact_image(image)`, `bootstrap.loaded_image_report(source)`,
+  `bootstrap.loaded_image(source)`, `bootstrap.run_loaded_image(loaded)`,
+  `bootstrap.run_loaded_image_report(loaded)`,
+  `bootstrap.run_loaded_image_with_input(loaded, inputs)`,
+  `bootstrap.run_loaded_image_with_input_report(loaded, inputs)`,
   `bootstrap.run(source)`, and `bootstrap.run_with_input(source, inputs)`, so
   compiled APL programs can drive the APL-written runtime without directly
   stitching lexer/parser/IR/VM calls.
@@ -561,6 +574,10 @@ APL-owned runtime code:
   `[FAIL, message]`. These structured images can be run repeatedly through
   `bootstrap.run_artifact_image*` without re-tokenizing, re-parsing, or
   re-checking the original source text.
+  Loaded image reports return `[OK, ["APLLOAD1", program, functions]]` or
+  `[FAIL, output]`. They also precompute the APL VM function table, so repeated
+  `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check, or
+  re-collect functions from the original source.
   Status-preserving variants `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
   where status is `OK`, `STOP`, or `FAIL`.
@@ -586,8 +603,9 @@ APL-owned runtime code:
   `examples/test_bootstrap_report.apl`, and
   `examples/test_bootstrap_compile_report.apl`,
   `examples/test_bootstrap_artifact.apl`, and
-  `examples/test_bootstrap_artifact_image.apl` are smoke-tests for the
-  APL-level bootstrap facade.
+  `examples/test_bootstrap_artifact_image.apl`, and
+  `examples/test_bootstrap_loaded_image.apl` are smoke-tests for the APL-level
+  bootstrap facade.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -713,6 +731,10 @@ build\bat_test_bootstrap_artifact\target\debug\test_bootstrap_artifact_compiled.
 .\run_aplc.bat build\test_bootstrap_artifact_image.aplc
 .\compile_apl.bat examples\test_bootstrap_artifact_image.apl build\bat_test_bootstrap_artifact_image
 build\bat_test_bootstrap_artifact_image\target\debug\test_bootstrap_artifact_image_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_loaded_image.apl build\test_bootstrap_loaded_image.aplc
+.\run_aplc.bat build\test_bootstrap_loaded_image.aplc
+.\compile_apl.bat examples\test_bootstrap_loaded_image.apl build\bat_test_bootstrap_loaded_image
+build\bat_test_bootstrap_loaded_image\target\debug\test_bootstrap_loaded_image_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer

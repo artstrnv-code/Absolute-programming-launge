@@ -561,7 +561,13 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       local_names = checker.add_name(local_names, param, "VTime", "VTime")
     }
 
-    return checker.validate_block(get(node, 3), local_names, false)
+    VTime body_state = checker.validate_block(get(node, 3), local_names, false)
+
+    if get(body_state, 0) != checker.STATUS_OK {
+      return body_state
+    }
+
+    return checker.ok(names)
   }
 
   if kind == parser.NODE_IF {

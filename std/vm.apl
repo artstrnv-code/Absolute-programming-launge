@@ -1348,6 +1348,70 @@ func vm.run_ir_state(program, env, output, functions) {
   return [vm.FLOW_OK, env, output]
 }
 
+func vm.load_ir_report(program) {
+  VTime functions = vm.collect_functions(program)
+
+  if vm.functions_ok(functions) != true {
+    return [vm.FLOW_FAIL, ["duplicate function"]]
+  }
+
+  return [vm.FLOW_OK, ["APLLOAD1", program, functions]]
+}
+
+func vm.loaded_image_is_valid(loaded) {
+  if len(loaded) < 3 {
+    return false
+  }
+
+  return get(loaded, 0) == "APLLOAD1"
+}
+
+func vm.loaded_program(loaded) {
+  return get(loaded, 1)
+}
+
+func vm.loaded_functions(loaded) {
+  return get(loaded, 2)
+}
+
+func vm.run_loaded(loaded) {
+  return get(vm.run_loaded_report(loaded), 1)
+}
+
+func vm.run_loaded_report(loaded) {
+  if vm.loaded_image_is_valid(loaded) != true {
+    return [vm.FLOW_FAIL, ["invalid loaded image"]]
+  }
+
+  VTime functions = vm.loaded_functions(loaded)
+
+  if vm.functions_ok(functions) != true {
+    return [vm.FLOW_FAIL, []]
+  }
+
+  VTime state = vm.run_ir_state(vm.loaded_program(loaded), vm.new_env(), [], functions)
+  return [get(state, 0), get(state, 2)]
+}
+
+func vm.run_loaded_with_input(loaded, inputs) {
+  return get(vm.run_loaded_with_input_report(loaded, inputs), 1)
+}
+
+func vm.run_loaded_with_input_report(loaded, inputs) {
+  if vm.loaded_image_is_valid(loaded) != true {
+    return [vm.FLOW_FAIL, ["invalid loaded image"]]
+  }
+
+  VTime functions = vm.loaded_functions(loaded)
+
+  if vm.functions_ok(functions) != true {
+    return [vm.FLOW_FAIL, []]
+  }
+
+  VTime state = vm.run_ir_state(vm.loaded_program(loaded), vm.new_env_with_input(inputs), [], functions)
+  return [get(state, 0), get(state, 2)]
+}
+
 func vm.run_ir(program) {
   VTime functions = vm.collect_functions(program)
 

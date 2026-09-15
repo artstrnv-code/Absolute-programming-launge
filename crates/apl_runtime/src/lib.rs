@@ -2829,6 +2829,39 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_runs_loaded_apl_images_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func inc(x) { return x + 1 } AVInt x = input out inc(x)"
+            VTime loaded_report = bootstrap.loaded_image_report(source)
+            VTime loaded = get(loaded_report, 1)
+            VTime first_run = bootstrap.run_loaded_image_with_input_report(loaded, ["4"])
+            VTime second_run = bootstrap.run_loaded_image_with_input_report(loaded, ["9"])
+            VTime invalid_load = bootstrap.load_artifact_image_report(["BAD"])
+            VTime invalid_run = bootstrap.run_loaded_image_report(["BAD"])
+
+            out get(loaded_report, 0)
+            out get(loaded, 0)
+            out ir.opcode(get(get(loaded, 1), 0))
+            out get(first_run, 0)
+            out get(get(first_run, 1), 0)
+            out get(second_run, 0)
+            out get(get(second_run, 1), 0)
+            out get(invalid_load, 0)
+            out get(get(invalid_load, 1), 0)
+            out get(invalid_run, 0)
+            out get(get(invalid_run, 1), 0)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nAPLLOAD1\nFUNC\nOK\n5\nOK\n10\nFAIL\ninvalid artifact image\nFAIL\ninvalid loaded image\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_checker_prelude() {
         let output = run_source_with_prelude(
             r#"

@@ -111,6 +111,48 @@ func bootstrap.run_artifact_image_with_input_report(image, inputs) {
   return vm.run_ir_with_input_report(get(image, 1), inputs)
 }
 
+func bootstrap.load_artifact_image_report(image) {
+  if bootstrap.artifact_image_is_valid(image) != true {
+    return [vm.FLOW_FAIL, ["invalid artifact image"]]
+  }
+
+  return vm.load_ir_report(get(image, 1))
+}
+
+func bootstrap.load_artifact_image(image) {
+  return get(bootstrap.load_artifact_image_report(image), 1)
+}
+
+func bootstrap.loaded_image_report(source) {
+  VTime image_report = bootstrap.artifact_image_report(source)
+
+  if get(image_report, 0) != vm.FLOW_OK {
+    return image_report
+  }
+
+  return bootstrap.load_artifact_image_report(get(image_report, 1))
+}
+
+func bootstrap.loaded_image(source) {
+  return get(bootstrap.loaded_image_report(source), 1)
+}
+
+func bootstrap.run_loaded_image(loaded) {
+  return get(bootstrap.run_loaded_image_report(loaded), 1)
+}
+
+func bootstrap.run_loaded_image_report(loaded) {
+  return vm.run_loaded_report(loaded)
+}
+
+func bootstrap.run_loaded_image_with_input(loaded, inputs) {
+  return get(bootstrap.run_loaded_image_with_input_report(loaded, inputs), 1)
+}
+
+func bootstrap.run_loaded_image_with_input_report(loaded, inputs) {
+  return vm.run_loaded_with_input_report(loaded, inputs)
+}
+
 func bootstrap.run(source) {
   return get(bootstrap.run_report(source), 1)
 }
