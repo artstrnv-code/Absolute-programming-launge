@@ -51,6 +51,20 @@ func bootstrap.compile_report(source) {
   return [vm.FLOW_OK, program]
 }
 
+func bootstrap.artifact_report(source) {
+  VTime compiled = bootstrap.compile_report(source)
+
+  if get(compiled, 0) != vm.FLOW_OK {
+    return compiled
+  }
+
+  return [vm.FLOW_OK, join(["APLIR1:", str(get(compiled, 1))], "")]
+}
+
+func bootstrap.artifact(source) {
+  return get(bootstrap.artifact_report(source), 1)
+}
+
 func bootstrap.run(source) {
   return get(bootstrap.run_report(source), 1)
 }

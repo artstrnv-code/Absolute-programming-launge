@@ -2772,6 +2772,33 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_apl_bootstrap_artifact_report_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr ok_source = "AVInt x = 1 out x"
+            AVStr bad_source = "AVInt x 1 out x"
+
+            VTime ok_report = bootstrap.artifact_report(ok_source)
+            VTime bad_report = bootstrap.artifact_report(bad_source)
+            VTime artifact = get(ok_report, 1)
+
+            out get(ok_report, 0)
+            out artifact[:7]
+            out contains(artifact, "DECL")
+            out contains(artifact, "OUT")
+            out get(bad_report, 0)
+            out get(bad_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nAPLIR1:\ntrue\ntrue\nFAIL\ndeclaration expects =\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_checker_prelude() {
         let output = run_source_with_prelude(
             r#"
