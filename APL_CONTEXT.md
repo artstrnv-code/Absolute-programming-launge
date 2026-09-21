@@ -499,6 +499,11 @@ APL-owned runtime code:
   nested blocks, expression trees, and function bodies. User-function `CALL`
   expressions are resolved once to numeric `CALL_SLOT` expressions; builtin
   calls remain named. It emits versioned `APLLOAD2` images.
+- `std/artifact.apl`: the APL-written portable codec for linked images. It
+  emits `APLLINK2:` wire strings with tagged scalar nodes, length-prefixed
+  payloads, and recursive lists. The APL decoder reconstructs the linked image
+  without source parsing and rejects bad headers, malformed/truncated nodes,
+  unknown tags, and trailing data.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`, keeps an append-only environment as
   `[names, values, kinds, types, initials]`,
@@ -567,6 +572,14 @@ APL-owned runtime code:
   `bootstrap.load_artifact_image_report(image)`,
   `bootstrap.load_artifact_image(image)`, `bootstrap.loaded_image_report(source)`,
   `bootstrap.loaded_image(source)`, `bootstrap.run_loaded_image(loaded)`,
+  `bootstrap.linked_artifact_report(source)`,
+  `bootstrap.linked_artifact(source)`,
+  `bootstrap.load_linked_artifact_report(encoded)`,
+  `bootstrap.load_linked_artifact(encoded)`,
+  `bootstrap.run_linked_artifact(encoded)`,
+  `bootstrap.run_linked_artifact_report(encoded)`,
+  `bootstrap.run_linked_artifact_with_input(encoded, inputs)`,
+  `bootstrap.run_linked_artifact_with_input_report(encoded, inputs)`,
   `bootstrap.run_loaded_image_report(loaded)`,
   `bootstrap.run_loaded_image_with_input(loaded, inputs)`,
   `bootstrap.run_loaded_image_with_input_report(loaded, inputs)`,
@@ -589,6 +602,10 @@ APL-owned runtime code:
   `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check,
   re-collect or look up functions from the original source, or execute function
   declarations as no-op instructions.
+  Portable linked artifact reports return `[OK, "APLLINK2:..."]` or
+  `[FAIL, message]`. Their payload is encoded and decoded entirely by APL code;
+  a decoded artifact is the same `APLLOAD2` image consumed by the loaded-image
+  execution APIs.
   The source-level `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` facades now compile to a
   loaded image and execute that loaded image instead of directly calling
@@ -619,8 +636,9 @@ APL-owned runtime code:
   `examples/test_bootstrap_compile_report.apl`,
   `examples/test_bootstrap_artifact.apl`, and
   `examples/test_bootstrap_artifact_image.apl`, and
-  `examples/test_bootstrap_loaded_image.apl` are smoke-tests for the APL-level
-  bootstrap facade.
+  `examples/test_bootstrap_loaded_image.apl`, and
+  `examples/test_bootstrap_linked_artifact.apl` are smoke-tests for the
+  APL-level bootstrap facade.
 
 Rust-hosted builtins that support the APL prelude:
 
@@ -750,6 +768,10 @@ build\bat_test_bootstrap_artifact_image\target\debug\test_bootstrap_artifact_ima
 .\run_aplc.bat build\test_bootstrap_loaded_image.aplc
 .\compile_apl.bat examples\test_bootstrap_loaded_image.apl build\bat_test_bootstrap_loaded_image
 build\bat_test_bootstrap_loaded_image\target\debug\test_bootstrap_loaded_image_compiled.exe
+.\emit_aplc.bat examples\test_bootstrap_linked_artifact.apl build\test_bootstrap_linked_artifact.aplc
+.\run_aplc.bat build\test_bootstrap_linked_artifact.aplc
+.\compile_apl.bat examples\test_bootstrap_linked_artifact.apl build\bat_test_bootstrap_linked_artifact
+build\bat_test_bootstrap_linked_artifact\target\debug\test_bootstrap_linked_artifact_compiled.exe
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
 .\run_aplc.bat build\test_lexer.aplc
 .\compile_apl.bat examples\test_lexer.apl build\bat_test_lexer

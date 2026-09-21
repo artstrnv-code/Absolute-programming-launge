@@ -10,6 +10,7 @@ pub const CHECKER_PRELUDE: &str = include_str!("../../../std/checker.apl");
 pub const IR_PRELUDE: &str = include_str!("../../../std/ir.apl");
 pub const LINKER_PRELUDE: &str = include_str!("../../../std/linker.apl");
 pub const VM_PRELUDE: &str = include_str!("../../../std/vm.apl");
+pub const ARTIFACT_PRELUDE: &str = include_str!("../../../std/artifact.apl");
 pub const BOOTSTRAP_PRELUDE: &str = include_str!("../../../std/bootstrap.apl");
 pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/runtime.apl"),
@@ -25,6 +26,8 @@ pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/linker.apl"),
     "\n\n",
     include_str!("../../../std/vm.apl"),
+    "\n\n",
+    include_str!("../../../std/artifact.apl"),
     "\n\n",
     include_str!("../../../std/bootstrap.apl")
 );
@@ -261,11 +264,15 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func ir.compile_source"));
         assert!(STANDARD_PRELUDE.contains("func linker.link_image"));
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
+        assert!(STANDARD_PRELUDE.contains("func artifact.encode_loaded_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_image_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_artifact_image_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.loaded_image_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.load_linked_artifact_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.run_linked_artifact_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_loaded_image_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input_report"));

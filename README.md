@@ -278,6 +278,12 @@ names to stable numeric slots, and emits `CALL_SLOT` expressions. Builtin calls
 remain named. The resulting `APLLOAD2` image therefore avoids repeated string
 lookup for user functions during execution.
 
+`std/artifact.apl` is the APL-written portable artifact codec. It converts a
+linked image to an `APLLINK2:` wire string and reconstructs it without calling
+the Rust parser or IR codec. Scalars are tagged, strings are length-prefixed,
+and malformed headers, truncated payloads, unknown tags, and trailing data are
+rejected before execution.
+
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,
 indexing/slicing, `info()` metadata reads, assignments, `if/else if/else` blocks,
@@ -314,6 +320,10 @@ exposes `bootstrap.tokens(source)`, `bootstrap.ast(source)`,
 `bootstrap.run_artifact_image(image)`,
 `bootstrap.run_artifact_image_with_input(image, inputs)`,
 `bootstrap.loaded_image_report(source)`,
+`bootstrap.linked_artifact_report(source)`,
+`bootstrap.load_linked_artifact_report(encoded)`,
+`bootstrap.run_linked_artifact(encoded)`,
+`bootstrap.run_linked_artifact_with_input(encoded, inputs)`,
 `bootstrap.run_loaded_image(loaded)`,
 `bootstrap.run_loaded_image_with_input(loaded, inputs)`,
 `bootstrap.run_report(source)`, and
@@ -331,6 +341,10 @@ declarations removed from executable entry code. Repeated runs skip source
 compilation, function-table collection, user-function name lookup, and function
 declaration no-ops. The source-level `bootstrap.run*` facade compiles to a
 linked loaded image before execution.
+
+Portable linked artifacts use an `APLLINK2:` header and can be decoded and run
+by APL code through the `bootstrap.*linked_artifact*` APIs. Unlike the older
+diagnostic `APLIR1:` string, this format is unambiguous and round-trippable.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc

@@ -141,6 +141,56 @@ func bootstrap.loaded_image(source) {
   return get(bootstrap.loaded_image_report(source), 1)
 }
 
+func bootstrap.linked_artifact_report(source) {
+  VTime loaded = bootstrap.loaded_image_report(source)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return artifact.encode_loaded_report(get(loaded, 1))
+}
+
+func bootstrap.linked_artifact(source) {
+  return get(bootstrap.linked_artifact_report(source), 1)
+}
+
+func bootstrap.load_linked_artifact_report(encoded) {
+  return artifact.decode_loaded_report(encoded)
+}
+
+func bootstrap.load_linked_artifact(encoded) {
+  return get(bootstrap.load_linked_artifact_report(encoded), 1)
+}
+
+func bootstrap.run_linked_artifact_report(encoded) {
+  VTime loaded = bootstrap.load_linked_artifact_report(encoded)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return bootstrap.run_loaded_image_report(get(loaded, 1))
+}
+
+func bootstrap.run_linked_artifact(encoded) {
+  return get(bootstrap.run_linked_artifact_report(encoded), 1)
+}
+
+func bootstrap.run_linked_artifact_with_input_report(encoded, inputs) {
+  VTime loaded = bootstrap.load_linked_artifact_report(encoded)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return bootstrap.run_loaded_image_with_input_report(get(loaded, 1), inputs)
+}
+
+func bootstrap.run_linked_artifact_with_input(encoded, inputs) {
+  return get(bootstrap.run_linked_artifact_with_input_report(encoded, inputs), 1)
+}
+
 func bootstrap.run_loaded_image(loaded) {
   return get(bootstrap.run_loaded_image_report(loaded), 1)
 }
