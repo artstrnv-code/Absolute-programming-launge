@@ -92,11 +92,13 @@ func bootstrap.run_artifact_image(image) {
 }
 
 func bootstrap.run_artifact_image_report(image) {
-  if bootstrap.artifact_image_is_valid(image) != true {
-    return [vm.FLOW_FAIL, ["invalid artifact image"]]
+  VTime loaded = bootstrap.load_artifact_image_report(image)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
   }
 
-  return vm.run_ir_report(get(image, 1))
+  return bootstrap.run_loaded_image_report(get(loaded, 1))
 }
 
 func bootstrap.run_artifact_image_with_input(image, inputs) {
@@ -104,11 +106,13 @@ func bootstrap.run_artifact_image_with_input(image, inputs) {
 }
 
 func bootstrap.run_artifact_image_with_input_report(image, inputs) {
-  if bootstrap.artifact_image_is_valid(image) != true {
-    return [vm.FLOW_FAIL, ["invalid artifact image"]]
+  VTime loaded = bootstrap.load_artifact_image_report(image)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
   }
 
-  return vm.run_ir_with_input_report(get(image, 1), inputs)
+  return bootstrap.run_loaded_image_with_input_report(get(loaded, 1), inputs)
 }
 
 func bootstrap.load_artifact_image_report(image) {
@@ -158,13 +162,13 @@ func bootstrap.run(source) {
 }
 
 func bootstrap.run_report(source) {
-  VTime compiled = bootstrap.compile_report(source)
+  VTime loaded = bootstrap.loaded_image_report(source)
 
-  if get(compiled, 0) != vm.FLOW_OK {
-    return [get(compiled, 0), [get(compiled, 1)]]
+  if get(loaded, 0) != vm.FLOW_OK {
+    return [get(loaded, 0), [get(loaded, 1)]]
   }
 
-  return vm.run_ir_report(get(compiled, 1))
+  return bootstrap.run_loaded_image_report(get(loaded, 1))
 }
 
 func bootstrap.run_with_input(source, inputs) {
@@ -172,11 +176,11 @@ func bootstrap.run_with_input(source, inputs) {
 }
 
 func bootstrap.run_with_input_report(source, inputs) {
-  VTime compiled = bootstrap.compile_report(source)
+  VTime loaded = bootstrap.loaded_image_report(source)
 
-  if get(compiled, 0) != vm.FLOW_OK {
-    return [get(compiled, 0), [get(compiled, 1)]]
+  if get(loaded, 0) != vm.FLOW_OK {
+    return [get(loaded, 0), [get(loaded, 1)]]
   }
 
-  return vm.run_ir_with_input_report(get(compiled, 1), inputs)
+  return bootstrap.run_loaded_image_with_input_report(get(loaded, 1), inputs)
 }

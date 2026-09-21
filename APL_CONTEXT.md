@@ -544,9 +544,11 @@ APL-owned runtime code:
   handles arithmetic, comparison, and logical expression precedence before lowering to IR. This proves
   runtime behavior can be compiled and executed from APL code itself.
   `vm.load_ir_report(program)` prepares a loaded image
-  `["APLLOAD1", program, functions]` by collecting the VM function table once.
+  `["APLLOAD1", entry, functions]` by collecting the VM function table once and
+  removing top-level `FUNC` instructions from the executable entry program.
   `vm.run_loaded*` executes that loaded image repeatedly without re-collecting
-  functions from the IR.
+  functions from the IR or stepping over function declarations as no-op runtime
+  instructions.
 - `std/bootstrap.apl`: the public APL-level facade over the bootstrap compiler
   and VM pipeline. It exposes `bootstrap.tokens(source)`,
   `bootstrap.ast(source)`, `bootstrap.ir(source)`,
@@ -574,10 +576,16 @@ APL-owned runtime code:
   `[FAIL, message]`. These structured images can be run repeatedly through
   `bootstrap.run_artifact_image*` without re-tokenizing, re-parsing, or
   re-checking the original source text.
-  Loaded image reports return `[OK, ["APLLOAD1", program, functions]]` or
-  `[FAIL, output]`. They also precompute the APL VM function table, so repeated
-  `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check, or
-  re-collect functions from the original source.
+  Loaded image reports return `[OK, ["APLLOAD1", entry, functions]]` or
+  `[FAIL, output]`. They also precompute the APL VM function table and store an
+  entry program without top-level `FUNC` declarations, so repeated
+  `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check,
+  re-collect functions from the original source, or execute function
+  declarations as no-op instructions.
+  The source-level `bootstrap.run_report(source)` and
+  `bootstrap.run_with_input_report(source, inputs)` facades now compile to a
+  loaded image and execute that loaded image instead of directly calling
+  `vm.run_ir*`.
   Status-preserving variants `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
   where status is `OK`, `STOP`, or `FAIL`.

@@ -2837,16 +2837,20 @@ mod tests {
             VTime loaded = get(loaded_report, 1)
             VTime first_run = bootstrap.run_loaded_image_with_input_report(loaded, ["4"])
             VTime second_run = bootstrap.run_loaded_image_with_input_report(loaded, ["9"])
+            VTime direct_run = bootstrap.run_with_input_report(source, ["14"])
             VTime invalid_load = bootstrap.load_artifact_image_report(["BAD"])
             VTime invalid_run = bootstrap.run_loaded_image_report(["BAD"])
 
             out get(loaded_report, 0)
             out get(loaded, 0)
             out ir.opcode(get(get(loaded, 1), 0))
+            out len(get(loaded, 1))
             out get(first_run, 0)
             out get(get(first_run, 1), 0)
             out get(second_run, 0)
             out get(get(second_run, 1), 0)
+            out get(direct_run, 0)
+            out get(get(direct_run, 1), 0)
             out get(invalid_load, 0)
             out get(get(invalid_load, 1), 0)
             out get(invalid_run, 0)
@@ -2857,7 +2861,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLLOAD1\nFUNC\nOK\n5\nOK\n10\nFAIL\ninvalid artifact image\nFAIL\ninvalid loaded image\n"
+            "OK\nAPLLOAD1\nDECL\n2\nOK\n5\nOK\n10\nOK\n15\nFAIL\ninvalid artifact image\nFAIL\ninvalid loaded image\n"
         );
     }
 

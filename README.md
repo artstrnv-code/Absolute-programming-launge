@@ -319,9 +319,11 @@ portable text IR image with an `APLIR1:` header; binary `.aplc` and native
 output remain host-side/future stages. Artifact image reports return structured
 `["APLIR1", program]` images that can be run repeatedly without re-tokenizing,
 re-parsing, or re-checking the original source text. Loaded image reports
-return `["APLLOAD1", program, functions]` images with the VM function table
-already collected, so repeated runs skip source compilation and function-table
-collection.
+return `["APLLOAD1", entry, functions]` images with the VM function table
+already collected and top-level `FUNC` declarations removed from executable
+entry code, so repeated runs skip source compilation, function-table
+collection, and function declaration no-ops. The source-level `bootstrap.run*`
+facade now compiles to a loaded image before execution.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc

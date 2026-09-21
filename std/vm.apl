@@ -464,6 +464,18 @@ func vm.collect_functions(program) {
   return functions
 }
 
+func vm.collect_entry(program) {
+  VTime entry = []
+
+  pick(program): instruction {
+    if ir.opcode(instruction) != ir.OP_FUNC {
+      add(entry, instruction)
+    }
+  }
+
+  return entry
+}
+
 func vm.eval_expr(expression, env, output, functions) {
   VTime opcode = ir.expr_opcode(expression)
 
@@ -1355,7 +1367,7 @@ func vm.load_ir_report(program) {
     return [vm.FLOW_FAIL, ["duplicate function"]]
   }
 
-  return [vm.FLOW_OK, ["APLLOAD1", program, functions]]
+  return [vm.FLOW_OK, ["APLLOAD1", vm.collect_entry(program), functions]]
 }
 
 func vm.loaded_image_is_valid(loaded) {
