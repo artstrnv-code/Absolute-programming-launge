@@ -2802,7 +2802,7 @@ mod tests {
     fn source_runtime_runs_apl_bootstrap_artifact_images_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "AVInt x = input x += 1 out x"
+            AVStr source = "func inc(x) { return x + 1 } AVInt x = input out inc(x)"
             VTime image_report = bootstrap.artifact_image_report(source)
             VTime image = get(image_report, 1)
             VTime first_run = bootstrap.run_artifact_image_with_input_report(image, ["4"])
@@ -2824,7 +2824,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLIR1\nDECL\nOK\n5\nOK\n10\nFAIL\ninvalid artifact image\n"
+            "OK\nAPLIR1\nFUNC\nOK\n5\nOK\n10\nFAIL\ninvalid artifact image\n"
         );
     }
 

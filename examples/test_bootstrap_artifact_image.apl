@@ -1,6 +1,6 @@
 # Test APL bootstrap artifact image facade.
 
-AVStr source = "AVInt x = input x += 1 out x"
+AVStr source = "func inc(x) { return x + 1 } AVInt x = input out inc(x)"
 VTime image_report = bootstrap.artifact_image_report(source)
 VTime image = get(image_report, 1)
 VTime first_run = bootstrap.run_artifact_image_with_input_report(image, ["4"])
