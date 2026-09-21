@@ -494,16 +494,22 @@ APL-owned runtime code:
   `INFO_ASSIGN`, `EXPR`, `OUT`, `STOP`, `FAIL`, and `ERROR`.
   Current expression IR includes `LITERAL`, `LOAD`, `NONE`, `UNARY`,
   `BINARY`, `CALL`, `LIST`, `INDEX`, `SLICE`, `SELF`, and `TAG`.
+  Omitted slice bounds are lowered to canonical `NONE` expressions, preserving
+  their type through linked-artifact serialization.
 - `examples/test_ir.apl` is the current IR smoke-test.
 - `std/linker.apl`: the APL-written link stage. It recursively walks entry code,
   nested blocks, expression trees, and function bodies. User-function `CALL`
   expressions are resolved once to numeric `CALL_SLOT` expressions; builtin
   calls remain named. It emits versioned `APLLOAD2` images.
+- `std/verifier.apl`: the APL-written loaded-image verifier. It recursively
+  validates expression and instruction opcodes/arity, operators, literal types,
+  nested blocks, builtin arity, function-table consistency, unique function and
+  parameter names, loop limits, and `CALL_SLOT` bounds before VM execution.
 - `std/artifact.apl`: the APL-written portable codec for linked images. It
   emits `APLLINK2:` wire strings with tagged scalar nodes, length-prefixed
   payloads, and recursive lists. The APL decoder reconstructs the linked image
   without source parsing and rejects bad headers, malformed/truncated nodes,
-  unknown tags, and trailing data.
+  unknown tags, trailing data, and structures rejected by the APL verifier.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`, keeps an append-only environment as
   `[names, values, kinds, types, initials]`,
@@ -559,7 +565,9 @@ APL-owned runtime code:
   entry code and function bodies. `vm.run_loaded*` executes that image repeatedly
   without re-collecting functions, searching user functions by name, or stepping
   over function declarations as no-op runtime instructions. The legacy
-  `vm.run_ir*` facade also loads and links before execution.
+  `vm.run_ir*` facade also loads and links before execution. Every loaded image,
+  including an image decoded from untrusted portable text, must pass
+  `verifier.loaded_image_is_valid` before execution.
 - `std/bootstrap.apl`: the public APL-level facade over the bootstrap compiler
   and VM pipeline. It exposes `bootstrap.tokens(source)`,
   `bootstrap.ast(source)`, `bootstrap.ir(source)`,
@@ -605,7 +613,7 @@ APL-owned runtime code:
   Portable linked artifact reports return `[OK, "APLLINK2:..."]` or
   `[FAIL, message]`. Their payload is encoded and decoded entirely by APL code;
   a decoded artifact is the same `APLLOAD2` image consumed by the loaded-image
-  execution APIs.
+  execution APIs and must pass the same structural verifier before it can run.
   The source-level `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` facades now compile to a
   loaded image and execute that loaded image instead of directly calling

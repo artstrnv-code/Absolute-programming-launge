@@ -101,7 +101,7 @@ func ir.compile_expr(expression) {
   }
 
   if kind == parser.EXPR_SLICE {
-    return [ir.EXPR_SLICE, ir.compile_expr(get(expression, 1)), ir.compile_expr(get(expression, 2)), ir.compile_expr(get(expression, 3)), ir.compile_expr(get(expression, 4))]
+    return [ir.EXPR_SLICE, ir.compile_expr(get(expression, 1)), ir.compile_optional_expr(get(expression, 2)), ir.compile_optional_expr(get(expression, 3)), ir.compile_optional_expr(get(expression, 4))]
   }
 
   if kind == parser.EXPR_SELF {

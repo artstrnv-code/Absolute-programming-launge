@@ -1387,11 +1387,7 @@ func vm.load_ir_report(program) {
 }
 
 func vm.loaded_image_is_valid(loaded) {
-  if len(loaded) < 3 {
-    return false
-  }
-
-  return get(loaded, 0) == linker.IMAGE_MAGIC
+  return verifier.loaded_image_is_valid(loaded)
 }
 
 func vm.loaded_program(loaded) {

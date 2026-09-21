@@ -278,11 +278,16 @@ names to stable numeric slots, and emits `CALL_SLOT` expressions. Builtin calls
 remain named. The resulting `APLLOAD2` image therefore avoids repeated string
 lookup for user functions during execution.
 
+`std/verifier.apl` validates an entire loaded image before the VM accepts it.
+It checks instruction and expression opcodes and arities, operators, literal
+types, recursive blocks, builtin arities, function-table consistency, unique
+function/parameter names, and every `CALL_SLOT` bound.
+
 `std/artifact.apl` is the APL-written portable artifact codec. It converts a
 linked image to an `APLLINK2:` wire string and reconstructs it without calling
 the Rust parser or IR codec. Scalars are tagged, strings are length-prefixed,
 and malformed headers, truncated payloads, unknown tags, and trailing data are
-rejected before execution.
+rejected before execution. Decoded structure also has to pass the APL verifier.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,
