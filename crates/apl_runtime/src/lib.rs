@@ -1816,6 +1816,8 @@ mod tests {
             "\n\n",
             include_str!("../../../std/ir.apl"),
             "\n\n",
+            include_str!("../../../std/linker.apl"),
+            "\n\n",
             include_str!("../../../std/vm.apl"),
             "\n\n",
             include_str!("../../../std/bootstrap.apl")
@@ -2832,9 +2834,11 @@ mod tests {
     fn source_runtime_runs_loaded_apl_images_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "func inc(x) { return x + 1 } AVInt x = input out inc(x)"
+            AVStr source = "func inc(x) { return add_one(x) } func add_one(x) { return x + 1 } AVInt x = input out inc(x)"
             VTime loaded_report = bootstrap.loaded_image_report(source)
             VTime loaded = get(loaded_report, 1)
+            VTime entry_call = get(get(get(loaded, 1), 1), 1)
+            VTime inc_call = get(get(get(get(loaded, 2), 2), 0), 0)[1]
             VTime first_run = bootstrap.run_loaded_image_with_input_report(loaded, ["4"])
             VTime second_run = bootstrap.run_loaded_image_with_input_report(loaded, ["9"])
             VTime direct_run = bootstrap.run_with_input_report(source, ["14"])
@@ -2845,6 +2849,10 @@ mod tests {
             out get(loaded, 0)
             out ir.opcode(get(get(loaded, 1), 0))
             out len(get(loaded, 1))
+            out ir.expr_opcode(entry_call)
+            out get(entry_call, 1)
+            out ir.expr_opcode(inc_call)
+            out get(inc_call, 1)
             out get(first_run, 0)
             out get(get(first_run, 1), 0)
             out get(second_run, 0)
@@ -2861,7 +2869,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLLOAD1\nDECL\n2\nOK\n5\nOK\n10\nOK\n15\nFAIL\ninvalid artifact image\nFAIL\ninvalid loaded image\n"
+            "OK\nAPLLOAD2\nDECL\n2\nCALL_SLOT\n0\nCALL_SLOT\n1\nOK\n5\nOK\n10\nOK\n15\nFAIL\ninvalid artifact image\nFAIL\ninvalid loaded image\n"
         );
     }
 

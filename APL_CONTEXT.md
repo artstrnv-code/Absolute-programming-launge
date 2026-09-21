@@ -495,6 +495,10 @@ APL-owned runtime code:
   Current expression IR includes `LITERAL`, `LOAD`, `NONE`, `UNARY`,
   `BINARY`, `CALL`, `LIST`, `INDEX`, `SLICE`, `SELF`, and `TAG`.
 - `examples/test_ir.apl` is the current IR smoke-test.
+- `std/linker.apl`: the APL-written link stage. It recursively walks entry code,
+  nested blocks, expression trees, and function bodies. User-function `CALL`
+  expressions are resolved once to numeric `CALL_SLOT` expressions; builtin
+  calls remain named. It emits versioned `APLLOAD2` images.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`, keeps an append-only environment as
   `[names, values, kinds, types, initials]`,
@@ -543,12 +547,14 @@ APL-owned runtime code:
   declared type, so invalid typed input becomes `NONE`. The APL parser bootstrap
   handles arithmetic, comparison, and logical expression precedence before lowering to IR. This proves
   runtime behavior can be compiled and executed from APL code itself.
-  `vm.load_ir_report(program)` prepares a loaded image
-  `["APLLOAD1", entry, functions]` by collecting the VM function table once and
-  removing top-level `FUNC` instructions from the executable entry program.
-  `vm.run_loaded*` executes that loaded image repeatedly without re-collecting
-  functions from the IR or stepping over function declarations as no-op runtime
-  instructions.
+  `vm.load_ir_report(program)` prepares a linked image
+  `["APLLOAD2", entry, functions]` by collecting the VM function table once,
+  removing top-level `FUNC` instructions from the executable entry program, and
+  asking the APL linker to resolve user calls to numeric function slots in both
+  entry code and function bodies. `vm.run_loaded*` executes that image repeatedly
+  without re-collecting functions, searching user functions by name, or stepping
+  over function declarations as no-op runtime instructions. The legacy
+  `vm.run_ir*` facade also loads and links before execution.
 - `std/bootstrap.apl`: the public APL-level facade over the bootstrap compiler
   and VM pipeline. It exposes `bootstrap.tokens(source)`,
   `bootstrap.ast(source)`, `bootstrap.ir(source)`,
@@ -576,11 +582,12 @@ APL-owned runtime code:
   `[FAIL, message]`. These structured images can be run repeatedly through
   `bootstrap.run_artifact_image*` without re-tokenizing, re-parsing, or
   re-checking the original source text.
-  Loaded image reports return `[OK, ["APLLOAD1", entry, functions]]` or
+  Loaded image reports return `[OK, ["APLLOAD2", entry, functions]]` or
   `[FAIL, output]`. They also precompute the APL VM function table and store an
-  entry program without top-level `FUNC` declarations, so repeated
+  entry program without top-level `FUNC` declarations. The APL linker rewrites
+  user calls in the complete image to `CALL_SLOT`, so repeated
   `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check,
-  re-collect functions from the original source, or execute function
+  re-collect or look up functions from the original source, or execute function
   declarations as no-op instructions.
   The source-level `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` facades now compile to a

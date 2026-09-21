@@ -8,6 +8,7 @@ pub const LEXER_PRELUDE: &str = include_str!("../../../std/lexer.apl");
 pub const PARSER_PRELUDE: &str = include_str!("../../../std/parser.apl");
 pub const CHECKER_PRELUDE: &str = include_str!("../../../std/checker.apl");
 pub const IR_PRELUDE: &str = include_str!("../../../std/ir.apl");
+pub const LINKER_PRELUDE: &str = include_str!("../../../std/linker.apl");
 pub const VM_PRELUDE: &str = include_str!("../../../std/vm.apl");
 pub const BOOTSTRAP_PRELUDE: &str = include_str!("../../../std/bootstrap.apl");
 pub const STANDARD_PRELUDE: &str = concat!(
@@ -20,6 +21,8 @@ pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/checker.apl"),
     "\n\n",
     include_str!("../../../std/ir.apl"),
+    "\n\n",
+    include_str!("../../../std/linker.apl"),
     "\n\n",
     include_str!("../../../std/vm.apl"),
     "\n\n",
@@ -256,6 +259,7 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func parser.parse_source"));
         assert!(STANDARD_PRELUDE.contains("func checker.validate_report"));
         assert!(STANDARD_PRELUDE.contains("func ir.compile_source"));
+        assert!(STANDARD_PRELUDE.contains("func linker.link_image"));
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_report"));

@@ -272,6 +272,12 @@ AST into simple list-based IR instructions:
 build\bat_test_ir\target\debug\test_ir_compiled.exe
 ```
 
+`std/linker.apl` is the APL-written link stage. When an IR program is loaded,
+it recursively walks entry code and function bodies, resolves user-function
+names to stable numeric slots, and emits `CALL_SLOT` expressions. Builtin calls
+remain named. The resulting `APLLOAD2` image therefore avoids repeated string
+lookup for user functions during execution.
+
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,
 indexing/slicing, `info()` metadata reads, assignments, `if/else if/else` blocks,
@@ -319,11 +325,12 @@ portable text IR image with an `APLIR1:` header; binary `.aplc` and native
 output remain host-side/future stages. Artifact image reports return structured
 `["APLIR1", program]` images that can be run repeatedly without re-tokenizing,
 re-parsing, or re-checking the original source text. Loaded image reports
-return `["APLLOAD1", entry, functions]` images with the VM function table
-already collected and top-level `FUNC` declarations removed from executable
-entry code, so repeated runs skip source compilation, function-table
-collection, and function declaration no-ops. The source-level `bootstrap.run*`
-facade now compiles to a loaded image before execution.
+return `["APLLOAD2", entry, functions]` images with the VM function table
+already collected, user calls linked to numeric slots, and top-level `FUNC`
+declarations removed from executable entry code. Repeated runs skip source
+compilation, function-table collection, user-function name lookup, and function
+declaration no-ops. The source-level `bootstrap.run*` facade compiles to a
+linked loaded image before execution.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc

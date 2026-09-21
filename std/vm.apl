@@ -527,6 +527,10 @@ func vm.eval_expr(expression, env, output, functions) {
     return vm.call_func(get(expression, 1), get(expression, 2), env, output, functions)
   }
 
+  if opcode == ir.EXPR_CALL_SLOT {
+    return vm.call_func_slot(get(expression, 1), get(expression, 2), env, output, functions)
+  }
+
   if opcode == ir.EXPR_LIST {
     VTime values = []
     VTime list_kinds = []
@@ -897,6 +901,18 @@ func vm.call_func(name, arg_exprs, env, output, functions) {
   VTime function_index = vm.func_index(functions, name)
 
   if function_index == NONE {
+    return [NONE, env, output, "AV"]
+  }
+
+  return vm.call_func_slot(function_index, arg_exprs, env, output, functions)
+}
+
+func vm.call_func_slot(function_index, arg_exprs, env, output, functions) {
+  if function_index < 0 {
+    return [NONE, env, output, "AV"]
+  }
+
+  if function_index >= len(vm.func_names(functions)) {
     return [NONE, env, output, "AV"]
   }
 
@@ -1367,7 +1383,7 @@ func vm.load_ir_report(program) {
     return [vm.FLOW_FAIL, ["duplicate function"]]
   }
 
-  return [vm.FLOW_OK, ["APLLOAD1", vm.collect_entry(program), functions]]
+  return [vm.FLOW_OK, linker.link_image(vm.collect_entry(program), functions)]
 }
 
 func vm.loaded_image_is_valid(loaded) {
@@ -1375,7 +1391,7 @@ func vm.loaded_image_is_valid(loaded) {
     return false
   }
 
-  return get(loaded, 0) == "APLLOAD1"
+  return get(loaded, 0) == linker.IMAGE_MAGIC
 }
 
 func vm.loaded_program(loaded) {
@@ -1425,47 +1441,43 @@ func vm.run_loaded_with_input_report(loaded, inputs) {
 }
 
 func vm.run_ir(program) {
-  VTime functions = vm.collect_functions(program)
+  VTime loaded = vm.load_ir_report(program)
 
-  if vm.functions_ok(functions) != true {
+  if get(loaded, 0) != vm.FLOW_OK {
     return []
   }
 
-  VTime state = vm.run_ir_state(program, vm.new_env(), [], functions)
-  return get(state, 2)
+  return vm.run_loaded(get(loaded, 1))
 }
 
 func vm.run_ir_report(program) {
-  VTime functions = vm.collect_functions(program)
+  VTime loaded = vm.load_ir_report(program)
 
-  if vm.functions_ok(functions) != true {
-    return [vm.FLOW_FAIL, []]
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
   }
 
-  VTime state = vm.run_ir_state(program, vm.new_env(), [], functions)
-  return [get(state, 0), get(state, 2)]
+  return vm.run_loaded_report(get(loaded, 1))
 }
 
 func vm.run_ir_with_input(program, inputs) {
-  VTime functions = vm.collect_functions(program)
+  VTime loaded = vm.load_ir_report(program)
 
-  if vm.functions_ok(functions) != true {
+  if get(loaded, 0) != vm.FLOW_OK {
     return []
   }
 
-  VTime state = vm.run_ir_state(program, vm.new_env_with_input(inputs), [], functions)
-  return get(state, 2)
+  return vm.run_loaded_with_input(get(loaded, 1), inputs)
 }
 
 func vm.run_ir_with_input_report(program, inputs) {
-  VTime functions = vm.collect_functions(program)
+  VTime loaded = vm.load_ir_report(program)
 
-  if vm.functions_ok(functions) != true {
-    return [vm.FLOW_FAIL, []]
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
   }
 
-  VTime state = vm.run_ir_state(program, vm.new_env_with_input(inputs), [], functions)
-  return [get(state, 0), get(state, 2)]
+  return vm.run_loaded_with_input_report(get(loaded, 1), inputs)
 }
 
 func vm.run_source(source) {
