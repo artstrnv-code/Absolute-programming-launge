@@ -450,8 +450,9 @@ Rust workspace:
   one function table and one `CALL_SLOT` namespace without copying compiler
   implementation modules into the artifact.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
-  Rust package `build`/`compile`, and APL-owned portable artifact
-  `emit-linked`/`run-linked` commands.
+  legacy Rust/`.aplc` package `build`/`compile`, APL-owned portable artifact
+  `emit-linked`/`run-linked`, and portable-artifact package
+  `build-linked`/`compile-linked` commands.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:
@@ -730,6 +731,24 @@ Compiled runtime path:
 - The Rust host runtime now executes statement opcodes from the linear `code`
   segment through `BlockFrame` values with an explicit program counter (`pc`)
   and uses a small expression VM.
+
+Portable linked package path:
+
+- `cargo run -p apl -- build-linked examples\compiled_runtime.apl build\compiled_runtime_linked`
+  asks the APL-written pipeline to compose `std/runtime.apl` with user source,
+  check and lower it, assign function slots, and encode `program.apllink`.
+- `cargo run -p apl -- compile-linked examples\compiled_runtime.apl build\compiled_runtime_linked`
+  also invokes Cargo for the generated launcher package.
+- The generated launcher embeds `program.apllink` with `include_str!` and calls
+  `apl_compiler::run_linked_artifact`. Artifact decoding, structural
+  verification, and VM execution remain APL-owned.
+- The launcher and loader remain Rust-hosted bootstrap code; `.apllink` is not
+  native machine code.
+- Legacy `build`/`compile` remains available for self-host examples that execute
+  compiler modules from the complete standard prelude. Compiling that entire
+  compiler source through the currently interpreted APL lexer/parser on every
+  build is not yet practical; a preloaded compiler image is the next migration
+  layer.
 - `if/else if/else` is compiled into `JumpIfFalse`, `ExecScopedBlock`, and
   `Jump` statement opcodes.
 - `while` is compiled into `LoopCheck`, `ExecLoopBody`, and `Jump` statement
@@ -969,4 +988,5 @@ powershell -ExecutionPolicy Bypass -File tools\apl_gui.ps1
 
 The minimal GUI is implemented in `tools/apl_gui.ps1`.
 Quick Windows compiler wrappers live at repository root:
-`compile_apl.bat`, `emit_aplc.bat`, and `run_aplc.bat`.
+`compile_apl.bat`, `compile_linked_apl.bat`, `emit_aplc.bat`, and
+`run_aplc.bat`.

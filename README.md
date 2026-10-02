@@ -196,6 +196,23 @@ cargo run -p apl -- run-linked build\compiled_runtime.apllink
 The `.apllink` format is the current portable bootstrap format. It is distinct
 from host-side binary `.aplc` IR and is not yet native machine code.
 
+Generate and compile a Rust-hosted executable package whose program payload is
+the verified `APLLINK2` artifact rather than host-side `.aplc` IR:
+
+```powershell
+cargo run -p apl -- build-linked examples\compiled_runtime.apl build\compiled_runtime_linked
+cargo build --manifest-path build\compiled_runtime_linked\Cargo.toml
+build\compiled_runtime_linked\target\debug\compiled_runtime_compiled.exe
+
+cargo run -p apl -- compile-linked examples\compiled_runtime.apl build\compiled_runtime_linked
+build\compiled_runtime_linked\target\debug\compiled_runtime_compiled.exe
+```
+
+The generated launcher embeds `program.apllink` and enters through
+`apl_compiler::run_linked_artifact`, which invokes the APL-written loader,
+verifier, and VM. The launcher is still a Rust bootstrap host; this is not yet
+native APL output.
+
 Or generate and compile in one command:
 
 ```powershell
@@ -209,6 +226,7 @@ Quick Windows batch wrappers:
 .\emit_aplc.bat examples\compiled_runtime.apl build\compiled_runtime.aplc
 .\run_aplc.bat build\compiled_runtime.aplc
 .\compile_apl.bat examples\compiled_runtime.apl build\compiled_runtime_bat
+.\compile_linked_apl.bat examples\compiled_runtime.apl build\compiled_runtime_linked_bat
 ```
 
 `examples/bootstrap_runtime.apl` is the current self-host smoke-test. The

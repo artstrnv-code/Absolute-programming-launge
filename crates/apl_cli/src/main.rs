@@ -135,6 +135,38 @@ fn main() {
                 Err(error) => exit_compile_error("run-linked", error),
             }
         }
+        "build-linked" | "compile-linked" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_dir = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_build_dir(&path));
+
+            match apl_compiler::build_linked_executable_package(Path::new(&path), &output_dir) {
+                Ok(output) => {
+                    println!("generated: {}", output.package_dir.display());
+                    println!("manifest: {}", output.manifest_path.display());
+                    println!("artifact: {}", output.artifact_path.display());
+                    println!("source: {}", output.source_path.display());
+                    if command == "compile-linked" {
+                        compile_generated_package(
+                            &output.package_name,
+                            &output.package_dir,
+                            &output.manifest_path,
+                        );
+                    } else {
+                        println!(
+                            "build with: cargo build --manifest-path {}",
+                            output.manifest_path.display()
+                        );
+                    }
+                }
+                Err(error) => exit_compile_error("build-linked", error),
+            }
+        }
         "build" | "compile" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -155,7 +187,11 @@ fn main() {
                     println!("manifest: {}", output.manifest_path.display());
                     println!("source: {}", output.source_path.display());
                     if command == "compile" {
-                        compile_generated_package(&output);
+                        compile_generated_package(
+                            &output.package_name,
+                            &output.package_dir,
+                            &output.manifest_path,
+                        );
                     } else {
                         println!(
                             "build with: cargo build --manifest-path {}",
@@ -176,7 +212,7 @@ fn main() {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-linked|run-linked|build|compile> <file> [output]"
+        "usage: apl <check|run|emit|run-ir|emit-linked|run-linked|build-linked|compile-linked|build|compile> <file> [output]"
     );
 }
 
@@ -225,11 +261,11 @@ fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {
     process::exit(1);
 }
 
-fn compile_generated_package(output: &apl_compiler::BuildOutput) {
+fn compile_generated_package(package_name: &str, package_dir: &Path, manifest_path: &Path) {
     let status = process::Command::new("cargo")
         .arg("build")
         .arg("--manifest-path")
-        .arg(&output.manifest_path)
+        .arg(manifest_path)
         .status()
         .unwrap_or_else(|error| {
             eprintln!("failed to invoke cargo build: {error}");
@@ -240,9 +276,8 @@ fn compile_generated_package(output: &apl_compiler::BuildOutput) {
         process::exit(status.code().unwrap_or(1));
     }
 
-    let executable_name = format!("{}{}", output.package_name, env::consts::EXE_SUFFIX);
-    let executable_path = output
-        .package_dir
+    let executable_name = format!("{}{}", package_name, env::consts::EXE_SUFFIX);
+    let executable_path = package_dir
         .join("target")
         .join("debug")
         .join(executable_name);

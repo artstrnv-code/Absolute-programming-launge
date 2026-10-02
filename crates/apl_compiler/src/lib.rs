@@ -44,6 +44,15 @@ pub struct BuildOutput {
     pub source_path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedBuildOutput {
+    pub package_dir: PathBuf,
+    pub package_name: String,
+    pub artifact_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub source_path: PathBuf,
+}
+
 #[derive(Debug)]
 pub enum CompileError {
     Io(std::io::Error),
@@ -85,9 +94,16 @@ impl From<apl_runtime::RuntimeError> for CompileError {
 }
 
 pub fn compile_linked_artifact(source: &str) -> Result<String, CompileError> {
+    compile_linked_artifact_with_module(RUNTIME_PRELUDE, source)
+}
+
+pub fn compile_linked_artifact_with_module(
+    module_source: &str,
+    source: &str,
+) -> Result<String, CompileError> {
     let output = run_bootstrap_bridge(
         LINKED_COMPILE_BRIDGE,
-        vec![RUNTIME_PRELUDE.to_owned(), source.to_owned()],
+        vec![module_source.to_owned(), source.to_owned()],
     )?;
     output
         .stdout
@@ -152,6 +168,40 @@ pub fn build_executable_package(
         package_dir,
         package_name,
         ir_path,
+        manifest_path,
+        source_path: generated_source_path,
+    })
+}
+
+pub fn build_linked_executable_package(
+    source_path: &Path,
+    output_dir: &Path,
+) -> Result<LinkedBuildOutput, CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let artifact = compile_linked_artifact(&source)?;
+
+    let package_dir = output_dir.to_path_buf();
+    let src_dir = package_dir.join("src");
+    fs::create_dir_all(&src_dir)?;
+
+    let manifest_path = package_dir.join("Cargo.toml");
+    let generated_source_path = src_dir.join("main.rs");
+    let artifact_path = package_dir.join("program.apllink");
+    let workspace_root = workspace_root_from_source(source_path);
+    let package_name =
+        compiled_package_name(source_path.file_stem().and_then(|name| name.to_str()));
+
+    fs::write(
+        &manifest_path,
+        render_linked_manifest(&workspace_root, &package_name),
+    )?;
+    fs::write(&artifact_path, artifact)?;
+    fs::write(&generated_source_path, render_linked_main())?;
+
+    Ok(LinkedBuildOutput {
+        package_dir,
+        package_name,
+        artifact_path,
         manifest_path,
         source_path: generated_source_path,
     })
@@ -257,6 +307,23 @@ apl_runtime = {{ path = "{runtime_path}" }}
     )
 }
 
+fn render_linked_manifest(workspace_root: &Path, package_name: &str) -> String {
+    let compiler_path = toml_path(&workspace_root.join("crates/apl_compiler"));
+
+    format!(
+        r#"[package]
+name = "{package_name}"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+apl_compiler = {{ path = "{compiler_path}" }}
+"#
+    )
+}
+
 fn render_main(ir: &[u8]) -> String {
     format!(
         r#"use std::{{io::Read, process}};
@@ -285,6 +352,28 @@ const COMPILED_APL_IR: &[u8] = &[
 "#,
         render_byte_array(ir)
     )
+}
+
+fn render_linked_main() -> String {
+    r#"use std::{io::Read, process};
+
+fn main() {
+    let mut stdin = String::new();
+    let _ = std::io::stdin().read_to_string(&mut stdin);
+    let input = stdin.lines().map(str::to_owned).collect();
+
+    match apl_compiler::run_linked_artifact(APL_LINKED_ARTIFACT, input) {
+        Ok(output) => print!("{}", output.stdout),
+        Err(error) => {
+            eprintln!("APL linked artifact error: {error:?}");
+            process::exit(1);
+        }
+    }
+}
+
+const APL_LINKED_ARTIFACT: &str = include_str!("../program.apllink");
+"#
+    .to_owned()
 }
 
 fn render_byte_array(bytes: &[u8]) -> String {
@@ -423,5 +512,28 @@ mod tests {
 
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "81\n");
+    }
+
+    #[test]
+    fn linked_artifact_accepts_an_explicit_apl_module() {
+        let artifact = compile_linked_artifact_with_module(
+            "func module.double(value) { return value * 2 }",
+            "out module.double(21)",
+        )
+        .unwrap();
+
+        let output = run_linked_artifact(&artifact, vec![]).unwrap();
+        assert_eq!(output.stdout, "42\n");
+    }
+
+    #[test]
+    fn generated_linked_main_embeds_portable_artifact() {
+        let rendered = render_linked_main();
+
+        assert!(rendered.contains("APL_LINKED_ARTIFACT"));
+        assert!(rendered.contains("program.apllink"));
+        assert!(rendered.contains("run_linked_artifact"));
+        assert!(!rendered.contains("run_ir_bytes"));
+        assert!(!rendered.contains("parse_program"));
     }
 }
