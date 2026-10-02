@@ -135,7 +135,7 @@ fn main() {
                 Err(error) => exit_compile_error("run-linked", error),
             }
         }
-        "build-linked" | "compile-linked" => {
+        "build" | "compile" | "build-linked" | "compile-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
                 process::exit(2);
@@ -151,7 +151,7 @@ fn main() {
                     println!("manifest: {}", output.manifest_path.display());
                     println!("artifact: {}", output.artifact_path.display());
                     println!("source: {}", output.source_path.display());
-                    if command == "compile-linked" {
+                    if command == "compile" || command == "compile-linked" {
                         compile_generated_package(
                             &output.package_name,
                             &output.package_dir,
@@ -167,7 +167,7 @@ fn main() {
                 Err(error) => exit_compile_error("build-linked", error),
             }
         }
-        "build" | "compile" => {
+        "build-host" | "compile-host" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
                 process::exit(2);
@@ -186,7 +186,7 @@ fn main() {
                     println!("generated: {}", output.package_dir.display());
                     println!("manifest: {}", output.manifest_path.display());
                     println!("source: {}", output.source_path.display());
-                    if command == "compile" {
+                    if command == "compile-host" {
                         compile_generated_package(
                             &output.package_name,
                             &output.package_dir,
@@ -199,7 +199,7 @@ fn main() {
                         );
                     }
                 }
-                Err(error) => exit_compile_error("build", error),
+                Err(error) => exit_compile_error("build-host", error),
             }
         }
         _ => {
@@ -212,7 +212,7 @@ fn main() {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-linked|run-linked|build-linked|compile-linked|build|compile> <file> [output]"
+        "usage: apl <check|run|emit|run-ir|emit-linked|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [output]"
     );
 }
 

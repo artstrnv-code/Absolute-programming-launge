@@ -13,8 +13,8 @@ if "%OUT_DIR%"=="" (
 )
 for %%F in ("%SOURCE%") do set "EXE_NAME=%%~nF_compiled.exe"
 
-echo [APL] compile "%SOURCE%" -^> "%OUT_DIR%"
-cargo run -p apl -- compile "%SOURCE%" "%OUT_DIR%"
+echo [APL] compile-host "%SOURCE%" -^> "%OUT_DIR%"
+cargo run -p apl -- compile-host "%SOURCE%" "%OUT_DIR%"
 if errorlevel 1 (
   popd >nul
   exit /b 1

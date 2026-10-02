@@ -148,14 +148,9 @@ cargo run -p apl -- run examples\hello.apl
 cargo run -p apl -- run examples\calculator.apl
 ```
 
-Generate a standalone Rust package from APL source plus the APL runtime prelude.
-The generated executable embeds `.aplc` IR bytes and enters through
-`apl_runtime::run_ir_bytes`, which loads a runtime `CompiledProgram`; it does
-not parse APL source text at startup. `CompiledProgram` lowers top-level code
-and functions into one linear statement opcode code segment with runtime-owned
-expression bytecode before execution. Blocks are ranges inside that code
-segment, and the runtime executes them with an explicit program counter;
-`if/else` and `while` lower to jump opcodes:
+Generate a Rust-hosted package whose program payload is compiled by the
+APL-written pipeline into `program.apllink`. The generated executable loads,
+verifies, and executes that portable artifact:
 
 ```powershell
 cargo run -p apl -- build examples\compiled_runtime.apl build\compiled_runtime
@@ -196,8 +191,8 @@ cargo run -p apl -- run-linked build\compiled_runtime.apllink
 The `.apllink` format is the current portable bootstrap format. It is distinct
 from host-side binary `.aplc` IR and is not yet native machine code.
 
-Generate and compile a Rust-hosted executable package whose program payload is
-the verified `APLLINK2` artifact rather than host-side `.aplc` IR:
+The explicit `build-linked` and `compile-linked` names are aliases for the
+default `build` and `compile` commands:
 
 ```powershell
 cargo run -p apl -- build-linked examples\compiled_runtime.apl build\compiled_runtime_linked
@@ -228,6 +223,11 @@ Quick Windows batch wrappers:
 .\compile_apl.bat examples\compiled_runtime.apl build\compiled_runtime_bat
 .\compile_linked_apl.bat examples\compiled_runtime.apl build\compiled_runtime_linked_bat
 ```
+
+`compile_linked_apl.bat` follows the default portable-artifact path.
+`compile_apl.bat` intentionally invokes legacy `compile-host`; it remains for
+self-host/compiler tests that need the complete compiler prelude inside the
+host `.aplc` image.
 
 `examples/bootstrap_runtime.apl` is the current self-host smoke-test. The
 standalone executable embeds compiled APL IR, runs the APL-written

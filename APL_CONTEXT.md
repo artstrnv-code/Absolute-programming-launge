@@ -439,8 +439,9 @@ Rust workspace:
 - `apl_parser`: lexer/parser.
 - `apl_runtime`: runtime v0.1 interpreter for the current base language.
 - `apl_ir`: binary `.aplc` IR encoder/decoder for checked APL programs.
-- `apl_compiler`: generates a standalone Rust package from APL source plus the
-  APL runtime prelude. It also exposes a narrow host bridge that asks the
+- `apl_compiler`: generates Rust-hosted executable packages from portable
+  linked artifacts and retains the earlier host `.aplc` package generator for
+  compiler bootstrap tests. It exposes a narrow host bridge that asks the
   APL-written bootstrap pipeline to compile source into portable `APLLINK2`
   artifacts and to load, verify, and run those artifacts. The bridge passes an
   explicit input count because the outer Rust-hosted `input` uses an empty
@@ -450,9 +451,9 @@ Rust workspace:
   one function table and one `CALL_SLOT` namespace without copying compiler
   implementation modules into the artifact.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
-  legacy Rust/`.aplc` package `build`/`compile`, APL-owned portable artifact
-  `emit-linked`/`run-linked`, and portable-artifact package
-  `build-linked`/`compile-linked` commands.
+  APL-owned portable artifact `emit-linked`/`run-linked`, default
+  portable-artifact package `build`/`compile` (plus explicit `-linked`
+  aliases), and legacy `.aplc` package `build-host`/`compile-host` commands.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:
@@ -697,18 +698,18 @@ Rust-hosted builtins that support the APL prelude:
 - Slice typing is shape-preserving in the checker: `Str[:] -> Str`,
   `Bytes[:] -> Bytes`, `List[:] -> List`, and dynamic `VTime[:] -> VTime`.
 
-Compiled runtime path:
+Legacy host-compiled runtime path:
 
 - `cargo run -p apl -- emit examples\compiled_runtime.apl build\compiled_runtime.aplc`
   parses/checks APL plus the prelude and writes a binary `.aplc` artifact.
 - `cargo run -p apl -- run-ir build\compiled_runtime.aplc` decodes and executes
   that artifact without parsing APL source text.
-- `cargo run -p apl -- build examples\compiled_runtime.apl build\compiled_runtime`
+- `cargo run -p apl -- build-host examples\compiled_runtime.apl build\compiled_runtime`
   validates the APL prelude plus user source and generates a separate Rust
   package.
 - `cargo build --manifest-path build\compiled_runtime\Cargo.toml` compiles that
   generated package.
-- `cargo run -p apl -- compile examples\compiled_runtime.apl build\compiled_runtime`
+- `cargo run -p apl -- compile-host examples\compiled_runtime.apl build\compiled_runtime`
   generates the package and invokes `cargo build` for it.
 - The generated executable embeds `.aplc` IR bytes and enters through
   `apl_runtime::run_ir_bytes`.
@@ -734,21 +735,25 @@ Compiled runtime path:
 
 Portable linked package path:
 
-- `cargo run -p apl -- build-linked examples\compiled_runtime.apl build\compiled_runtime_linked`
+- `cargo run -p apl -- build examples\compiled_runtime.apl build\compiled_runtime_linked`
   asks the APL-written pipeline to compose `std/runtime.apl` with user source,
   check and lower it, assign function slots, and encode `program.apllink`.
-- `cargo run -p apl -- compile-linked examples\compiled_runtime.apl build\compiled_runtime_linked`
+- `cargo run -p apl -- compile examples\compiled_runtime.apl build\compiled_runtime_linked`
   also invokes Cargo for the generated launcher package.
+- `build-linked` and `compile-linked` remain explicit aliases for the same
+  portable-artifact package path.
 - The generated launcher embeds `program.apllink` with `include_str!` and calls
   `apl_compiler::run_linked_artifact`. Artifact decoding, structural
   verification, and VM execution remain APL-owned.
 - The launcher and loader remain Rust-hosted bootstrap code; `.apllink` is not
   native machine code.
-- Legacy `build`/`compile` remains available for self-host examples that execute
-  compiler modules from the complete standard prelude. Compiling that entire
-  compiler source through the currently interpreted APL lexer/parser on every
-  build is not yet practical; a preloaded compiler image is the next migration
-  layer.
+- Legacy `build-host`/`compile-host` remains available for self-host examples
+  that execute compiler modules from the complete standard prelude.
+  `compile_apl.bat` intentionally uses `compile-host`, while
+  `compile_linked_apl.bat` uses the portable path. Compiling the entire compiler
+  source through the currently interpreted APL lexer/parser on every build is
+  not yet practical; a relocatable preloaded compiler module is the next
+  migration layer.
 - `if/else if/else` is compiled into `JumpIfFalse`, `ExecScopedBlock`, and
   `Jump` statement opcodes.
 - `while` is compiled into `LoopCheck`, `ExecLoopBody`, and `Jump` statement
