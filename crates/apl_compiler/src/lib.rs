@@ -85,7 +85,10 @@ impl From<apl_runtime::RuntimeError> for CompileError {
 }
 
 pub fn compile_linked_artifact(source: &str) -> Result<String, CompileError> {
-    let output = run_bootstrap_bridge(LINKED_COMPILE_BRIDGE, vec![source.to_owned()])?;
+    let output = run_bootstrap_bridge(
+        LINKED_COMPILE_BRIDGE,
+        vec![RUNTIME_PRELUDE.to_owned(), source.to_owned()],
+    )?;
     output
         .stdout
         .strip_suffix('\n')
@@ -187,7 +190,9 @@ fn run_bootstrap_bridge(
     Ok(apl_runtime::run_program(&program, input)?)
 }
 
-const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.source = input
+const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
+VTime aplhost.program_source = input
+VTime aplhost.source = join([aplhost.runtime_source, char(10), aplhost.program_source], "")
 VTime aplhost.compile_report = bootstrap.linked_artifact_report(aplhost.source)
 if get(aplhost.compile_report, 0) != vm.FLOW_OK {
   fail get(aplhost.compile_report, 1)
@@ -409,5 +414,14 @@ mod tests {
         let output =
             run_linked_artifact(&artifact, vec![String::new(), "kept".to_owned()]).unwrap();
         assert_eq!(output.stdout, "0\nkept\n");
+    }
+
+    #[test]
+    fn linked_artifact_includes_apl_runtime_module() {
+        let artifact =
+            compile_linked_artifact("AVInt value = apl.pow_int(3, 4) out value").unwrap();
+
+        let output = run_linked_artifact(&artifact, vec![]).unwrap();
+        assert_eq!(output.stdout, "81\n");
     }
 }

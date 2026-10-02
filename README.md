@@ -182,6 +182,17 @@ cargo run -p apl -- emit-linked examples\linked_hello.apl build\linked_hello.apl
 cargo run -p apl -- run-linked build\linked_hello.apllink
 ```
 
+The linked compiler composes `std/runtime.apl` with the user source before the
+APL checker and linker run. Runtime helpers such as `apl.pow_int` therefore
+become ordinary functions in the artifact's single verified function table;
+compiler implementation modules such as the lexer, parser, and VM are not
+copied into the user artifact:
+
+```powershell
+cargo run -p apl -- emit-linked examples\compiled_runtime.apl build\compiled_runtime.apllink
+cargo run -p apl -- run-linked build\compiled_runtime.apllink
+```
+
 The `.apllink` format is the current portable bootstrap format. It is distinct
 from host-side binary `.aplc` IR and is not yet native machine code.
 

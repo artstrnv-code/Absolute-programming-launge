@@ -444,7 +444,11 @@ Rust workspace:
   APL-written bootstrap pipeline to compile source into portable `APLLINK2`
   artifacts and to load, verify, and run those artifacts. The bridge passes an
   explicit input count because the outer Rust-hosted `input` uses an empty
-  string at exhaustion while the inner APL VM uses `NONE`.
+  string at exhaustion while the inner APL VM uses `NONE`. Linked compilation
+  composes `std/runtime.apl` and user source inside the APL bridge before
+  checking and lowering. Runtime helpers and user functions therefore receive
+  one function table and one `CALL_SLOT` namespace without copying compiler
+  implementation modules into the artifact.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   Rust package `build`/`compile`, and APL-owned portable artifact
   `emit-linked`/`run-linked` commands.
@@ -476,6 +480,9 @@ APL-owned runtime code:
   `if/else if/else` blocks, `while(condition)(limit)` blocks, `pick(value): item` blocks, function
   declarations, `return`, `break`, `continue`, `secretup`, `out`, `stop`, and
   `fail`.
+  Bounded-loop parsing accepts both non-negative integer limits and the
+  tokenized negative literal `-1`, matching the Rust parser and the language's
+  unlimited-loop syntax.
   Current expression coverage: int, float, string, bool, `NONE`, `input`,
   `secret input`, variable references, list literals, tagged values `value:ASV` / `value:SASV`,
   function/builtin calls, postfix indexing/slicing, unary `-`/`not`
@@ -630,7 +637,11 @@ APL-owned runtime code:
   `compile_linked_artifact`, `emit_linked_artifact_file`,
   `run_linked_artifact`, `emit-linked`, and `run-linked`. The default file
   extension is `.apllink`; this is a portable bootstrap wire format, not native
-  machine code and not the host-side binary `.aplc` format.
+  machine code and not the host-side binary `.aplc` format. The compiler bridge
+  prepends the small APL runtime module as a separate input and performs source
+  composition in APL before checking, IR lowering, function-slot linking, and
+  artifact encoding. This is the first standard-module composition step; image
+  merging after `CALL_SLOT` assignment remains intentionally unsupported.
   The source-level `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` facades now compile to a
   loaded image and execute that loaded image instead of directly calling

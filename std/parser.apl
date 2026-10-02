@@ -650,6 +650,14 @@ func parser.parse_statement(tokens, index) {
 
     VTime limit_token = get(tokens, limit_open_index + 1)
     VTime limit_close_index = limit_open_index + 2
+    VTime limit = int(lexer.token_value(limit_token))
+
+    if lexer.token_value(limit_token) == "-" {
+      VTime limit_value_token = get(tokens, limit_open_index + 2)
+      limit = int(lexer.token_value(limit_value_token)) * -1
+      limit_close_index = limit_open_index + 3
+    }
+
     VTime limit_close = get(tokens, limit_close_index)
 
     if lexer.token_value(limit_close) != ")" {
@@ -664,7 +672,7 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_body = parser.parse_block(tokens, body_open_index + 1)
-    return [[parser.NODE_WHILE, get(parsed_condition, 0), int(lexer.token_value(limit_token)), get(parsed_body, 0)], get(parsed_body, 1)]
+    return [[parser.NODE_WHILE, get(parsed_condition, 0), limit, get(parsed_body, 0)], get(parsed_body, 1)]
   }
 
   if value == "pick" {

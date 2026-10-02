@@ -2045,6 +2045,8 @@ mod tests {
             VTime out_node = get(statements, 1)
             VTime assign = get(statements, 2)
             VTime literal = get(decl, 3)
+            AVStr loop_source = "while (true) (-1) { break }"
+            VTime loop_node = get(parser.parse_source(loop_source), 0)
 
             out len(statements)
             out parser.node_kind(decl)
@@ -2055,11 +2057,16 @@ mod tests {
             out parser.node_kind(out_node)
             out parser.node_kind(assign)
             out get(assign, 2)
+            out parser.node_kind(loop_node)
+            out get(loop_node, 2)
             "#,
         )
         .unwrap();
 
-        assert_eq!(output, "3\nDecl\nAVInt\nx\nInt\n42\nOut\nAssign\n+=\n");
+        assert_eq!(
+            output,
+            "3\nDecl\nAVInt\nx\nInt\n42\nOut\nAssign\n+=\nWhile\n-1\n"
+        );
     }
 
     #[test]
