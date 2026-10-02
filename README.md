@@ -170,6 +170,21 @@ cargo run -p apl -- emit examples\compiled_runtime.apl build\compiled_runtime.ap
 cargo run -p apl -- run-ir build\compiled_runtime.aplc
 ```
 
+Emit and run an APL-owned portable linked artifact. `emit-linked` enters the
+APL-written lexer/parser/checker/IR/linker/artifact pipeline through a narrow
+Rust host bridge and writes the resulting `APLLINK2:` payload. `run-linked`
+loads, verifies, and executes that payload through the APL-written artifact
+loader and VM. The host passes the input count explicitly, so empty input lines
+remain valid values and are not confused with end of input:
+
+```powershell
+cargo run -p apl -- emit-linked examples\linked_hello.apl build\linked_hello.apllink
+cargo run -p apl -- run-linked build\linked_hello.apllink
+```
+
+The `.apllink` format is the current portable bootstrap format. It is distinct
+from host-side binary `.aplc` IR and is not yet native machine code.
+
 Or generate and compile in one command:
 
 ```powershell

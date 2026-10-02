@@ -19,6 +19,12 @@ bootstrap host. Later compiler stages should move toward native code or a
 native kernel-suitable runtime path, because APL is intended to be capable of
 OS-level development in the future.
 
+Native APL does not imply exposing raw addresses, pointers, or manual allocation
+as ordinary language features. Those mechanisms belong in low-level C/C++/Rust
+or ASM components. APL should be able to produce and run native orchestration
+code without a foreign managed runtime while keeping unsafe hardware and memory
+operations behind explicit component contracts.
+
 Core phrase:
 
 ```text
@@ -434,8 +440,14 @@ Rust workspace:
 - `apl_runtime`: runtime v0.1 interpreter for the current base language.
 - `apl_ir`: binary `.aplc` IR encoder/decoder for checked APL programs.
 - `apl_compiler`: generates a standalone Rust package from APL source plus the
-  APL runtime prelude.
-- `apl_cli`: CLI with `check` and `run`.
+  APL runtime prelude. It also exposes a narrow host bridge that asks the
+  APL-written bootstrap pipeline to compile source into portable `APLLINK2`
+  artifacts and to load, verify, and run those artifacts. The bridge passes an
+  explicit input count because the outer Rust-hosted `input` uses an empty
+  string at exhaustion while the inner APL VM uses `NONE`.
+- `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
+  Rust package `build`/`compile`, and APL-owned portable artifact
+  `emit-linked`/`run-linked` commands.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:
@@ -614,6 +626,11 @@ APL-owned runtime code:
   `[FAIL, message]`. Their payload is encoded and decoded entirely by APL code;
   a decoded artifact is the same `APLLOAD2` image consumed by the loaded-image
   execution APIs and must pass the same structural verifier before it can run.
+  The Rust compiler facade and CLI now expose this path through
+  `compile_linked_artifact`, `emit_linked_artifact_file`,
+  `run_linked_artifact`, `emit-linked`, and `run-linked`. The default file
+  extension is `.apllink`; this is a portable bootstrap wire format, not native
+  machine code and not the host-side binary `.aplc` format.
   The source-level `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` facades now compile to a
   loaded image and execute that loaded image instead of directly calling

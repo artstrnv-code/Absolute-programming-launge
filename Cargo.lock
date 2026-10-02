@@ -20,6 +20,7 @@ dependencies = [
  "apl_core",
  "apl_ir",
  "apl_parser",
+ "apl_runtime",
 ]
 
 [[package]]

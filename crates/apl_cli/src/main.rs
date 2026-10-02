@@ -102,6 +102,39 @@ fn main() {
                 }
             }
         }
+        "emit-linked" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_linked_path(&path));
+
+            match apl_compiler::emit_linked_artifact_file(Path::new(&path), &output_path) {
+                Ok(()) => println!("emitted linked artifact: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-linked", error),
+            }
+        }
+        "run-linked" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing linked artifact path");
+                process::exit(2);
+            };
+            let artifact = fs::read_to_string(&path).unwrap_or_else(|error| {
+                eprintln!("failed to read `{path}`: {error}");
+                process::exit(1);
+            });
+            let mut stdin = String::new();
+            let _ = std::io::stdin().read_to_string(&mut stdin);
+            let input = stdin.lines().map(str::to_owned).collect();
+
+            match apl_compiler::run_linked_artifact(&artifact, input) {
+                Ok(output) => print!("{}", output.stdout),
+                Err(error) => exit_compile_error("run-linked", error),
+            }
+        }
         "build" | "compile" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -130,22 +163,7 @@ fn main() {
                         );
                     }
                 }
-                Err(apl_compiler::CompileError::Io(error)) => {
-                    eprintln!("build io error: {error}");
-                    process::exit(1);
-                }
-                Err(apl_compiler::CompileError::Ir(error)) => {
-                    eprintln!("build IR error: {error:?}");
-                    process::exit(1);
-                }
-                Err(apl_compiler::CompileError::Parse(error)) => {
-                    eprintln!("build parse error: {}", error.message);
-                    process::exit(1);
-                }
-                Err(apl_compiler::CompileError::Check(error)) => {
-                    eprintln!("build check error: {error:?}");
-                    process::exit(1);
-                }
+                Err(error) => exit_compile_error("build", error),
             }
         }
         _ => {
@@ -157,7 +175,9 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("usage: apl <check|run|emit|run-ir|build|compile> <file.apl|file.aplc> [output]");
+    eprintln!(
+        "usage: apl <check|run|emit|run-ir|emit-linked|run-linked|build|compile> <file> [output]"
+    );
 }
 
 fn default_build_dir(path: &str) -> PathBuf {
@@ -176,6 +196,14 @@ fn default_ir_path(path: &str) -> PathBuf {
     PathBuf::from("build").join(format!("{stem}.aplc"))
 }
 
+fn default_linked_path(path: &str) -> PathBuf {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("program");
+    PathBuf::from("build").join(format!("{stem}.apllink"))
+}
+
 fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {
     match error {
         apl_compiler::CompileError::Io(error) => eprintln!("{verb} io error: {error}"),
@@ -184,6 +212,15 @@ fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {
             eprintln!("{verb} parse error: {}", error.message)
         }
         apl_compiler::CompileError::Check(error) => eprintln!("{verb} check error: {error:?}"),
+        apl_compiler::CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)) => {
+            eprintln!("{verb} APL fail: {message}")
+        }
+        apl_compiler::CompileError::Runtime(error) => {
+            eprintln!("{verb} runtime error: {error:?}")
+        }
+        apl_compiler::CompileError::Bootstrap(message) => {
+            eprintln!("{verb} bootstrap error: {message}")
+        }
     }
     process::exit(1);
 }

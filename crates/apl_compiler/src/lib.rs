@@ -50,6 +50,8 @@ pub enum CompileError {
     Ir(apl_ir::IrError),
     Parse(apl_parser::ParseError),
     Check(apl_core::CheckError),
+    Runtime(apl_runtime::RuntimeError),
+    Bootstrap(String),
 }
 
 impl From<std::io::Error> for CompileError {
@@ -74,6 +76,43 @@ impl From<apl_core::CheckError> for CompileError {
     fn from(error: apl_core::CheckError) -> Self {
         Self::Check(error)
     }
+}
+
+impl From<apl_runtime::RuntimeError> for CompileError {
+    fn from(error: apl_runtime::RuntimeError) -> Self {
+        Self::Runtime(error)
+    }
+}
+
+pub fn compile_linked_artifact(source: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(LINKED_COMPILE_BRIDGE, vec![source.to_owned()])?;
+    output
+        .stdout
+        .strip_suffix('\n')
+        .map(str::to_owned)
+        .filter(|artifact| !artifact.is_empty())
+        .ok_or_else(|| CompileError::Bootstrap("APL compiler returned no artifact".to_owned()))
+}
+
+pub fn emit_linked_artifact_file(
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let artifact = compile_linked_artifact(&source)?;
+    fs::write(output_path, artifact)?;
+    Ok(())
+}
+
+pub fn run_linked_artifact(
+    artifact: &str,
+    input: Vec<String>,
+) -> Result<apl_runtime::RunOutput, CompileError> {
+    let mut bridge_input = Vec::with_capacity(input.len() + 2);
+    bridge_input.push(artifact.to_owned());
+    bridge_input.push(input.len().to_string());
+    bridge_input.extend(input);
+    run_bootstrap_bridge(LINKED_RUN_BRIDGE, bridge_input)
 }
 
 pub fn build_executable_package(
@@ -137,6 +176,54 @@ pub fn compose_program(runtime_prelude: &str, source: &str) -> String {
     combined.push('\n');
     combined
 }
+
+fn run_bootstrap_bridge(
+    bridge_source: &str,
+    input: Vec<String>,
+) -> Result<apl_runtime::RunOutput, CompileError> {
+    let source = compose_program(STANDARD_PRELUDE, bridge_source);
+    let program = apl_parser::parse_program(&source)?;
+    apl_core::validate_program(&program)?;
+    Ok(apl_runtime::run_program(&program, input)?)
+}
+
+const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.source = input
+VTime aplhost.compile_report = bootstrap.linked_artifact_report(aplhost.source)
+if get(aplhost.compile_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.compile_report, 1)
+}
+out get(aplhost.compile_report, 1)"#;
+
+const LINKED_RUN_BRIDGE: &str = r#"VTime aplhost.encoded = input
+VTime aplhost.loaded_report = bootstrap.load_linked_artifact_report(aplhost.encoded)
+
+if get(aplhost.loaded_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.loaded_report, 1)
+}
+
+VTime aplhost.inputs = []
+VTime aplhost.input_count = int(input)
+VTime aplhost.input_index = 0
+
+while (aplhost.input_index < aplhost.input_count) (-1) {
+  add(aplhost.inputs, input)
+  aplhost.input_index += 1
+}
+
+VTime aplhost.run_report = bootstrap.run_loaded_image_with_input_report(get(aplhost.loaded_report, 1), aplhost.inputs)
+VTime aplhost.output = get(aplhost.run_report, 1)
+
+pick(aplhost.output): aplhost.line {
+  out aplhost.line
+}
+
+if get(aplhost.run_report, 0) == vm.FLOW_FAIL {
+  fail "linked artifact failed"
+}
+
+if get(aplhost.run_report, 0) == vm.FLOW_STOP {
+  stop
+}"#;
 
 fn compiled_package_name(source_stem: Option<&str>) -> String {
     let name = source_stem
@@ -298,5 +385,29 @@ mod tests {
         assert!(rendered.contains("run_ir_bytes"));
         assert!(!rendered.contains("parse_program"));
         assert!(!rendered.contains("PROGRAM_SOURCE"));
+    }
+
+    #[test]
+    fn apl_bootstrap_compiles_and_runs_portable_artifact() {
+        let artifact = compile_linked_artifact(
+            "func inc(x) { return x + 1 } AVInt value = input out inc(value)",
+        )
+        .unwrap();
+
+        assert!(artifact.starts_with("APLLINK2:"));
+        let output = run_linked_artifact(&artifact, vec!["4".to_owned()]).unwrap();
+        assert_eq!(output.stdout, "5\n");
+    }
+
+    #[test]
+    fn linked_artifact_bridge_preserves_empty_input_lines() {
+        let artifact = compile_linked_artifact(
+            "AVStr first = input AVStr second = input out len(first) out second",
+        )
+        .unwrap();
+
+        let output =
+            run_linked_artifact(&artifact, vec![String::new(), "kept".to_owned()]).unwrap();
+        assert_eq!(output.stdout, "0\nkept\n");
     }
 }
