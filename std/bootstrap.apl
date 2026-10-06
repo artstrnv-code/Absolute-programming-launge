@@ -82,7 +82,7 @@ func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
 
   VTime module = get(module_report, 1)
   VTime ast = bootstrap.ast(source)
-  VTime checked = checker.validate_report_with_functions(ast, get(module, 2), get(module, 3))
+  VTime checked = checker.validate_report_with_symbols(ast, artifact.module_symbols(module))
 
   if get(checked, 0) != checker.STATUS_OK {
     return [vm.FLOW_FAIL, get(checked, 1)]
@@ -94,7 +94,7 @@ func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
     return [vm.FLOW_FAIL, bootstrap.ir_error(user_program)]
   }
 
-  VTime combined = get(module, 1)[:]
+  VTime combined = artifact.module_program(module)[:]
 
   pick(user_program): instruction {
     add(combined, instruction)

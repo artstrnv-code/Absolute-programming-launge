@@ -640,29 +640,22 @@ func checker.collect_function_names(statements, names) {
   return checker.ok(names)
 }
 
-func checker.add_external_functions(names, function_names, arities) {
-  if len(function_names) != len(arities) {
-    return checker.fail(names, "external function table shape mismatch")
-  }
-
-  VTime index = 0
-
-  while (index < len(function_names)) (-1) {
-    VTime name = get(function_names, index)
+func checker.add_external_symbols(names, symbols) {
+  pick(symbols): symbol {
+    VTime name = get(symbol, 0)
 
     if checker.name_exists(names, name) {
       return checker.fail(names, join(["duplicate name `", name, "`"], ""))
     }
 
-    names = checker.add_name(names, name, "Func", get(arities, index))
-    index += 1
+    names = checker.add_name(names, name, get(symbol, 1), get(symbol, 2))
   }
 
   return checker.ok(names)
 }
 
-func checker.validate_report_with_functions(statements, function_names, arities) {
-  VTime external_state = checker.add_external_functions([], function_names, arities)
+func checker.validate_report_with_symbols(statements, symbols) {
+  VTime external_state = checker.add_external_symbols([], symbols)
 
   if get(external_state, 0) != checker.STATUS_OK {
     return [get(external_state, 0), get(external_state, 2)]
@@ -683,6 +676,22 @@ func checker.validate_report_with_functions(statements, function_names, arities)
   return [checker.STATUS_OK, statements]
 }
 
+func checker.validate_report_with_functions(statements, function_names, arities) {
+  if len(function_names) != len(arities) {
+    return [checker.STATUS_FAIL, "external function table shape mismatch"]
+  }
+
+  VTime symbols = []
+  VTime index = 0
+
+  while (index < len(function_names)) (-1) {
+    add(symbols, [get(function_names, index), "Func", get(arities, index)])
+    index += 1
+  }
+
+  return checker.validate_report_with_symbols(statements, symbols)
+}
+
 func checker.validate_report(statements) {
-  return checker.validate_report_with_functions(statements, [], [])
+  return checker.validate_report_with_symbols(statements, [])
 }

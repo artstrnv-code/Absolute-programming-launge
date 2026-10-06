@@ -595,7 +595,7 @@ mod tests {
             "func module.add_one(value) { return value + 1 } func module.twice(value) { return module.add_one(module.add_one(value)) }",
         )
         .unwrap();
-        assert!(module.starts_with("APLMOD1:"));
+        assert!(module.starts_with("APLMOD2:"));
 
         let artifact =
             compile_linked_artifact_with_precompiled_module(&module, "out module.twice(40)")

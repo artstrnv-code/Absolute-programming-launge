@@ -2962,24 +2962,33 @@ mod tests {
     fn source_runtime_links_relocatable_apl_modules_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr module_source = "func module.add_one(value) { return value + 1 } func module.twice(value) { return module.add_one(module.add_one(value)) }"
+            AVStr module_source = "AVInt module.answer = 40 List module.values = [2] func module.add_one(value) { return value + 1 } func module.total() { return module.add_one(module.answer) + get(module.values, 0) - 1 }"
             VTime module_report = bootstrap.module_report(module_source)
             VTime encoded_module = get(module_report, 1)
             VTime loaded_module = bootstrap.load_module_report(encoded_module)
-            VTime linked_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.twice(40)")
+            VTime linked_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.answer out get(module.values, 0) out module.total()")
             VTime run_report = bootstrap.run_linked_artifact_report(get(linked_report, 1))
             VTime unknown_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.missing(1)")
+            VTime duplicate_report = bootstrap.linked_artifact_with_module_report(encoded_module, "AVInt module.answer = 1")
             VTime bad_header = bootstrap.load_module_report("BAD")
             VTime prelinked_program = [["OUT", ["CALL_SLOT", 0, []]], ["FUNC", "f", [], [["RETURN", ["LITERAL", "Int", 1]]]]]
             VTime prelinked_encode = artifact.encode_module_report(prelinked_program)
             VTime prelinked_image = artifact.node_list([
-              artifact.node_str("APLMOD1"),
+              artifact.node_str("APLMOD2"),
               artifact.wrap_program(prelinked_program),
-              artifact.wrap_str_list(["f"]),
-              artifact.wrap_int_list([0])
+              artifact.wrap_symbol_table([["f", "Func", 0]])
             ])
             VTime prelinked_text = join([artifact.MODULE_HEADER, artifact.encode_node(prelinked_image)], "")
             VTime prelinked_load = bootstrap.load_module_report(prelinked_text)
+            VTime module_image = get(loaded_module, 1)
+            VTime legacy_image = artifact.node_list([
+              artifact.node_str("APLMOD1"),
+              artifact.wrap_program(artifact.module_program(module_image)),
+              artifact.wrap_str_list(["module.add_one", "module.total"]),
+              artifact.wrap_int_list([1, 0])
+            ])
+            VTime legacy_text = join([artifact.MODULE_HEADER_V1, artifact.encode_node(legacy_image)], "")
+            VTime legacy_load = bootstrap.load_module_report(legacy_text)
 
             out get(module_report, 0)
             out encoded_module[:len(artifact.MODULE_HEADER)]
@@ -2987,21 +2996,27 @@ mod tests {
             out get(linked_report, 0)
             out get(run_report, 0)
             out get(get(run_report, 1), 0)
+            out get(get(run_report, 1), 1)
+            out get(get(run_report, 1), 2)
             out get(unknown_report, 0)
             out get(unknown_report, 1)
+            out get(duplicate_report, 0)
+            out get(duplicate_report, 1)
             out get(bad_header, 0)
             out get(bad_header, 1)
             out get(prelinked_encode, 0)
             out get(prelinked_encode, 1)
             out get(prelinked_load, 0)
             out get(prelinked_load, 1)
+            out get(legacy_load, 0)
+            out get(get(legacy_load, 1), 0)
             "#,
         )
         .unwrap();
 
         assert_eq!(
             output,
-            "OK\nAPLMOD1:\nOK\nOK\nOK\n42\nFAIL\nunknown function `module.missing`\nFAIL\ninvalid module artifact header\nFAIL\nmodule program is already linked\nFAIL\ninvalid module artifact image\n"
+            "OK\nAPLMOD2:\nOK\nOK\nOK\n40\n2\n42\nFAIL\nunknown function `module.missing`\nFAIL\nduplicate name `module.answer`\nFAIL\ninvalid module artifact header\nFAIL\nmodule program is already linked\nFAIL\ninvalid module artifact image\nOK\nAPLMOD1\n"
         );
     }
 

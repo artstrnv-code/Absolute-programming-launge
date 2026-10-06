@@ -506,9 +506,11 @@ APL-owned runtime code:
   validation accepts known VM builtins, accepts user functions including
   top-level forward calls, rejects unknown function names, rejects attempts to
   call non-function values, and checks user-function argument counts.
-  `checker.validate_report_with_functions` accepts a verified external function
-  name/arity table. It rejects collisions with user declarations and validates
-  imported calls before module and user IR are combined.
+  `checker.validate_report_with_symbols` accepts a verified external symbol
+  table for functions, absolute variables, and lists. It rejects collisions
+  with user declarations and validates imported reads, mutation targets, and
+  calls before module and user IR are combined. The function-only facade remains
+  available for `APLMOD1` compatibility.
 - `examples/test_checker.apl`, `examples/test_checker_targets.apl`, and
   `examples/test_checker_exprs.apl`, and `examples/test_checker_calls.apl` are
   the checker smoke-tests.
@@ -531,19 +533,21 @@ APL-owned runtime code:
   nested blocks, builtin arity, function-table consistency, unique function and
   parameter names, loop limits, and `CALL_SLOT` bounds before VM execution.
   It also recursively detects `CALL_SLOT` in relocatable programs, including
-  nested expressions, blocks, and function bodies. An `APLMOD1` module must be
+  nested expressions, blocks, and function bodies. An APL module must be
   unlinked so slot assignment can happen once after all code is combined.
 - `std/artifact.apl`: the APL-written portable codec for linked images. It
   emits `APLLINK2:` wire strings with tagged scalar nodes, length-prefixed
   payloads, and recursive lists. The APL decoder reconstructs the linked image
   without source parsing and rejects bad headers, malformed/truncated nodes,
   unknown tags, trailing data, and structures rejected by the APL verifier.
-  The same scalar/list codec emits `APLMOD1:` relocatable modules containing
-  unlinked IR, exported function names, and exported arities. Module decoding
-  rejects malformed/trailing data, duplicate or inconsistent exports,
-  pre-existing `CALL_SLOT`, and programs that cannot produce a valid loaded
-  image. The first module format exports functions only; absolute variables and
-  list symbols are not yet importable by user source.
+  The same scalar/list codec emits `APLMOD2:` relocatable modules containing
+  unlinked IR and a symbol table for functions, absolute variables, and `List`
+  declarations. Function symbols carry arity; absolute symbols retain their
+  complete declaration type. Module decoding rejects malformed/trailing data,
+  duplicate or inconsistent exports, pre-existing `CALL_SLOT`, and programs
+  that cannot produce a valid loaded image. The decoder remains compatible
+  with the earlier function-only `APLMOD1:` format and normalizes its exports
+  for the external checker.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`, keeps an append-only environment as
   `[names, values, kinds, types, initials]`,

@@ -200,13 +200,14 @@ cargo run -p apl -- emit-linked-module build\runtime.aplmod examples\compiled_ru
 cargo run -p apl -- run-linked build\compiled_runtime.apllink
 ```
 
-`.aplmod` uses the `APLMOD1:` portable format. It stores unlinked IR plus
-exported function names and arities. Decoding rejects malformed structure,
-trailing data, inconsistent exports, and any pre-existing `CALL_SLOT` opcode.
-The user checker imports the exported signatures, then the module IR and user
-IR are combined and assigned one final function-slot namespace. The current
-format exports functions only; module-level absolute variables and lists are a
-future symbol-table extension.
+`.aplmod` now uses the `APLMOD2:` portable format. It stores unlinked IR plus a
+verified symbol table for functions, absolute variables, and `List`
+declarations. Function symbols carry arity; absolute symbols carry their full
+declared type. Decoding rejects malformed structure, trailing data,
+inconsistent or duplicate exports, and any pre-existing `CALL_SLOT` opcode.
+The user checker imports the symbols, then module IR and user IR are combined
+and assigned one final function-slot namespace. The decoder remains compatible
+with function-only `APLMOD1:` artifacts.
 
 The explicit `build-linked` and `compile-linked` names are aliases for the
 default `build` and `compile` commands:

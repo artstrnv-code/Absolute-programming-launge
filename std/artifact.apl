@@ -2,7 +2,8 @@
 # Scalars are tagged and length-prefixed, so strings need no escaping.
 
 AVStr artifact.HEADER = "APLLINK2:"
-AVStr artifact.MODULE_HEADER = "APLMOD1:"
+AVStr artifact.MODULE_HEADER = "APLMOD2:"
+AVStr artifact.MODULE_HEADER_V1 = "APLMOD1:"
 AVStr artifact.NODE_NONE = "n"
 AVStr artifact.NODE_BOOL = "b"
 AVStr artifact.NODE_INT = "i"
@@ -581,7 +582,96 @@ func artifact.function_arities(functions) {
   return arities
 }
 
-func artifact.module_image_is_valid(image) {
+func artifact.wrap_symbol_table(symbols) {
+  VTime wrapped = []
+
+  pick(symbols): symbol {
+    VTime typ = get(symbol, 2)
+    VTime wrapped_type = artifact.node_str(typ)
+
+    if get(symbol, 1) == "Func" {
+      wrapped_type = artifact.node_int(typ)
+    }
+
+    add(wrapped, artifact.node_list([
+      artifact.node_str(get(symbol, 0)),
+      artifact.node_str(get(symbol, 1)),
+      wrapped_type
+    ]))
+  }
+
+  return artifact.node_list(wrapped)
+}
+
+func artifact.program_symbols(program) {
+  VTime symbols = []
+
+  pick(program): instruction {
+    VTime opcode = ir.opcode(instruction)
+
+    if opcode == ir.OP_DECL {
+      add(symbols, [get(instruction, 2), "Absolute", get(instruction, 1)])
+    }
+
+    if opcode == ir.OP_LIST_DECL {
+      add(symbols, [get(instruction, 1), "List", "List"])
+    }
+
+    if opcode == ir.OP_FUNC {
+      add(symbols, [get(instruction, 1), "Func", len(get(instruction, 2))])
+    }
+  }
+
+  return symbols
+}
+
+func artifact.module_symbols_are_valid(symbols) {
+  VTime names = []
+
+  pick(symbols): symbol {
+    if len(symbol) != 3 {
+      return false
+    }
+
+    VTime name = get(symbol, 0)
+    VTime role = get(symbol, 1)
+    VTime typ = get(symbol, 2)
+
+    if verifier.is_str(name) != true {
+      return false
+    }
+
+    if verifier.is_str(role) != true {
+      return false
+    }
+
+    if role == "Func" {
+      if verifier.is_int(typ) != true {
+        return false
+      }
+
+      if typ < 0 {
+        return false
+      }
+    } else if role == "Absolute" {
+      if parser.is_decl_keyword(typ) != true {
+        return false
+      }
+    } else if role == "List" {
+      if typ != "List" {
+        return false
+      }
+    } else {
+      return false
+    }
+
+    add(names, name)
+  }
+
+  return verifier.values_are_unique(names)
+}
+
+func artifact.module_v1_image_is_valid(image) {
   if len(image) != 4 {
     return false
   }
@@ -635,6 +725,65 @@ func artifact.module_image_is_valid(image) {
   return artifact.function_arities(functions) == arities
 }
 
+func artifact.module_v1_symbols(image) {
+  VTime symbols = []
+  VTime names = get(image, 2)
+  VTime arities = get(image, 3)
+  VTime index = 0
+
+  while (index < len(names)) (-1) {
+    add(symbols, [get(names, index), "Func", get(arities, index)])
+    index += 1
+  }
+
+  return symbols
+}
+
+func artifact.module_image_is_valid(image) {
+  if get(image, 0) == "APLMOD1" {
+    return artifact.module_v1_image_is_valid(image)
+  }
+
+  if len(image) != 3 {
+    return false
+  }
+
+  if get(image, 0) != "APLMOD2" {
+    return false
+  }
+
+  VTime program = get(image, 1)
+  VTime symbols = get(image, 2)
+
+  if artifact.module_symbols_are_valid(symbols) != true {
+    return false
+  }
+
+  if verifier.program_contains_call_slot(program) {
+    return false
+  }
+
+  VTime loaded_report = vm.load_ir_report(program)
+
+  if get(loaded_report, 0) != vm.FLOW_OK {
+    return false
+  }
+
+  return artifact.program_symbols(program) == symbols
+}
+
+func artifact.module_program(image) {
+  return get(image, 1)
+}
+
+func artifact.module_symbols(image) {
+  if get(image, 0) == "APLMOD1" {
+    return artifact.module_v1_symbols(image)
+  }
+
+  return get(image, 2)
+}
+
 func artifact.encode_module_report(program) {
   VTime loaded_report = vm.load_ir_report(program)
 
@@ -646,14 +795,11 @@ func artifact.encode_module_report(program) {
     return [vm.FLOW_FAIL, "module program is already linked"]
   }
 
-  VTime functions = vm.loaded_functions(get(loaded_report, 1))
-  VTime names = vm.func_names(functions)
-  VTime arities = artifact.function_arities(functions)
+  VTime symbols = artifact.program_symbols(program)
   VTime wrapped = artifact.node_list([
-    artifact.node_str("APLMOD1"),
+    artifact.node_str("APLMOD2"),
     artifact.wrap_program(program),
-    artifact.wrap_str_list(names),
-    artifact.wrap_int_list(arities)
+    artifact.wrap_symbol_table(symbols)
   ])
 
   return [vm.FLOW_OK, join([artifact.MODULE_HEADER, artifact.encode_node(wrapped)], "")]
@@ -670,8 +816,12 @@ func artifact.decode_module_report(encoded) {
     return [vm.FLOW_FAIL, "invalid module artifact header"]
   }
 
-  if encoded[:header_size] != artifact.MODULE_HEADER {
-    return [vm.FLOW_FAIL, "invalid module artifact header"]
+  VTime header = encoded[:header_size]
+
+  if header != artifact.MODULE_HEADER {
+    if header != artifact.MODULE_HEADER_V1 {
+      return [vm.FLOW_FAIL, "invalid module artifact header"]
+    }
   }
 
   VTime decoded = artifact.decode_node(encoded, header_size)
