@@ -51,6 +51,68 @@ func bootstrap.compile_report(source) {
   return [vm.FLOW_OK, program]
 }
 
+func bootstrap.module_report(source) {
+  VTime compiled = bootstrap.compile_report(source)
+
+  if get(compiled, 0) != vm.FLOW_OK {
+    return compiled
+  }
+
+  return artifact.encode_module_report(get(compiled, 1))
+}
+
+func bootstrap.module(source) {
+  return get(bootstrap.module_report(source), 1)
+}
+
+func bootstrap.load_module_report(encoded) {
+  return artifact.decode_module_report(encoded)
+}
+
+func bootstrap.load_module(encoded) {
+  return get(bootstrap.load_module_report(encoded), 1)
+}
+
+func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
+  VTime module_report = bootstrap.load_module_report(encoded_module)
+
+  if get(module_report, 0) != vm.FLOW_OK {
+    return module_report
+  }
+
+  VTime module = get(module_report, 1)
+  VTime ast = bootstrap.ast(source)
+  VTime checked = checker.validate_report_with_functions(ast, get(module, 2), get(module, 3))
+
+  if get(checked, 0) != checker.STATUS_OK {
+    return [vm.FLOW_FAIL, get(checked, 1)]
+  }
+
+  VTime user_program = ir.compile_ast(get(checked, 1))
+
+  if bootstrap.ir_has_error(user_program) {
+    return [vm.FLOW_FAIL, bootstrap.ir_error(user_program)]
+  }
+
+  VTime combined = get(module, 1)[:]
+
+  pick(user_program): instruction {
+    add(combined, instruction)
+  }
+
+  VTime loaded = vm.load_ir_report(combined)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return artifact.encode_loaded_report(get(loaded, 1))
+}
+
+func bootstrap.linked_artifact_with_module(encoded_module, source) {
+  return get(bootstrap.linked_artifact_with_module_report(encoded_module, source), 1)
+}
+
 func bootstrap.artifact_report(source) {
   VTime compiled = bootstrap.compile_report(source)
 

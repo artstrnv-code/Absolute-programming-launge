@@ -117,6 +117,44 @@ fn main() {
                 Err(error) => exit_compile_error("emit-linked", error),
             }
         }
+        "emit-module" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing module source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_module_path(&path));
+
+            match apl_compiler::emit_module_artifact_file(Path::new(&path), &output_path) {
+                Ok(()) => println!("emitted module artifact: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-module", error),
+            }
+        }
+        "emit-linked-module" => {
+            let Some(module_path) = args.next() else {
+                eprintln!("missing module artifact path");
+                process::exit(2);
+            };
+            let Some(source_path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_linked_path(&source_path));
+
+            match apl_compiler::emit_linked_artifact_with_module_file(
+                Path::new(&module_path),
+                Path::new(&source_path),
+                &output_path,
+            ) {
+                Ok(()) => println!("emitted linked artifact: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-linked-module", error),
+            }
+        }
         "run-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing linked artifact path");
@@ -212,7 +250,7 @@ fn main() {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-linked|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [output]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-linked|emit-linked-module|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
@@ -238,6 +276,14 @@ fn default_linked_path(path: &str) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("program");
     PathBuf::from("build").join(format!("{stem}.apllink"))
+}
+
+fn default_module_path(path: &str) -> PathBuf {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("module");
+    PathBuf::from("build").join(format!("{stem}.aplmod"))
 }
 
 fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {

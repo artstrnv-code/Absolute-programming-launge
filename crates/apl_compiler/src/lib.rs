@@ -105,12 +105,45 @@ pub fn compile_linked_artifact_with_module(
         LINKED_COMPILE_BRIDGE,
         vec![module_source.to_owned(), source.to_owned()],
     )?;
-    output
-        .stdout
-        .strip_suffix('\n')
-        .map(str::to_owned)
-        .filter(|artifact| !artifact.is_empty())
-        .ok_or_else(|| CompileError::Bootstrap("APL compiler returned no artifact".to_owned()))
+    bootstrap_stdout_artifact(output, "linked artifact")
+}
+
+pub fn compile_module_artifact(source: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(MODULE_COMPILE_BRIDGE, vec![source.to_owned()])?;
+    bootstrap_stdout_artifact(output, "module artifact")
+}
+
+pub fn emit_module_artifact_file(
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let artifact = compile_module_artifact(&source)?;
+    fs::write(output_path, artifact)?;
+    Ok(())
+}
+
+pub fn compile_linked_artifact_with_precompiled_module(
+    module_artifact: &str,
+    source: &str,
+) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(
+        LINKED_MODULE_COMPILE_BRIDGE,
+        vec![module_artifact.to_owned(), source.to_owned()],
+    )?;
+    bootstrap_stdout_artifact(output, "linked artifact")
+}
+
+pub fn emit_linked_artifact_with_module_file(
+    module_path: &Path,
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let module = fs::read_to_string(module_path)?;
+    let source = fs::read_to_string(source_path)?;
+    let artifact = compile_linked_artifact_with_precompiled_module(&module, &source)?;
+    fs::write(output_path, artifact)?;
+    Ok(())
 }
 
 pub fn emit_linked_artifact_file(
@@ -240,10 +273,37 @@ fn run_bootstrap_bridge(
     Ok(apl_runtime::run_program(&program, input)?)
 }
 
+fn bootstrap_stdout_artifact(
+    output: apl_runtime::RunOutput,
+    artifact_name: &str,
+) -> Result<String, CompileError> {
+    output
+        .stdout
+        .strip_suffix('\n')
+        .map(str::to_owned)
+        .filter(|artifact| !artifact.is_empty())
+        .ok_or_else(|| CompileError::Bootstrap(format!("APL compiler returned no {artifact_name}")))
+}
+
 const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
 VTime aplhost.program_source = input
 VTime aplhost.source = join([aplhost.runtime_source, char(10), aplhost.program_source], "")
 VTime aplhost.compile_report = bootstrap.linked_artifact_report(aplhost.source)
+if get(aplhost.compile_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.compile_report, 1)
+}
+out get(aplhost.compile_report, 1)"#;
+
+const MODULE_COMPILE_BRIDGE: &str = r#"VTime aplhost.source = input
+VTime aplhost.module_report = bootstrap.module_report(aplhost.source)
+if get(aplhost.module_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.module_report, 1)
+}
+out get(aplhost.module_report, 1)"#;
+
+const LINKED_MODULE_COMPILE_BRIDGE: &str = r#"VTime aplhost.module = input
+VTime aplhost.source = input
+VTime aplhost.compile_report = bootstrap.linked_artifact_with_module_report(aplhost.module, aplhost.source)
 if get(aplhost.compile_report, 0) != vm.FLOW_OK {
   fail get(aplhost.compile_report, 1)
 }
@@ -457,6 +517,9 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func bootstrap.loaded_image_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.load_linked_artifact_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.module_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.load_module_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_with_module_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_linked_artifact_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_loaded_image_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input"));
@@ -522,6 +585,21 @@ mod tests {
         )
         .unwrap();
 
+        let output = run_linked_artifact(&artifact, vec![]).unwrap();
+        assert_eq!(output.stdout, "42\n");
+    }
+
+    #[test]
+    fn precompiled_apl_module_links_without_module_source() {
+        let module = compile_module_artifact(
+            "func module.add_one(value) { return value + 1 } func module.twice(value) { return module.add_one(module.add_one(value)) }",
+        )
+        .unwrap();
+        assert!(module.starts_with("APLMOD1:"));
+
+        let artifact =
+            compile_linked_artifact_with_precompiled_module(&module, "out module.twice(40)")
+                .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "42\n");
     }

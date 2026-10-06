@@ -640,8 +640,35 @@ func checker.collect_function_names(statements, names) {
   return checker.ok(names)
 }
 
-func checker.validate_report(statements) {
-  VTime collect_state = checker.collect_function_names(statements, [])
+func checker.add_external_functions(names, function_names, arities) {
+  if len(function_names) != len(arities) {
+    return checker.fail(names, "external function table shape mismatch")
+  }
+
+  VTime index = 0
+
+  while (index < len(function_names)) (-1) {
+    VTime name = get(function_names, index)
+
+    if checker.name_exists(names, name) {
+      return checker.fail(names, join(["duplicate name `", name, "`"], ""))
+    }
+
+    names = checker.add_name(names, name, "Func", get(arities, index))
+    index += 1
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_report_with_functions(statements, function_names, arities) {
+  VTime external_state = checker.add_external_functions([], function_names, arities)
+
+  if get(external_state, 0) != checker.STATUS_OK {
+    return [get(external_state, 0), get(external_state, 2)]
+  }
+
+  VTime collect_state = checker.collect_function_names(statements, get(external_state, 1))
 
   if get(collect_state, 0) != checker.STATUS_OK {
     return [get(collect_state, 0), get(collect_state, 2)]
@@ -654,4 +681,8 @@ func checker.validate_report(statements) {
   }
 
   return [checker.STATUS_OK, statements]
+}
+
+func checker.validate_report(statements) {
+  return checker.validate_report_with_functions(statements, [], [])
 }

@@ -453,7 +453,8 @@ Rust workspace:
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`
-  aliases), and legacy `.aplc` package `build-host`/`compile-host` commands.
+  aliases), relocatable module `emit-module`/`emit-linked-module`, and legacy
+  `.aplc` package `build-host`/`compile-host` commands.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:
@@ -505,6 +506,9 @@ APL-owned runtime code:
   validation accepts known VM builtins, accepts user functions including
   top-level forward calls, rejects unknown function names, rejects attempts to
   call non-function values, and checks user-function argument counts.
+  `checker.validate_report_with_functions` accepts a verified external function
+  name/arity table. It rejects collisions with user declarations and validates
+  imported calls before module and user IR are combined.
 - `examples/test_checker.apl`, `examples/test_checker_targets.apl`, and
   `examples/test_checker_exprs.apl`, and `examples/test_checker_calls.apl` are
   the checker smoke-tests.
@@ -526,11 +530,20 @@ APL-owned runtime code:
   validates expression and instruction opcodes/arity, operators, literal types,
   nested blocks, builtin arity, function-table consistency, unique function and
   parameter names, loop limits, and `CALL_SLOT` bounds before VM execution.
+  It also recursively detects `CALL_SLOT` in relocatable programs, including
+  nested expressions, blocks, and function bodies. An `APLMOD1` module must be
+  unlinked so slot assignment can happen once after all code is combined.
 - `std/artifact.apl`: the APL-written portable codec for linked images. It
   emits `APLLINK2:` wire strings with tagged scalar nodes, length-prefixed
   payloads, and recursive lists. The APL decoder reconstructs the linked image
   without source parsing and rejects bad headers, malformed/truncated nodes,
   unknown tags, trailing data, and structures rejected by the APL verifier.
+  The same scalar/list codec emits `APLMOD1:` relocatable modules containing
+  unlinked IR, exported function names, and exported arities. Module decoding
+  rejects malformed/trailing data, duplicate or inconsistent exports,
+  pre-existing `CALL_SLOT`, and programs that cannot produce a valid loaded
+  image. The first module format exports functions only; absolute variables and
+  list symbols are not yet importable by user source.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`, keeps an append-only environment as
   `[names, values, kinds, types, initials]`,
@@ -605,6 +618,10 @@ APL-owned runtime code:
   `bootstrap.linked_artifact(source)`,
   `bootstrap.load_linked_artifact_report(encoded)`,
   `bootstrap.load_linked_artifact(encoded)`,
+  `bootstrap.module_report(source)`, `bootstrap.module(source)`,
+  `bootstrap.load_module_report(encoded)`, `bootstrap.load_module(encoded)`,
+  `bootstrap.linked_artifact_with_module_report(encoded, source)`,
+  `bootstrap.linked_artifact_with_module(encoded, source)`,
   `bootstrap.run_linked_artifact(encoded)`,
   `bootstrap.run_linked_artifact_report(encoded)`,
   `bootstrap.run_linked_artifact_with_input(encoded, inputs)`,

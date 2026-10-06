@@ -2959,6 +2959,53 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_links_relocatable_apl_modules_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr module_source = "func module.add_one(value) { return value + 1 } func module.twice(value) { return module.add_one(module.add_one(value)) }"
+            VTime module_report = bootstrap.module_report(module_source)
+            VTime encoded_module = get(module_report, 1)
+            VTime loaded_module = bootstrap.load_module_report(encoded_module)
+            VTime linked_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.twice(40)")
+            VTime run_report = bootstrap.run_linked_artifact_report(get(linked_report, 1))
+            VTime unknown_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.missing(1)")
+            VTime bad_header = bootstrap.load_module_report("BAD")
+            VTime prelinked_program = [["OUT", ["CALL_SLOT", 0, []]], ["FUNC", "f", [], [["RETURN", ["LITERAL", "Int", 1]]]]]
+            VTime prelinked_encode = artifact.encode_module_report(prelinked_program)
+            VTime prelinked_image = artifact.node_list([
+              artifact.node_str("APLMOD1"),
+              artifact.wrap_program(prelinked_program),
+              artifact.wrap_str_list(["f"]),
+              artifact.wrap_int_list([0])
+            ])
+            VTime prelinked_text = join([artifact.MODULE_HEADER, artifact.encode_node(prelinked_image)], "")
+            VTime prelinked_load = bootstrap.load_module_report(prelinked_text)
+
+            out get(module_report, 0)
+            out encoded_module[:len(artifact.MODULE_HEADER)]
+            out get(loaded_module, 0)
+            out get(linked_report, 0)
+            out get(run_report, 0)
+            out get(get(run_report, 1), 0)
+            out get(unknown_report, 0)
+            out get(unknown_report, 1)
+            out get(bad_header, 0)
+            out get(bad_header, 1)
+            out get(prelinked_encode, 0)
+            out get(prelinked_encode, 1)
+            out get(prelinked_load, 0)
+            out get(prelinked_load, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nAPLMOD1:\nOK\nOK\nOK\n42\nFAIL\nunknown function `module.missing`\nFAIL\ninvalid module artifact header\nFAIL\nmodule program is already linked\nFAIL\ninvalid module artifact image\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_checker_prelude() {
         let output = run_source_with_prelude(
             r#"

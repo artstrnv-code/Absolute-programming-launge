@@ -543,6 +543,158 @@ func verifier.program_is_valid(program, function_count) {
   return true
 }
 
+func verifier.exprs_contain_call_slot(expressions) {
+  pick(expressions): expression {
+    if verifier.expr_contains_call_slot(expression) {
+      return true
+    }
+  }
+
+  return false
+}
+
+func verifier.expr_contains_call_slot(expression) {
+  VTime opcode = ir.expr_opcode(expression)
+
+  if opcode == ir.EXPR_CALL_SLOT {
+    return true
+  }
+
+  if opcode == ir.EXPR_UNARY {
+    return verifier.expr_contains_call_slot(get(expression, 2))
+  }
+
+  if opcode == ir.EXPR_BINARY {
+    if verifier.expr_contains_call_slot(get(expression, 2)) {
+      return true
+    }
+
+    return verifier.expr_contains_call_slot(get(expression, 3))
+  }
+
+  if opcode == ir.EXPR_CALL {
+    return verifier.exprs_contain_call_slot(get(expression, 2))
+  }
+
+  if opcode == ir.EXPR_LIST {
+    return verifier.exprs_contain_call_slot(get(expression, 1))
+  }
+
+  if opcode == ir.EXPR_INDEX {
+    if verifier.expr_contains_call_slot(get(expression, 1)) {
+      return true
+    }
+
+    return verifier.expr_contains_call_slot(get(expression, 2))
+  }
+
+  if opcode == ir.EXPR_SLICE {
+    if verifier.expr_contains_call_slot(get(expression, 1)) {
+      return true
+    }
+
+    if verifier.expr_contains_call_slot(get(expression, 2)) {
+      return true
+    }
+
+    if verifier.expr_contains_call_slot(get(expression, 3)) {
+      return true
+    }
+
+    return verifier.expr_contains_call_slot(get(expression, 4))
+  }
+
+  if opcode == ir.EXPR_TAG {
+    return verifier.expr_contains_call_slot(get(expression, 1))
+  }
+
+  return false
+}
+
+func verifier.instruction_contains_call_slot(instruction) {
+  VTime opcode = ir.opcode(instruction)
+
+  if opcode == ir.OP_DECL {
+    return verifier.expr_contains_call_slot(get(instruction, 3))
+  }
+
+  if opcode == ir.OP_LIST_DECL {
+    return verifier.expr_contains_call_slot(get(instruction, 2))
+  }
+
+  if opcode == ir.OP_VTIME_DECL {
+    return verifier.expr_contains_call_slot(get(instruction, 2))
+  }
+
+  if opcode == ir.OP_ASSIGN {
+    return verifier.expr_contains_call_slot(get(instruction, 3))
+  }
+
+  if opcode == ir.OP_EXPR {
+    return verifier.expr_contains_call_slot(get(instruction, 1))
+  }
+
+  if opcode == ir.OP_OUT {
+    return verifier.expr_contains_call_slot(get(instruction, 1))
+  }
+
+  if opcode == ir.OP_STOP {
+    return verifier.expr_contains_call_slot(get(instruction, 1))
+  }
+
+  if opcode == ir.OP_FAIL {
+    return verifier.expr_contains_call_slot(get(instruction, 1))
+  }
+
+  if opcode == ir.OP_RETURN {
+    return verifier.expr_contains_call_slot(get(instruction, 1))
+  }
+
+  if opcode == ir.OP_IF {
+    if verifier.expr_contains_call_slot(get(instruction, 1)) {
+      return true
+    }
+
+    if verifier.program_contains_call_slot(get(instruction, 2)) {
+      return true
+    }
+
+    return verifier.program_contains_call_slot(get(instruction, 3))
+  }
+
+  if opcode == ir.OP_WHILE {
+    if verifier.expr_contains_call_slot(get(instruction, 1)) {
+      return true
+    }
+
+    return verifier.program_contains_call_slot(get(instruction, 3))
+  }
+
+  if opcode == ir.OP_PICK {
+    if verifier.expr_contains_call_slot(get(instruction, 1)) {
+      return true
+    }
+
+    return verifier.program_contains_call_slot(get(instruction, 3))
+  }
+
+  if opcode == ir.OP_FUNC {
+    return verifier.program_contains_call_slot(get(instruction, 3))
+  }
+
+  return false
+}
+
+func verifier.program_contains_call_slot(program) {
+  pick(program): instruction {
+    if verifier.instruction_contains_call_slot(instruction) {
+      return true
+    }
+  }
+
+  return false
+}
+
 func verifier.str_list_is_valid(values) {
   pick(values): value {
     if verifier.is_str(value) != true {

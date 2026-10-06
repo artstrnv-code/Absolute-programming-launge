@@ -191,6 +191,23 @@ cargo run -p apl -- run-linked build\compiled_runtime.apllink
 The `.apllink` format is the current portable bootstrap format. It is distinct
 from host-side binary `.aplc` IR and is not yet native machine code.
 
+Precompile a reusable APL function module, then link new user source against it
+without tokenizing or parsing the module source again:
+
+```powershell
+cargo run -p apl -- emit-module std\runtime.apl build\runtime.aplmod
+cargo run -p apl -- emit-linked-module build\runtime.aplmod examples\compiled_runtime.apl build\compiled_runtime.apllink
+cargo run -p apl -- run-linked build\compiled_runtime.apllink
+```
+
+`.aplmod` uses the `APLMOD1:` portable format. It stores unlinked IR plus
+exported function names and arities. Decoding rejects malformed structure,
+trailing data, inconsistent exports, and any pre-existing `CALL_SLOT` opcode.
+The user checker imports the exported signatures, then the module IR and user
+IR are combined and assigned one final function-slot namespace. The current
+format exports functions only; module-level absolute variables and lists are a
+future symbol-table extension.
+
 The explicit `build-linked` and `compile-linked` names are aliases for the
 default `build` and `compile` commands:
 
