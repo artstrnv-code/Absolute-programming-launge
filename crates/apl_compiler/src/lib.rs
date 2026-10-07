@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    thread,
 };
 
 pub const RUNTIME_PRELUDE: &str = include_str!("../../../std/runtime.apl");
@@ -113,12 +114,61 @@ pub fn compile_module_artifact(source: &str) -> Result<String, CompileError> {
     bootstrap_stdout_artifact(output, "module artifact")
 }
 
+pub fn compile_standard_module_artifact() -> Result<String, CompileError> {
+    compile_module_artifact_sources(&[
+        RUNTIME_PRELUDE,
+        LEXER_PRELUDE,
+        PARSER_PRELUDE,
+        CHECKER_PRELUDE,
+        IR_PRELUDE,
+        LINKER_PRELUDE,
+        VERIFIER_PRELUDE,
+        VM_PRELUDE,
+        ARTIFACT_PRELUDE,
+        BOOTSTRAP_PRELUDE,
+    ])
+}
+
+pub fn compile_module_artifact_sources(sources: &[&str]) -> Result<String, CompileError> {
+    let mut input = Vec::with_capacity(sources.len() + 1);
+    input.push(sources.len().to_string());
+    input.extend(sources.iter().map(|source| (*source).to_owned()));
+
+    let output = run_bootstrap_bridge(MODULE_SOURCES_COMPILE_BRIDGE, input)?;
+    bootstrap_stdout_artifact(output, "module artifact")
+}
+
+pub fn emit_standard_module_artifact_file(output_path: &Path) -> Result<(), CompileError> {
+    fs::write(output_path, compile_standard_module_artifact()?)?;
+    Ok(())
+}
+
 pub fn emit_module_artifact_file(
     source_path: &Path,
     output_path: &Path,
 ) -> Result<(), CompileError> {
     let source = fs::read_to_string(source_path)?;
     let artifact = compile_module_artifact(&source)?;
+    fs::write(output_path, artifact)?;
+    Ok(())
+}
+
+pub fn extend_module_artifact(module_artifact: &str, source: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(
+        MODULE_EXTEND_BRIDGE,
+        vec![module_artifact.to_owned(), source.to_owned()],
+    )?;
+    bootstrap_stdout_artifact(output, "module artifact")
+}
+
+pub fn emit_extended_module_artifact_file(
+    module_path: &Path,
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let module = fs::read_to_string(module_path)?;
+    let source = fs::read_to_string(source_path)?;
+    let artifact = extend_module_artifact(&module, &source)?;
     fs::write(output_path, artifact)?;
     Ok(())
 }
@@ -268,9 +318,16 @@ fn run_bootstrap_bridge(
     input: Vec<String>,
 ) -> Result<apl_runtime::RunOutput, CompileError> {
     let source = compose_program(STANDARD_PRELUDE, bridge_source);
-    let program = apl_parser::parse_program(&source)?;
-    apl_core::validate_program(&program)?;
-    Ok(apl_runtime::run_program(&program, input)?)
+    thread::Builder::new()
+        .name("apl-bootstrap-compiler".to_owned())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(move || {
+            let program = apl_parser::parse_program(&source)?;
+            apl_core::validate_program(&program)?;
+            Ok(apl_runtime::run_program(&program, input)?)
+        })?
+        .join()
+        .map_err(|_| CompileError::Bootstrap("APL compiler bridge panicked".to_owned()))?
 }
 
 fn bootstrap_stdout_artifact(
@@ -296,6 +353,27 @@ out get(aplhost.compile_report, 1)"#;
 
 const MODULE_COMPILE_BRIDGE: &str = r#"VTime aplhost.source = input
 VTime aplhost.module_report = bootstrap.module_report(aplhost.source)
+if get(aplhost.module_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.module_report, 1)
+}
+out get(aplhost.module_report, 1)"#;
+
+const MODULE_EXTEND_BRIDGE: &str = r#"VTime aplhost.module = input
+VTime aplhost.source = input
+VTime aplhost.module_report = bootstrap.extend_module_report(aplhost.module, aplhost.source)
+if get(aplhost.module_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.module_report, 1)
+}
+out get(aplhost.module_report, 1)"#;
+
+const MODULE_SOURCES_COMPILE_BRIDGE: &str = r#"VTime aplhost.source_count = int(input)
+VTime aplhost.sources = []
+VTime aplhost.source_index = 0
+while (aplhost.source_index < aplhost.source_count) (-1) {
+  add(aplhost.sources, input)
+  aplhost.source_index += 1
+}
+VTime aplhost.module_report = bootstrap.modules_report(aplhost.sources)
 if get(aplhost.module_report, 0) != vm.FLOW_OK {
   fail get(aplhost.module_report, 1)
 }
@@ -599,6 +677,26 @@ mod tests {
 
         let artifact =
             compile_linked_artifact_with_precompiled_module(&module, "out module.twice(40)")
+                .unwrap();
+        let output = run_linked_artifact(&artifact, vec![]).unwrap();
+        assert_eq!(output.stdout, "42\n");
+    }
+
+    #[test]
+    fn precompiled_apl_module_extends_in_stages() {
+        let base = compile_module_artifact(
+            "AVInt module.base = 40 func module.add_one(value) { return value + 1 }",
+        )
+        .unwrap();
+        let extended = extend_module_artifact(
+            &base,
+            "List module.extra = [1] func module.total() { return module.add_one(module.base) + get(module.extra, 0) }",
+        )
+        .unwrap();
+        assert!(extended.starts_with("APLMOD2:"));
+
+        let artifact =
+            compile_linked_artifact_with_precompiled_module(&extended, "out module.total()")
                 .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "42\n");

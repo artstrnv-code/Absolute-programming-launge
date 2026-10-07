@@ -132,6 +132,40 @@ fn main() {
                 Err(error) => exit_compile_error("emit-module", error),
             }
         }
+        "emit-standard-module" => {
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("build").join("standard.aplmod"));
+
+            match apl_compiler::emit_standard_module_artifact_file(&output_path) {
+                Ok(()) => println!("emitted standard module: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-standard-module", error),
+            }
+        }
+        "extend-module" => {
+            let Some(module_path) = args.next() else {
+                eprintln!("missing module artifact path");
+                process::exit(2);
+            };
+            let Some(source_path) = args.next() else {
+                eprintln!("missing module source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_module_path(&source_path));
+
+            match apl_compiler::emit_extended_module_artifact_file(
+                Path::new(&module_path),
+                Path::new(&source_path),
+                &output_path,
+            ) {
+                Ok(()) => println!("emitted module artifact: {}", output_path.display()),
+                Err(error) => exit_compile_error("extend-module", error),
+            }
+        }
         "emit-linked-module" => {
             let Some(module_path) = args.next() else {
                 eprintln!("missing module artifact path");
@@ -250,7 +284,7 @@ fn main() {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-linked|emit-linked-module|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|extend-module|emit-linked|emit-linked-module|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 

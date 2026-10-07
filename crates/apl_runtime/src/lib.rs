@@ -2,7 +2,10 @@ use apl_core::{
     AssignmentOperator, BinaryOperator, Expression, FunctionDecl, InfoAssignment, Program,
     ProtectionLevel, Statement, UnaryOperator, Value as AstValue, ValueType, VariableKind,
 };
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    rc::Rc,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunOutput {
@@ -13,6 +16,15 @@ pub struct RunOutput {
 pub enum RuntimeError {
     Message(String),
     Failed(String),
+}
+
+impl RuntimeError {
+    fn in_function(self, name: &str) -> Self {
+        match self {
+            Self::Message(message) => Self::Message(format!("{message}\n  in `{name}`")),
+            Self::Failed(message) => Self::Failed(message),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -514,16 +526,48 @@ struct RuntimeValue {
     protection: ProtectionLevel,
 }
 
+#[derive(Debug, PartialEq)]
+struct RuntimeString {
+    text: String,
+    chars: Vec<char>,
+}
+
+impl RuntimeString {
+    fn new(text: String) -> Self {
+        let chars = text.chars().collect();
+        Self { text, chars }
+    }
+
+    fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum RuntimeData {
     Int(i64),
     Float(f64),
     Bool(bool),
-    Str(String),
+    Str(Rc<RuntimeString>),
     Bytes(Vec<u8>),
     Json(String),
-    List(Vec<RuntimeValue>),
+    List(Rc<Vec<RuntimeValue>>),
     None,
+}
+
+impl RuntimeData {
+    fn type_name(&self) -> &'static str {
+        match self {
+            Self::Int(_) => "Int",
+            Self::Float(_) => "Float",
+            Self::Bool(_) => "Bool",
+            Self::Str(_) => "Str",
+            Self::Bytes(_) => "Bytes",
+            Self::Json(_) => "Json",
+            Self::List(_) => "List",
+            Self::None => "NONE",
+        }
+    }
 }
 
 enum Flow {
@@ -841,10 +885,9 @@ impl<'a> Runtime<'a> {
                 }
                 ExpressionOp::PushNone => stack.push(RuntimeValue::none(ProtectionLevel::Av)),
                 ExpressionOp::ReadInput => stack.push(RuntimeValue::str(self.read_input())),
-                ExpressionOp::ReadSecretInput => stack.push(RuntimeValue::new(
-                    RuntimeData::Str(self.read_input()),
-                    ProtectionLevel::Asv,
-                )),
+                ExpressionOp::ReadSecretInput => stack.push(
+                    RuntimeValue::str(self.read_input()).with_protection(ProtectionLevel::Asv),
+                ),
                 ExpressionOp::LoadVariable(name) => stack.push(self.lookup(name)?),
                 ExpressionOp::Call {
                     name,
@@ -973,11 +1016,12 @@ impl<'a> Runtime<'a> {
                 let RuntimeData::Str(separator) = &delim.data else {
                     return Ok(RuntimeValue::none(protection));
                 };
-                if separator.is_empty() {
+                if separator.as_str().is_empty() {
                     return Ok(RuntimeValue::none(protection));
                 }
                 let parts: Vec<RuntimeValue> = text
-                    .split(separator)
+                    .as_str()
+                    .split(separator.as_str())
                     .map(|s| RuntimeValue::str(s.to_owned()).with_protection(protection))
                     .collect();
                 Ok(RuntimeValue::list(parts).with_protection(protection))
@@ -986,7 +1030,7 @@ impl<'a> Runtime<'a> {
                 let target = args[0].clone();
                 let protection = target.effective_protection();
                 let length = match &target.data {
-                    RuntimeData::Str(s) => s.chars().count() as i64,
+                    RuntimeData::Str(s) => s.chars.len() as i64,
                     RuntimeData::List(values) => values.len() as i64,
                     RuntimeData::Bytes(b) => b.len() as i64,
                     _ => return Ok(RuntimeValue::none(protection)),
@@ -1006,7 +1050,7 @@ impl<'a> Runtime<'a> {
                     return Ok(RuntimeValue::none(protection));
                 };
                 Ok(RuntimeValue::new(
-                    RuntimeData::Bool(text.contains(substr)),
+                    RuntimeData::Bool(text.as_str().contains(substr.as_str())),
                     protection,
                 ))
             }
@@ -1023,13 +1067,13 @@ impl<'a> Runtime<'a> {
                     return Ok(RuntimeValue::none(protection));
                 };
                 let mut parts = Vec::with_capacity(items.len());
-                for item in items {
+                for item in items.iter() {
                     let RuntimeData::Str(value) = &item.data else {
                         return Ok(RuntimeValue::none(protection));
                     };
                     parts.push(value.as_str());
                 }
-                Ok(RuntimeValue::str(parts.join(separator)).with_protection(protection))
+                Ok(RuntimeValue::str(parts.join(separator.as_str())).with_protection(protection))
             }
             "ord" => {
                 let value = args[0].clone();
@@ -1037,10 +1081,13 @@ impl<'a> Runtime<'a> {
                 let RuntimeData::Str(text) = &value.data else {
                     return Ok(RuntimeValue::none(protection));
                 };
-                let Some(ch) = text.chars().next() else {
+                let Some(ch) = text.chars.first() else {
                     return Ok(RuntimeValue::none(protection));
                 };
-                Ok(RuntimeValue::new(RuntimeData::Int(ch as i64), protection))
+                Ok(RuntimeValue::new(
+                    RuntimeData::Int(u32::from(*ch) as i64),
+                    protection,
+                ))
             }
             "char" => {
                 let value = args[0].clone();
@@ -1098,6 +1145,12 @@ impl<'a> Runtime<'a> {
                 else {
                     return Err(RuntimeError::Message(format!("unknown function `{name}`")));
                 };
+                let error_context = match (name, args.first().map(|value| &value.data)) {
+                    ("vm.call_func_slot", Some(RuntimeData::Int(slot))) => {
+                        format!("vm.call_func_slot[{slot}]")
+                    }
+                    _ => name.to_owned(),
+                };
                 self.with_scope(|runtime| {
                     for (param, value) in function.params.iter().zip(args) {
                         runtime.declare_vtime(param.clone(), value);
@@ -1113,6 +1166,7 @@ impl<'a> Runtime<'a> {
                         )),
                     }
                 })
+                .map_err(|error| error.in_function(&error_context))
             }
         }
     }
@@ -1127,13 +1181,12 @@ impl<'a> Runtime<'a> {
         };
         let protection = target.effective_protection();
         match target.data {
-            RuntimeData::List(values) => Ok(resolve_index(&values, index)
+            RuntimeData::List(values) => Ok(resolve_index(values.as_ref(), index)
                 .cloned()
                 .unwrap_or_else(|| RuntimeValue::none(protection))),
             RuntimeData::Str(value) => Ok(value
-                .chars()
-                .collect::<Vec<_>>()
-                .get(resolve_raw_index(value.chars().count(), index).unwrap_or(usize::MAX))
+                .chars
+                .get(resolve_raw_index(value.chars.len(), index).unwrap_or(usize::MAX))
                 .map(|ch| RuntimeValue::str(ch.to_string()).with_protection(protection))
                 .unwrap_or_else(|| RuntimeValue::none(protection))),
             RuntimeData::Bytes(value) => Ok(value
@@ -1158,10 +1211,9 @@ impl<'a> Runtime<'a> {
         }
         match target.data {
             RuntimeData::Str(value) => {
-                let chars: Vec<char> = value.chars().collect();
-                let result: String = slice_indices(chars.len(), start, end, step)
+                let result: String = slice_indices(value.chars.len(), start, end, step)
                     .into_iter()
-                    .map(|index| chars[index])
+                    .map(|index| value.chars[index])
                     .collect();
                 Ok(RuntimeValue::str(result).with_protection(protection))
             }
@@ -1234,10 +1286,10 @@ impl<'a> Runtime<'a> {
                 (RuntimeData::Float(a), RuntimeData::Float(b)) => {
                     Ok(RuntimeValue::new(RuntimeData::Float(a + b), protection))
                 }
-                (RuntimeData::Str(a), RuntimeData::Str(b)) => Ok(RuntimeValue::new(
-                    RuntimeData::Str(format!("{a}{b}")),
-                    protection,
-                )),
+                (RuntimeData::Str(a), RuntimeData::Str(b)) => {
+                    Ok(RuntimeValue::str(format!("{}{}", a.as_str(), b.as_str()))
+                        .with_protection(protection))
+                }
                 (RuntimeData::Int(a), RuntimeData::Float(b)) => Ok(RuntimeValue::new(
                     RuntimeData::Float(a as f64 + b),
                     protection,
@@ -1338,13 +1390,15 @@ impl<'a> Runtime<'a> {
         right: RuntimeData,
         protection: ProtectionLevel,
     ) -> Result<RuntimeValue, RuntimeError> {
+        let left_type = left.type_name();
+        let right_type = right.type_name();
         let result = match (left, right) {
             (RuntimeData::Int(a), RuntimeData::Int(b)) => compare_values(a, b, operator),
             (RuntimeData::Float(a), RuntimeData::Float(b)) => compare_values(a, b, operator),
             _ => {
-                return Err(RuntimeError::Message(
-                    "invalid ordering operands".to_owned(),
-                ));
+                return Err(RuntimeError::Message(format!(
+                    "invalid ordering operands for {operator:?}: {left_type} and {right_type}"
+                )));
             }
         };
         Ok(RuntimeValue::new(RuntimeData::Bool(result), protection))
@@ -1405,9 +1459,11 @@ impl<'a> Runtime<'a> {
     fn pick_items(&self, value: RuntimeValue) -> Result<Vec<RuntimeValue>, RuntimeError> {
         let protection = value.effective_protection();
         match value.data {
-            RuntimeData::List(values) => Ok(values),
+            RuntimeData::List(values) => Ok(values.as_ref().clone()),
             RuntimeData::Str(value) => Ok(value
-                .chars()
+                .chars
+                .iter()
+                .copied()
                 .map(|ch| RuntimeValue::str(ch.to_string()).with_protection(protection))
                 .collect()),
             RuntimeData::Bytes(value) => Ok(value
@@ -1541,8 +1597,8 @@ fn push_list_value(
     let RuntimeData::List(values) = &mut list.data else {
         return Err(RuntimeError::Message(format!("`{name}` is not a list")));
     };
-    values.push(value);
-    list.refresh_list_protection();
+    list.protection = list.protection.max(value.effective_protection());
+    Rc::make_mut(values).push(value);
     Ok(())
 }
 
@@ -1551,7 +1607,7 @@ fn pop_list_value(list: &mut RuntimeValue) -> Result<RuntimeValue, RuntimeError>
     let RuntimeData::List(values) = &mut list.data else {
         return Ok(RuntimeValue::none(protection));
     };
-    let popped = values
+    let popped = Rc::make_mut(values)
         .pop()
         .unwrap_or_else(|| RuntimeValue::none(protection));
     list.refresh_list_protection();
@@ -1573,11 +1629,14 @@ impl RuntimeValue {
             .map(RuntimeValue::effective_protection)
             .max()
             .unwrap_or(ProtectionLevel::Av);
-        Self::new(RuntimeData::List(values), protection)
+        Self::new(RuntimeData::List(Rc::new(values)), protection)
     }
 
     fn str(value: String) -> Self {
-        Self::new(RuntimeData::Str(value), ProtectionLevel::Av)
+        Self::new(
+            RuntimeData::Str(Rc::new(RuntimeString::new(value))),
+            ProtectionLevel::Av,
+        )
     }
 
     fn from_ast(value: AstValue) -> Self {
@@ -1585,7 +1644,7 @@ impl RuntimeValue {
             AstValue::Int(value) => RuntimeData::Int(value),
             AstValue::Float(value) => RuntimeData::Float(value),
             AstValue::Bool(value) => RuntimeData::Bool(value),
-            AstValue::Str(value) => RuntimeData::Str(value),
+            AstValue::Str(value) => RuntimeData::Str(Rc::new(RuntimeString::new(value))),
             AstValue::Bytes(value) => RuntimeData::Bytes(value),
             AstValue::Json(value) => RuntimeData::Json(value),
         };
@@ -1593,18 +1652,16 @@ impl RuntimeValue {
     }
 
     fn with_protection(mut self, protection: ProtectionLevel) -> Self {
-        self.protection = protection;
+        self.protection = if matches!(&self.data, RuntimeData::List(_)) {
+            self.protection.max(protection)
+        } else {
+            protection
+        };
         self
     }
 
     fn effective_protection(&self) -> ProtectionLevel {
-        match &self.data {
-            RuntimeData::List(values) => values
-                .iter()
-                .map(RuntimeValue::effective_protection)
-                .fold(self.protection, ProtectionLevel::max),
-            _ => self.protection,
-        }
+        self.protection
     }
 
     fn refresh_list_protection(&mut self) {
@@ -1643,7 +1700,7 @@ impl RuntimeValue {
                 "false" => Some(RuntimeData::Bool(false)),
                 _ => None,
             },
-            ValueType::Str => Some(RuntimeData::Str(self.render())),
+            ValueType::Str => Some(RuntimeData::Str(Rc::new(RuntimeString::new(self.render())))),
             ValueType::Bytes => Some(RuntimeData::Bytes(self.render().into_bytes())),
             ValueType::Json => Some(RuntimeData::Json(self.render())),
             ValueType::List => match self.data {
@@ -1661,7 +1718,7 @@ impl RuntimeValue {
             RuntimeData::Int(value) => value.to_string(),
             RuntimeData::Float(value) => value.to_string(),
             RuntimeData::Bool(value) => value.to_string(),
-            RuntimeData::Str(value) => value.clone(),
+            RuntimeData::Str(value) => value.text.clone(),
             RuntimeData::Bytes(value) => format!("{value:?}"),
             RuntimeData::Json(value) => value.clone(),
             RuntimeData::List(values) => {
@@ -2070,6 +2127,30 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_apl_parser_keeps_syntax_like_strings_literal() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime quote = char(34)
+            AVStr source = join(["out ", quote, "(", quote, " out ", quote, "[", quote, " out ", quote, "]", quote, " out ", quote, "input", quote, " out ", quote, "secret", quote, " out ", quote, "-", quote], "")
+            VTime statements = parser.parse_source(source)
+            out len(statements)
+
+            pick(statements): statement {
+              VTime expression = get(statement, 1)
+              out parser.expr_kind(expression)
+              out parser.expr_value(expression)
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "6\nStr\n(\nStr\n[\nStr\n]\nStr\ninput\nStr\nsecret\nStr\n-\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_ir_prelude() {
         let output = run_source_with_prelude(
             r#"
@@ -2211,6 +2292,23 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "1\n42\n");
+    }
+
+    #[test]
+    fn source_runtime_apl_vm_scopes_calls_and_blocks() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt counter = 0 func bump(value) { VTime index = value if true { VTime local = index index += 1 } counter += index return index } func wrap(value) { VTime index = 40 return bump(value) + index } out wrap(1) out counter"
+            VTime vm_output = vm.run_source(source)
+
+            out len(vm_output)
+            out get(vm_output, 0)
+            out get(vm_output, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "2\n42\n2\n");
     }
 
     #[test]
@@ -3054,6 +3152,25 @@ mod tests {
             output,
             "OK\nDECL\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\n"
         );
+    }
+
+    #[test]
+    fn source_runtime_apl_checker_scopes_vtime_names() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr scoped_source = "func first(value) { VTime text = value if true { VTime local = text text = local } return text } func second(value) { VTime text = value while (false) (-1) { VTime local = text } pick([value]): item { VTime local = item } return text } out first(1) out second(2)"
+            AVStr leaked_source = "func make() { VTime local = 1 return local } out local"
+            VTime scoped_report = bootstrap.compile_report(scoped_source)
+            VTime leaked_report = bootstrap.compile_report(leaked_source)
+
+            out get(scoped_report, 0)
+            out get(leaked_report, 0)
+            out get(leaked_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "OK\nFAIL\nunknown variable `local`\n");
     }
 
     #[test]

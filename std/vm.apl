@@ -15,39 +15,87 @@ func vm.new_env() {
 }
 
 func vm.new_env_with_input(inputs) {
-  return [[], [], [], [], [], inputs, 0]
+  return [[], inputs, 0, 0]
 }
 
-func vm.env_names(env) {
+func vm.env_bindings(env) {
   return get(env, 0)
 }
 
+func vm.env_names(env) {
+  VTime names = []
+
+  pick(vm.env_bindings(env)): binding {
+    add(names, get(binding, 0))
+  }
+
+  return names
+}
+
 func vm.env_values(env) {
-  return get(env, 1)
+  VTime values = []
+
+  pick(vm.env_bindings(env)): binding {
+    add(values, get(binding, 1))
+  }
+
+  return values
 }
 
 func vm.env_kinds(env) {
-  return get(env, 2)
+  VTime kinds = []
+
+  pick(vm.env_bindings(env)): binding {
+    add(kinds, get(binding, 2))
+  }
+
+  return kinds
 }
 
 func vm.env_types(env) {
-  return get(env, 3)
+  VTime types = []
+
+  pick(vm.env_bindings(env)): binding {
+    add(types, get(binding, 3))
+  }
+
+  return types
 }
 
 func vm.env_initials(env) {
-  return get(env, 4)
+  VTime initials = []
+
+  pick(vm.env_bindings(env)): binding {
+    add(initials, get(binding, 4))
+  }
+
+  return initials
 }
 
 func vm.env_inputs(env) {
-  return get(env, 5)
+  return get(env, 1)
 }
 
 func vm.env_input_index(env) {
-  return get(env, 6)
+  return get(env, 2)
+}
+
+func vm.env_depths(env) {
+  VTime depths = []
+
+  pick(vm.env_bindings(env)): binding {
+    add(depths, get(binding, 5))
+  }
+
+  return depths
+}
+
+func vm.env_scope_depth(env) {
+  return get(env, 3)
 }
 
 func vm.env_with_input_index(env, input_index) {
-  return [vm.env_names(env), vm.env_values(env), vm.env_kinds(env), vm.env_types(env), vm.env_initials(env), vm.env_inputs(env), input_index]
+  return [vm.env_bindings(env), vm.env_inputs(env), input_index, vm.env_scope_depth(env)]
 }
 
 func vm.env_read_input(env) {
@@ -62,45 +110,59 @@ func vm.env_read_input(env) {
 }
 
 func vm.env_put(env, name, value) {
-  VTime names = vm.env_names(env)
-  VTime values = vm.env_values(env)
-  VTime kinds = vm.env_kinds(env)
-  VTime types = vm.env_types(env)
-  VTime initials = vm.env_initials(env)
-  VTime inputs = vm.env_inputs(env)
-  VTime input_index = vm.env_input_index(env)
-  add(names, name)
-  add(values, value)
-  add(kinds, vm.env_kind(env, name))
-  add(types, vm.env_type(env, name))
-  add(initials, vm.env_initial(env, name))
-  return [names, values, kinds, types, initials, inputs, input_index]
+  VTime binding = vm.env_binding(env, name)
+  VTime depth = vm.env_scope_depth(env)
+  VTime kind = "VTime"
+  VTime value_type = "VTime"
+  VTime initial = value
+
+  if binding != NONE {
+    kind = get(binding, 2)
+    value_type = get(binding, 3)
+    initial = get(binding, 4)
+    depth = get(binding, 5)
+  }
+
+  return vm.env_bind(env, name, value, kind, value_type, initial, depth)
 }
 
 func vm.env_put_meta(env, name, value, kind, value_type) {
-  VTime names = vm.env_names(env)
-  VTime values = vm.env_values(env)
-  VTime kinds = vm.env_kinds(env)
-  VTime types = vm.env_types(env)
-  VTime initials = vm.env_initials(env)
-  VTime inputs = vm.env_inputs(env)
-  VTime input_index = vm.env_input_index(env)
-  add(names, name)
-  add(values, value)
-  add(kinds, kind)
-  add(types, value_type)
-  add(initials, vm.env_initial_or_value(env, name, value))
-  return [names, values, kinds, types, initials, inputs, input_index]
+  VTime binding = vm.env_binding(env, name)
+  VTime depth = vm.env_scope_depth(env)
+  VTime initial = value
+
+  if binding != NONE {
+    initial = get(binding, 4)
+    depth = get(binding, 5)
+  }
+
+  return vm.env_bind(env, name, value, kind, value_type, initial, depth)
 }
 
-func vm.env_get(env, name) {
-  VTime names = vm.env_names(env)
-  VTime values = vm.env_values(env)
-  VTime index = len(names) - 1
+func vm.env_declare_meta(env, name, value, kind, value_type) {
+  return vm.env_bind(env, name, value, kind, value_type, value, vm.env_scope_depth(env))
+}
+
+func vm.env_bind(env, name, value, kind, value_type, initial, depth) {
+  VTime bindings = []
+
+  pick(vm.env_bindings(env)): binding {
+    if (get(binding, 0) != name) or (get(binding, 5) != depth) {
+      add(bindings, binding)
+    }
+  }
+
+  add(bindings, [name, value, kind, value_type, initial, depth])
+  return [bindings, vm.env_inputs(env), vm.env_input_index(env), vm.env_scope_depth(env)]
+}
+
+func vm.env_binding_index(env, name) {
+  VTime bindings = vm.env_bindings(env)
+  VTime index = len(bindings) - 1
 
   while (index >= 0) (-1) {
-    if get(names, index) == name {
-      return get(values, index)
+    if get(get(bindings, index), 0) == name {
+      return index
     }
 
     index -= 1
@@ -109,67 +171,72 @@ func vm.env_get(env, name) {
   return NONE
 }
 
+func vm.env_binding(env, name) {
+  VTime binding_index = vm.env_binding_index(env, name)
+
+  if binding_index == NONE {
+    return NONE
+  }
+
+  return get(vm.env_bindings(env), binding_index)
+}
+
+func vm.env_get(env, name) {
+  VTime binding = vm.env_binding(env, name)
+
+  if binding == NONE {
+    return NONE
+  }
+
+  return get(binding, 1)
+}
+
 func vm.env_has(env, name) {
-  VTime names = vm.env_names(env)
-  VTime index = len(names) - 1
+  return vm.env_binding_index(env, name) != NONE
+}
 
-  while (index >= 0) (-1) {
-    if get(names, index) == name {
-      return true
+func vm.env_has_local(env, name) {
+  VTime scope_depth = vm.env_scope_depth(env)
+
+  pick(vm.env_bindings(env)): binding {
+    if get(binding, 5) == scope_depth {
+      if get(binding, 0) == name {
+        return true
+      }
     }
-
-    index -= 1
   }
 
   return false
 }
 
 func vm.env_kind(env, name) {
-  VTime names = vm.env_names(env)
-  VTime kinds = vm.env_kinds(env)
-  VTime index = len(names) - 1
+  VTime binding = vm.env_binding(env, name)
 
-  while (index >= 0) (-1) {
-    if get(names, index) == name {
-      return get(kinds, index)
-    }
-
-    index -= 1
+  if binding == NONE {
+    return "VTime"
   }
 
-  return "VTime"
+  return get(binding, 2)
 }
 
 func vm.env_type(env, name) {
-  VTime names = vm.env_names(env)
-  VTime types = vm.env_types(env)
-  VTime index = len(names) - 1
+  VTime binding = vm.env_binding(env, name)
 
-  while (index >= 0) (-1) {
-    if get(names, index) == name {
-      return get(types, index)
-    }
-
-    index -= 1
+  if binding == NONE {
+    return "VTime"
   }
 
-  return "VTime"
+  return get(binding, 3)
 }
 
 func vm.env_initial(env, name) {
-  VTime names = vm.env_names(env)
-  VTime initials = vm.env_initials(env)
-  VTime index = len(names) - 1
+  VTime binding = vm.env_binding(env, name)
 
-  while (index >= 0) (-1) {
-    if get(names, index) == name {
-      return get(initials, index)
-    }
-
-    index -= 1
+  if binding == NONE {
+    return NONE
   }
 
-  return NONE
+  return get(binding, 4)
 }
 
 func vm.env_initial_or_value(env, name, value) {
@@ -180,6 +247,35 @@ func vm.env_initial_or_value(env, name, value) {
   }
 
   return initial
+}
+
+func vm.env_begin_scope(env) {
+  return [vm.env_bindings(env), vm.env_inputs(env), vm.env_input_index(env), vm.env_scope_depth(env) + 1]
+}
+
+func vm.env_end_scope(env) {
+  VTime scope_depth = vm.env_scope_depth(env)
+  VTime bindings = []
+
+  pick(vm.env_bindings(env)): binding {
+    if get(binding, 5) < scope_depth {
+      add(bindings, binding)
+    }
+  }
+
+  return [bindings, vm.env_inputs(env), vm.env_input_index(env), scope_depth - 1]
+}
+
+func vm.state_end_scope(state) {
+  VTime flow = get(state, 0)
+  VTime env = vm.env_end_scope(get(state, 1))
+  VTime output = get(state, 2)
+
+  if flow == vm.FLOW_RETURN {
+    return [flow, env, output, get(state, 3), get(state, 4)]
+  }
+
+  return [flow, env, output]
 }
 
 func vm.env_is_public(env, name) {
@@ -366,33 +462,16 @@ func vm.decl_type(decl_keyword) {
 }
 
 func vm.env_without(env, name) {
-  VTime old_names = vm.env_names(env)
-  VTime old_values = vm.env_values(env)
-  VTime old_kinds = vm.env_kinds(env)
-  VTime old_types = vm.env_types(env)
-  VTime old_initials = vm.env_initials(env)
-  VTime inputs = vm.env_inputs(env)
-  VTime input_index = vm.env_input_index(env)
-  VTime names = []
-  VTime values = []
-  VTime kinds = []
-  VTime types = []
-  VTime initials = []
-  VTime index = 0
+  VTime scope_depth = vm.env_scope_depth(env)
+  VTime bindings = []
 
-  while (index < len(old_names)) (-1) {
-    if get(old_names, index) != name {
-      add(names, get(old_names, index))
-      add(values, get(old_values, index))
-      add(kinds, get(old_kinds, index))
-      add(types, get(old_types, index))
-      add(initials, get(old_initials, index))
+  pick(vm.env_bindings(env)): binding {
+    if (get(binding, 0) != name) or (get(binding, 5) != scope_depth) {
+      add(bindings, binding)
     }
-
-    index += 1
   }
 
-  return [names, values, kinds, types, initials, inputs, input_index]
+  return [bindings, vm.env_inputs(env), vm.env_input_index(env), scope_depth]
 }
 
 func vm.new_functions() {
@@ -924,22 +1003,23 @@ func vm.call_func_slot(function_index, arg_exprs, env, output, functions) {
   env = get(args_state, 1)
   output = get(args_state, 2)
 
-  VTime call_env = env
+  VTime call_env = vm.env_begin_scope(env)
   VTime index = 0
 
   while (index < len(params)) (-1) {
-    call_env = vm.env_put_meta(call_env, get(params, index), get(args, index), get(arg_kinds, index), "VTime")
+    call_env = vm.env_declare_meta(call_env, get(params, index), get(args, index), get(arg_kinds, index), "VTime")
     index += 1
   }
 
   VTime state = vm.run_ir_state(body, call_env, output, functions)
+  VTime caller_env = vm.env_end_scope(get(state, 1))
   output = get(state, 2)
 
   if get(state, 0) == vm.FLOW_RETURN {
-    return [get(state, 3), env, output, get(state, 4)]
+    return [get(state, 3), caller_env, output, get(state, 4)]
   }
 
-  return [NONE, env, output, "AV"]
+  return [NONE, caller_env, output, "AV"]
 }
 
 func vm.apply_assign(current, op, value) {
@@ -1097,7 +1177,7 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime decl_keyword = get(instruction, 1)
     VTime name = get(instruction, 2)
 
-    if vm.env_has(env, name) {
+    if vm.env_has_local(env, name) {
       return [vm.FLOW_FAIL, env, output]
     }
 
@@ -1112,13 +1192,13 @@ func vm.exec_instruction(instruction, env, output, functions) {
       return [vm.FLOW_FAIL, env, output]
     }
 
-    return [vm.FLOW_OK, vm.env_put_meta(env, name, value, target_kind, vm.decl_type(decl_keyword)), output]
+    return [vm.FLOW_OK, vm.env_declare_meta(env, name, value, target_kind, vm.decl_type(decl_keyword)), output]
   }
 
   if opcode == ir.OP_LIST_DECL {
     VTime name = get(instruction, 1)
 
-    if vm.env_has(env, name) {
+    if vm.env_has_local(env, name) {
       return [vm.FLOW_FAIL, env, output]
     }
 
@@ -1126,13 +1206,13 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
-    return [vm.FLOW_OK, vm.env_put_meta(env, name, value, get(value_state, 3), "List"), output]
+    return [vm.FLOW_OK, vm.env_declare_meta(env, name, value, get(value_state, 3), "List"), output]
   }
 
   if opcode == ir.OP_VTIME_DECL {
     VTime name = get(instruction, 1)
 
-    if vm.env_has(env, name) {
+    if vm.env_has_local(env, name) {
       return [vm.FLOW_FAIL, env, output]
     }
 
@@ -1140,7 +1220,7 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
-    return [vm.FLOW_OK, vm.env_put_meta(env, name, value, get(value_state, 3), "VTime"), output]
+    return [vm.FLOW_OK, vm.env_declare_meta(env, name, value, get(value_state, 3), "VTime"), output]
   }
 
   if opcode == ir.OP_INFO_ASSIGN {
@@ -1273,12 +1353,12 @@ func vm.exec_instruction(instruction, env, output, functions) {
     output = get(condition_state, 2)
 
     if get(condition_state, 0) {
-      VTime state = vm.run_ir_state(get(instruction, 2), env, output, functions)
-      return state
+      VTime state = vm.run_ir_state(get(instruction, 2), vm.env_begin_scope(env), output, functions)
+      return vm.state_end_scope(state)
     }
 
-    VTime state = vm.run_ir_state(get(instruction, 3), env, output, functions)
-    return state
+    VTime state = vm.run_ir_state(get(instruction, 3), vm.env_begin_scope(env), output, functions)
+    return vm.state_end_scope(state)
   }
 
   if opcode == ir.OP_WHILE {
@@ -1304,7 +1384,8 @@ func vm.exec_instruction(instruction, env, output, functions) {
         return [vm.FLOW_OK, env, output]
       }
 
-      VTime state = vm.run_ir_state(body, env, output, functions)
+      VTime state = vm.run_ir_state(body, vm.env_begin_scope(env), output, functions)
+      state = vm.state_end_scope(state)
       env = get(state, 1)
       output = get(state, 2)
       iterations += 1
@@ -1318,6 +1399,10 @@ func vm.exec_instruction(instruction, env, output, functions) {
       }
 
       if get(state, 0) != vm.FLOW_OK {
+        if get(state, 0) == vm.FLOW_RETURN {
+          return [vm.FLOW_RETURN, env, output, get(state, 3), get(state, 4)]
+        }
+
         return [get(state, 0), env, output]
       }
     }
@@ -1334,9 +1419,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime body = get(instruction, 3)
 
     pick(items): item {
-      env = vm.env_put_meta(env, item_name, item, get(value_state, 3), "VTime")
-      VTime state = vm.run_ir_state(body, env, output, functions)
-      env = vm.env_without(get(state, 1), item_name)
+      VTime item_env = vm.env_begin_scope(env)
+      item_env = vm.env_declare_meta(item_env, item_name, item, get(value_state, 3), "VTime")
+      VTime state = vm.run_ir_state(body, item_env, output, functions)
+      state = vm.state_end_scope(state)
+      env = get(state, 1)
       output = get(state, 2)
 
       if get(state, 0) == vm.FLOW_CONTINUE {

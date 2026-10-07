@@ -177,7 +177,7 @@ func parser.parse_call_args(tokens, index) {
   while (index < len(tokens)) (-1) {
     VTime token = get(tokens, index)
 
-    if lexer.token_value(token) == ")" {
+    if (lexer.token_kind(token) == lexer.TOKEN_SYM) and (lexer.token_value(token) == ")") {
       return [args, index + 1]
     }
 
@@ -186,7 +186,7 @@ func parser.parse_call_args(tokens, index) {
     index = get(parsed_arg, 1)
 
     VTime comma = get(tokens, index)
-    if lexer.token_value(comma) == "," {
+    if (lexer.token_kind(comma) == lexer.TOKEN_SYM) and (lexer.token_value(comma) == ",") {
       index += 1
     }
   }
@@ -200,7 +200,7 @@ func parser.parse_list_items(tokens, index) {
   while (index < len(tokens)) (-1) {
     VTime token = get(tokens, index)
 
-    if lexer.token_value(token) == "]" {
+    if (lexer.token_kind(token) == lexer.TOKEN_SYM) and (lexer.token_value(token) == "]") {
       return [items, index + 1]
     }
 
@@ -209,7 +209,7 @@ func parser.parse_list_items(tokens, index) {
     index = get(parsed_item, 1)
 
     VTime comma = get(tokens, index)
-    if lexer.token_value(comma) == "," {
+    if (lexer.token_kind(comma) == lexer.TOKEN_SYM) and (lexer.token_value(comma) == ",") {
       index += 1
     }
   }
@@ -223,7 +223,7 @@ func parser.parse_expr_primary(tokens, index) {
   VTime value = lexer.token_value(token)
   VTime next_token = get(tokens, index + 1)
 
-  if value == "-" {
+  if (kind == lexer.TOKEN_SYM) and (value == "-") {
     if lexer.token_kind(next_token) == lexer.TOKEN_INT {
       return [[parser.EXPR_INT, int(lexer.token_value(next_token)) * -1], index + 2]
     }
@@ -233,27 +233,27 @@ func parser.parse_expr_primary(tokens, index) {
     }
   }
 
-  if value == "[" {
+  if (kind == lexer.TOKEN_SYM) and (value == "[") {
     VTime parsed_items = parser.parse_list_items(tokens, index + 1)
     return [[parser.EXPR_LIST, get(parsed_items, 0)], get(parsed_items, 1)]
   }
 
-  if value == "secret" {
+  if (kind == lexer.TOKEN_KW) and (value == "secret") {
     if lexer.token_value(next_token) == "input" {
       return [[parser.EXPR_SECRET_INPUT, NONE], index + 2]
     }
   }
 
-  if value == "input" {
+  if (kind == lexer.TOKEN_KW) and (value == "input") {
     return [[parser.EXPR_INPUT, NONE], index + 1]
   }
 
-  if value == "(" {
+  if (kind == lexer.TOKEN_SYM) and (value == "(") {
     VTime parsed_group = parser.parse_expression(tokens, index + 1)
     VTime close_index = get(parsed_group, 1)
     VTime close_token = get(tokens, close_index)
 
-    if lexer.token_value(close_token) == ")" {
+    if (lexer.token_kind(close_token) == lexer.TOKEN_SYM) and (lexer.token_value(close_token) == ")") {
       return [get(parsed_group, 0), close_index + 1]
     }
 
@@ -354,6 +354,10 @@ func parser.parse_expr_postfix(tokens, index) {
 
   while (index < len(tokens)) (-1) {
     VTime token = get(tokens, index)
+
+    if lexer.token_kind(token) != lexer.TOKEN_SYM {
+      return [expression, index]
+    }
 
     if lexer.token_value(token) != "[" {
       return [expression, index]

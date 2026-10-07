@@ -200,6 +200,30 @@ cargo run -p apl -- emit-linked-module build\runtime.aplmod examples\compiled_ru
 cargo run -p apl -- run-linked build\compiled_runtime.apllink
 ```
 
+Modules can be extended incrementally. The new source is checked against the
+verified exports already stored in the module, then its unlinked IR and exports
+are appended without assigning final function slots:
+
+```powershell
+cargo run -p apl -- emit-module std\runtime.apl build\runtime.aplmod
+cargo run -p apl -- extend-module build\runtime.aplmod std\lexer.apl build\runtime_lexer.aplmod
+```
+
+Build the complete reusable compiler/runtime prelude as one module, then link
+and run the self-host smoke-test through that precompiled module:
+
+```powershell
+cargo run -p apl -- emit-standard-module build\standard.aplmod
+cargo run -p apl -- emit-linked-module build\standard.aplmod examples\bootstrap_runtime.apl build\bootstrap_runtime.apllink
+cargo run --release -p apl -- run-linked build\bootstrap_runtime.apllink
+```
+
+`emit-standard-module` compiles `runtime`, `lexer`, `parser`, `checker`, `ir`,
+`linker`, `verifier`, `vm`, `artifact`, and `bootstrap` sequentially inside one
+APL invocation. The combined IR and symbol table stay in memory and are encoded
+once. The current VM-in-VM smoke-test is computationally expensive, so release
+mode is recommended for that final command.
+
 `.aplmod` now uses the `APLMOD2:` portable format. It stores unlinked IR plus a
 verified symbol table for functions, absolute variables, and `List`
 declarations. Function symbols carry arity; absolute symbols carry their full
@@ -247,12 +271,13 @@ Quick Windows batch wrappers:
 self-host/compiler tests that need the complete compiler prelude inside the
 host `.aplc` image.
 
-`examples/bootstrap_runtime.apl` is the current self-host smoke-test. The
-standalone executable embeds compiled APL IR, runs the APL-written
-lexer/parser/IR/VM from the standard prelude, and that VM executes a nested APL
-program with input, secret input, functions, nested lists, and secret-aware
-output. User code reaches this through the APL-level `bootstrap.*` facade
-instead of calling each internal module directly:
+`examples/bootstrap_runtime.apl` is the current self-host smoke-test. It can be
+linked against `standard.aplmod`, after which the APL-written VM executes the
+APL-written lexer/parser/checker/IR/linker/VM and runs a nested APL program with
+input, secret input, functions, nested lists, and secret-aware output. User code
+reaches this through the APL-level `bootstrap.*` facade instead of calling each
+internal module directly. The older host `.aplc` route remains available for
+focused bootstrap diagnostics:
 
 ```powershell
 .\emit_aplc.bat examples\bootstrap_runtime.apl build\bootstrap_runtime.aplc
@@ -284,7 +309,9 @@ build\bat_test_lexer\target\debug\test_lexer_compiled.exe
 
 The prelude also contains a first parser bootstrap in `std/parser.apl`. It
 turns lexer tokens into small AST records for declarations, assignments,
-`out`, `stop`, and `fail`:
+`out`, `stop`, and `fail`. Syntax delimiters are matched by token kind as well
+as value, so string literals such as `"("`, `"["`, `"]"`, `"input"`, and
+`"secret"` remain ordinary strings:
 
 ```powershell
 .\emit_aplc.bat examples\test_parser.apl build\test_parser.aplc
@@ -375,6 +402,11 @@ values keep per-element protection labels for `get`/`pop`. `input` and
 `vm.run_source_with_input(source, inputs)`; exhausted input becomes `NONE`.
 Absolute declarations and `=` assignments in VM-executed code coerce values to
 their declared type, so invalid typed input becomes `NONE`.
+The VM environment stores compact binding records with an explicit scope depth.
+Function calls and `if`/`while`/`pick` bodies remove their local `VTime`
+bindings on exit while preserving updates to outer and absolute bindings and
+the input cursor. This permits the same local name in independent functions and
+blocks without weakening global uniqueness for absolute variables and lists.
 The bootstrap parser now handles expression
 precedence for arithmetic, comparisons, and `and`/`or`, including `Float`
 literals and unary `-`/`not` expressions:

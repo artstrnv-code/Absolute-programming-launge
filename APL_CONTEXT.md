@@ -449,12 +449,21 @@ Rust workspace:
   composes `std/runtime.apl` and user source inside the APL bridge before
   checking and lowering. Runtime helpers and user functions therefore receive
   one function table and one `CALL_SLOT` namespace without copying compiler
-  implementation modules into the artifact.
+  implementation modules into the artifact. The bridge runs on a dedicated
+  32 MiB-stack thread while the bootstrap parser still uses recursive host
+  calls. `compile_module_artifact_sources` feeds an explicit source count and
+  compiles multiple module sources inside one APL invocation; the combined IR
+  and symbol table remain in memory until one final `APLMOD2` encoding.
+  `compile_standard_module_artifact` uses that path for every `std/*.apl`
+  compiler/runtime layer. Runtime strings cache Unicode characters and runtime
+  lists use copy-on-write storage, avoiding whole-source and whole-AST copies
+  during bootstrap while preserving APL value semantics.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`
-  aliases), relocatable module `emit-module`/`emit-linked-module`, and legacy
-  `.aplc` package `build-host`/`compile-host` commands.
+  aliases), relocatable module `emit-module`/`extend-module`/
+  `emit-standard-module`/`emit-linked-module`, and legacy `.aplc` package
+  `build-host`/`compile-host` commands.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:
@@ -486,6 +495,11 @@ APL-owned runtime code:
   Bounded-loop parsing accepts both non-negative integer limits and the
   tokenized negative literal `-1`, matching the Rust parser and the language's
   unlimited-loop syntax.
+  Delimiters and special forms are selected by token kind as well as token
+  value. A `Str` token whose value is `(`, `[`, `]`, `input`, `secret`, or `-`
+  is therefore parsed as a string literal instead of syntax. Call/list commas,
+  closing delimiters, grouped expressions, and postfix indexing apply the same
+  token-kind rule.
   Current expression coverage: int, float, string, bool, `NONE`, `input`,
   `secret input`, variable references, list literals, tagged values `value:ASV` / `value:SASV`,
   function/builtin calls, postfix indexing/slicing, unary `-`/`not`
@@ -506,6 +520,12 @@ APL-owned runtime code:
   validation accepts known VM builtins, accepts user functions including
   top-level forward calls, rejects unknown function names, rejects attempts to
   call non-function values, and checks user-function argument counts.
+  `VTime` declarations and function parameters remain local to their function
+  or block during validation. Leaving a function, `if`, `while`, or `pick`
+  merges only newly discovered absolute, list, and function names into the
+  enclosing global uniqueness table. This permits independent local names such
+  as `index` or `text` without allowing nested global declarations to evade the
+  repository-wide uniqueness rule.
   `checker.validate_report_with_symbols` accepts a verified external symbol
   table for functions, absolute variables, and lists. It rejects collisions
   with user declarations and validates imported reads, mutation targets, and
@@ -549,9 +569,16 @@ APL-owned runtime code:
   with the earlier function-only `APLMOD1:` format and normalizes its exports
   for the external checker.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
-  IR from `std/ir.apl`, keeps an append-only environment as
-  `[names, values, kinds, types, initials]`,
-  supports declarations with `AV`/`ASV`/`SASV` metadata, dynamic `VTime` values,
+  IR from `std/ir.apl`. Its environment is
+  `[bindings, inputs, input_index, scope_depth]`, where each compact binding is
+  `[name, value, kind, type, initial, depth]`. Updating a name replaces the
+  prior binding at the same depth instead of growing an assignment history.
+  Function calls and `if`/`while`/`pick` bodies enter explicit scopes; leaving
+  them removes local `VTime` bindings while retaining outer/global mutations
+  and the advanced input cursor. Consequently independent functions may use
+  the same local names, block locals do not leak, and absolute/list uniqueness
+  remains global. It supports declarations with `AV`/`ASV`/`SASV` metadata,
+  dynamic `VTime` values,
   lists, `get`/`len`/`add`/`pop`, `info()` metadata reads, assignments, nested
   `if/else if/else` blocks, bounded `while` blocks, loop flow with `break`/`continue`,
   `pick` iteration with scoped item cleanup, function tables, function calls,
@@ -623,7 +650,10 @@ APL-owned runtime code:
   `bootstrap.load_linked_artifact_report(encoded)`,
   `bootstrap.load_linked_artifact(encoded)`,
   `bootstrap.module_report(source)`, `bootstrap.module(source)`,
+  `bootstrap.modules_report(sources)`, `bootstrap.modules(sources)`,
   `bootstrap.load_module_report(encoded)`, `bootstrap.load_module(encoded)`,
+  `bootstrap.extend_module_report(encoded, source)`,
+  `bootstrap.extend_module(encoded, source)`,
   `bootstrap.linked_artifact_with_module_report(encoded, source)`,
   `bootstrap.linked_artifact_with_module(encoded, source)`,
   `bootstrap.run_linked_artifact(encoded)`,
@@ -636,6 +666,12 @@ APL-owned runtime code:
   `bootstrap.run(source)`, and `bootstrap.run_with_input(source, inputs)`, so
   compiled APL programs can drive the APL-written runtime without directly
   stitching lexer/parser/IR/VM calls.
+  `bootstrap.modules_report` checks and lowers a sequence of source modules
+  against the exports accumulated so far, appends their still-unlinked IR in
+  memory, and encodes once. `bootstrap.extend_module_report` performs the same
+  symbol-aware check for one new source against an existing decoded module and
+  emits a new relocatable module. Neither path assigns `CALL_SLOT` before the
+  final program link.
   Compile reports return `[OK, program]` or `[FAIL, message]` and prevent VM
   execution when parser/IR lowering produced `ERROR`.
   Artifact reports currently return `[OK, "APLIR1:..."]` or `[FAIL, message]`.
@@ -672,6 +708,16 @@ APL-owned runtime code:
   Status-preserving variants `bootstrap.run_report(source)` and
   `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
   where status is `OK`, `STOP`, or `FAIL`.
+  The current bootstrap gate is now closed at the portable VM level:
+  `emit-standard-module` produces one `APLMOD2` containing the APL-written
+  runtime and compiler, `emit-linked-module` links
+  `examples/bootstrap_runtime.apl` against it, and that `APLLINK2` successfully
+  runs the compiler pipeline again inside the APL-written VM. The nested run
+  produces the expected public values and `DENIED` for secret outputs. A Rust
+  host still loads and executes the outer VM, and no native backend exists yet,
+  so this is self-hosted portable compiler/VM bootstrap rather than the final
+  native bootstrap. Use a release host for the VM-in-VM smoke-test; debug mode
+  is currently impractically slow.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
   `examples/test_vm_while.apl`, and

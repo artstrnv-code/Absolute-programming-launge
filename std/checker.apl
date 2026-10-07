@@ -116,6 +116,23 @@ func checker.ok(names) {
   return [checker.STATUS_OK, names, NONE]
 }
 
+func checker.merge_global_names(names, scoped_names) {
+  VTime merged = names[:]
+  VTime index = len(names)
+
+  while (index < len(scoped_names)) (-1) {
+    VTime entry = get(scoped_names, index)
+
+    if checker.entry_role(entry) != "VTime" {
+      add(merged, entry)
+    }
+
+    index += 1
+  }
+
+  return merged
+}
+
 func checker.validate_decl_name(node, names, allow_predeclared_func) {
   VTime name = checker.declared_name(node)
   VTime kind = parser.node_kind(node)
@@ -567,7 +584,7 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return body_state
     }
 
-    return checker.ok(names)
+    return checker.ok(checker.merge_global_names(names, get(body_state, 1)))
   }
 
   if kind == parser.NODE_IF {
@@ -577,14 +594,20 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return condition_state
     }
 
-    VTime body_state = checker.validate_block(get(node, 2), names, false)
-    names = get(body_state, 1)
+    VTime body_state = checker.validate_block(get(node, 2), names[:], false)
 
     if get(body_state, 0) != checker.STATUS_OK {
       return body_state
     }
 
-    return checker.validate_block(get(node, 3), names, false)
+    names = checker.merge_global_names(names, get(body_state, 1))
+    VTime else_state = checker.validate_block(get(node, 3), names[:], false)
+
+    if get(else_state, 0) != checker.STATUS_OK {
+      return else_state
+    }
+
+    return checker.ok(checker.merge_global_names(names, get(else_state, 1)))
   }
 
   if kind == parser.NODE_WHILE {
@@ -594,7 +617,13 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return condition_state
     }
 
-    return checker.validate_block(get(node, 3), names, false)
+    VTime body_state = checker.validate_block(get(node, 3), names[:], false)
+
+    if get(body_state, 0) != checker.STATUS_OK {
+      return body_state
+    }
+
+    return checker.ok(checker.merge_global_names(names, get(body_state, 1)))
   }
 
   if kind == parser.NODE_PICK {
@@ -605,7 +634,13 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
     }
 
     VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
-    return checker.validate_block(get(node, 3), local_names, false)
+    VTime body_state = checker.validate_block(get(node, 3), local_names, false)
+
+    if get(body_state, 0) != checker.STATUS_OK {
+      return body_state
+    }
+
+    return checker.ok(checker.merge_global_names(names, get(body_state, 1)))
   }
 
   return checker.ok(names)

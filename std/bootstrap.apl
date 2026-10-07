@@ -65,12 +65,78 @@ func bootstrap.module(source) {
   return get(bootstrap.module_report(source), 1)
 }
 
+func bootstrap.modules_report(sources) {
+  VTime combined = []
+  VTime symbols = []
+
+  pick(sources): source {
+    VTime ast = bootstrap.ast(source)
+    VTime checked = checker.validate_report_with_symbols(ast, symbols)
+
+    if get(checked, 0) != checker.STATUS_OK {
+      return [vm.FLOW_FAIL, get(checked, 1)]
+    }
+
+    VTime extension = ir.compile_ast(get(checked, 1))
+
+    if bootstrap.ir_has_error(extension) {
+      return [vm.FLOW_FAIL, bootstrap.ir_error(extension)]
+    }
+
+    pick(extension): instruction {
+      add(combined, instruction)
+    }
+
+    symbols = artifact.program_symbols(combined)
+  }
+
+  return artifact.encode_module_report(combined)
+}
+
+func bootstrap.modules(sources) {
+  return get(bootstrap.modules_report(sources), 1)
+}
+
 func bootstrap.load_module_report(encoded) {
   return artifact.decode_module_report(encoded)
 }
 
 func bootstrap.load_module(encoded) {
   return get(bootstrap.load_module_report(encoded), 1)
+}
+
+func bootstrap.extend_module_report(encoded_module, source) {
+  VTime module_report = bootstrap.load_module_report(encoded_module)
+
+  if get(module_report, 0) != vm.FLOW_OK {
+    return module_report
+  }
+
+  VTime module = get(module_report, 1)
+  VTime ast = bootstrap.ast(source)
+  VTime checked = checker.validate_report_with_symbols(ast, artifact.module_symbols(module))
+
+  if get(checked, 0) != checker.STATUS_OK {
+    return [vm.FLOW_FAIL, get(checked, 1)]
+  }
+
+  VTime extension = ir.compile_ast(get(checked, 1))
+
+  if bootstrap.ir_has_error(extension) {
+    return [vm.FLOW_FAIL, bootstrap.ir_error(extension)]
+  }
+
+  VTime combined = artifact.module_program(module)[:]
+
+  pick(extension): instruction {
+    add(combined, instruction)
+  }
+
+  return artifact.encode_module_report(combined)
+}
+
+func bootstrap.extend_module(encoded_module, source) {
+  return get(bootstrap.extend_module_report(encoded_module, source), 1)
 }
 
 func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
