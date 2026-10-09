@@ -2558,6 +2558,39 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_propagates_apl_vm_stop_fail_through_function_calls_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr stop_source = join(["func halt() { stop ", char(34), "done", char(34), " } out ", char(34), "before", char(34), " VTime unused = halt() out ", char(34), "after", char(34)], "")
+            AVStr fail_source = join(["func reject() { fail ", char(34), "bad", char(34), " } out ", char(34), "before", char(34), " VTime unused = reject() out ", char(34), "after", char(34)], "")
+            AVStr nested_source = join(["func halt() { stop ", char(34), "deep", char(34), " } func late() { out ", char(34), "late", char(34), " return 1 } func pair(left, right) { return left } out ", char(34), "before", char(34), " VTime unused = pair(halt(), late()) out ", char(34), "after", char(34)], "")
+            VTime stop_report = vm.run_source_report(stop_source)
+            VTime fail_report = vm.run_source_report(fail_source)
+            VTime nested_report = vm.run_source_report(nested_source)
+
+            out get(stop_report, 0)
+            out len(get(stop_report, 1))
+            out get(get(stop_report, 1), 0)
+            out get(get(stop_report, 1), 1)
+            out get(fail_report, 0)
+            out len(get(fail_report, 1))
+            out get(get(fail_report, 1), 0)
+            out get(get(fail_report, 1), 1)
+            out get(nested_report, 0)
+            out len(get(nested_report, 1))
+            out get(get(nested_report, 1), 0)
+            out get(get(nested_report, 1), 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "STOP\n2\nbefore\ndone\nFAIL\n2\nbefore\nbad\nSTOP\n2\nbefore\ndeep\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_grouped_logical_conditions_prelude() {
         let output = run_source_with_prelude(
             r#"

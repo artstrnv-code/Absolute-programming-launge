@@ -13,11 +13,15 @@ languages like Python/JS. Low-level work should be delegated to C/Rust/ASM.
 APL owns orchestration, contracts, routing, security boundaries, typed shared
 state, and future container/component composition.
 
-Long-term target: APL must become a native compiled language, not permanently a
-language hosted by a Rust runtime. The current Rust implementation is a
-bootstrap host. Later compiler stages should move toward native code or a
-native kernel-suitable runtime path, because APL is intended to be capable of
-OS-level development in the future.
+Long-term target: APL must become an AOT native compiled language, not
+permanently a language hosted by a Rust runtime or bytecode VM. The current
+Rust implementation is a bootstrap host. The production compiler should lower
+APL into a low-level native IR, emit inspectable assembly and/or platform object
+files, and invoke a platform linker to produce PE executables on Windows, ELF
+executables on Linux, and Mach-O applications on macOS. AppImage is a packaging
+target around a Linux executable, not a separate code-generation format. A
+freestanding native runtime path must eventually support kernel and OS-level
+development without depending on the Rust host or a managed runtime.
 
 Native APL does not imply exposing raw addresses, pointers, or manual allocation
 as ordinary language features. Those mechanisms belong in low-level C/C++/Rust
@@ -39,14 +43,30 @@ Current high-level plan:
 
 1. Build the base language.
 2. Build the interpreted runtime.
-3. Build the compiled runtime path and start moving standard behavior into APL.
-4. Add containers/components.
-5. Polish tooling, diagnostics, and packaging.
+3. Close the portable self-host compiler/VM bootstrap and move standard
+   behavior into APL.
+4. Stabilize core-language semantics against the Rust reference runtime.
+5. Add an APL-owned native lowering/backend that can emit assembly, object
+   files, and linked platform executables.
+6. Add a freestanding runtime profile suitable for future OS work.
+7. Add containers/components behind strict contracts.
+8. Polish tooling, diagnostics, and platform packaging.
 
 Current implementation has parser, checker, CLI, GUI shell, runtime v0.1
-interpreter coverage for the current base language, and a first compiler
-package generator. It is not yet a native APL bytecode or container bundle
-system.
+interpreter coverage for the current base language, an in-memory Rust-hosted
+opcode runtime, and a closed portable self-host compiler/VM loop. It does not
+yet have a native code generator, stable emitted bytecode format, freestanding
+runtime, or container bundle system.
+
+There are currently two compiled execution paths. The legacy Rust-hosted path
+stores a checked `Program` in binary `.aplc` form, then lowers it at load time
+to an in-memory `CompiledProgram`: linear statement opcodes with program-counter
+jumps and stack opcodes for expressions. `.aplc` is therefore not itself the
+runtime bytecode format. The APL-written self-host path emits `APLMOD2` and
+`APLLINK2`, which serialize recursive list-based IR interpreted by `std/vm.apl`.
+That portable IR is a bootstrap and semantic-reference format, not the final
+native backend. Bytecode may remain useful as a VM/debugging target, but native
+object and executable output is the primary production goal.
 
 ## Variable Families
 
@@ -599,7 +619,13 @@ APL-owned runtime code:
   `info()` in the VM requires existing `AVStr` targets and rejects `VTime`
   sources; `info(SASV)` remains allowed because it exposes metadata, not value.
   The same external-channel rule is applied to `stop`/`fail` reasons: public
-  reasons are captured, secret reasons become `DENIED`. VM expressions can now evaluate variable loads,
+  reasons are captured, secret reasons become `DENIED`. Expression evaluation
+  returns `[value, env, output, kind, flow]`. Non-`OK` flow stops evaluation of
+  the remaining operands, list elements, slice bounds, or call arguments and
+  propagates through each enclosing expression and instruction. Consequently
+  `stop` or `fail` inside a direct or nested function call terminates the whole
+  VM program, matching the Rust runtime, rather than becoming an ordinary
+  `NONE` function result. VM expressions can now evaluate variable loads,
   literals, list literals, builtin calls, indexing, slicing, function calls,
   unary `-`/`not`, arithmetic operators `+`, `-`, `*`, `/`, comparison
   operators `==`, `!=`, `>`, `<`, `>=`, `<=`, grouped expressions, and logical

@@ -10,6 +10,24 @@ AVStr vm.FLOW_CONTINUE = "CONTINUE"
 AVStr vm.FLOW_RETURN = "RETURN"
 AVStr vm.KIND_LIST = "LIST_KIND"
 
+# Expression state is [value, env, output, protection kind, flow].
+# A non-OK flow aborts the rest of the containing expression.
+func vm.expr_ok(value, env, output, kind) {
+  return [value, env, output, kind, vm.FLOW_OK]
+}
+
+func vm.expr_flow(flow, env, output) {
+  return [NONE, env, output, "AV", flow]
+}
+
+func vm.expr_is_ok(state) {
+  return get(state, 4) == vm.FLOW_OK
+}
+
+func vm.state_from_expr(state) {
+  return [get(state, 4), get(state, 1), get(state, 2)]
+}
+
 func vm.new_env() {
   return vm.new_env_with_input([])
 }
@@ -567,35 +585,40 @@ func vm.eval_expr(expression, env, output, functions) {
   }
 
   if opcode == ir.EXPR_LITERAL {
-    return [ir.expr_value(expression), env, output, "AV"]
+    return vm.expr_ok(ir.expr_value(expression), env, output, "AV")
   }
 
   if opcode == ir.EXPR_LOAD {
-    return [vm.env_get(env, ir.expr_value(expression)), env, output, vm.env_kind(env, ir.expr_value(expression))]
+    return vm.expr_ok(vm.env_get(env, ir.expr_value(expression)), env, output, vm.env_kind(env, ir.expr_value(expression)))
   }
 
   if opcode == ir.EXPR_SELF {
     VTime name = ir.expr_value(expression)
-    return [vm.env_get(env, name) == vm.env_initial(env, name), env, output, vm.env_kind(env, name)]
+    return vm.expr_ok(vm.env_get(env, name) == vm.env_initial(env, name), env, output, vm.env_kind(env, name))
   }
 
   if opcode == ir.EXPR_TAG {
     VTime value_state = vm.eval_expr(get(expression, 1), env, output, functions)
-    return [get(value_state, 0), get(value_state, 1), get(value_state, 2), vm.max_kind(get(value_state, 3), get(expression, 2))]
+
+    if vm.expr_is_ok(value_state) != true {
+      return value_state
+    }
+
+    return vm.expr_ok(get(value_state, 0), get(value_state, 1), get(value_state, 2), vm.max_kind(get(value_state, 3), get(expression, 2)))
   }
 
   if opcode == ir.EXPR_NONE {
-    return [NONE, env, output, "AV"]
+    return vm.expr_ok(NONE, env, output, "AV")
   }
 
   if opcode == ir.EXPR_INPUT {
     VTime input_state = vm.env_read_input(env)
-    return [get(input_state, 0), get(input_state, 1), output, "AV"]
+    return vm.expr_ok(get(input_state, 0), get(input_state, 1), output, "AV")
   }
 
   if opcode == ir.EXPR_SECRET_INPUT {
     VTime input_state = vm.env_read_input(env)
-    return [get(input_state, 0), get(input_state, 1), output, "ASV"]
+    return vm.expr_ok(get(input_state, 0), get(input_state, 1), output, "ASV")
   }
 
   if opcode == ir.EXPR_CALL {
@@ -616,81 +639,116 @@ func vm.eval_expr(expression, env, output, functions) {
 
     pick(get(expression, 1)): item_expr {
       VTime item_state = vm.eval_expr(item_expr, env, output, functions)
-      add(values, get(item_state, 0))
-      add(list_kinds, get(item_state, 3))
       env = get(item_state, 1)
       output = get(item_state, 2)
+
+      if vm.expr_is_ok(item_state) != true {
+        return vm.expr_flow(get(item_state, 4), env, output)
+      }
+
+      add(values, get(item_state, 0))
+      add(list_kinds, get(item_state, 3))
     }
 
-    return [values, env, output, vm.list_kind(list_kinds)]
+    return vm.expr_ok(values, env, output, vm.list_kind(list_kinds))
   }
 
   if opcode == ir.EXPR_INDEX {
     VTime target_state = vm.eval_expr(get(expression, 1), env, output, functions)
-    VTime target = get(target_state, 0)
     env = get(target_state, 1)
     output = get(target_state, 2)
+
+    if vm.expr_is_ok(target_state) != true {
+      return vm.expr_flow(get(target_state, 4), env, output)
+    }
+
+    VTime target = get(target_state, 0)
     VTime index_state = vm.eval_expr(get(expression, 2), env, output, functions)
-    VTime index = get(index_state, 0)
     env = get(index_state, 1)
     output = get(index_state, 2)
-    return [get(target, index), env, output, vm.max_kind(vm.list_item_kind(get(target_state, 3), index), get(index_state, 3))]
+
+    if vm.expr_is_ok(index_state) != true {
+      return vm.expr_flow(get(index_state, 4), env, output)
+    }
+
+    VTime index = get(index_state, 0)
+    return vm.expr_ok(get(target, index), env, output, vm.max_kind(vm.list_item_kind(get(target_state, 3), index), get(index_state, 3)))
   }
 
   if opcode == ir.EXPR_SLICE {
     return vm.eval_slice_expr(expression, env, output, functions)
   }
 
-  return [NONE, env, output, "AV"]
+  return vm.expr_ok(NONE, env, output, "AV")
 }
 
 func vm.eval_slice_expr(expression, env, output, functions) {
   VTime target_state = vm.eval_expr(get(expression, 1), env, output, functions)
-  VTime target = get(target_state, 0)
   env = get(target_state, 1)
   output = get(target_state, 2)
+
+  if vm.expr_is_ok(target_state) != true {
+    return vm.expr_flow(get(target_state, 4), env, output)
+  }
+
+  VTime target = get(target_state, 0)
   VTime start_state = vm.eval_expr(get(expression, 2), env, output, functions)
-  VTime start = get(start_state, 0)
   env = get(start_state, 1)
   output = get(start_state, 2)
+
+  if vm.expr_is_ok(start_state) != true {
+    return vm.expr_flow(get(start_state, 4), env, output)
+  }
+
+  VTime start = get(start_state, 0)
   VTime end_state = vm.eval_expr(get(expression, 3), env, output, functions)
-  VTime end = get(end_state, 0)
   env = get(end_state, 1)
   output = get(end_state, 2)
+
+  if vm.expr_is_ok(end_state) != true {
+    return vm.expr_flow(get(end_state, 4), env, output)
+  }
+
+  VTime end = get(end_state, 0)
   VTime step_state = vm.eval_expr(get(expression, 4), env, output, functions)
-  VTime step = get(step_state, 0)
   env = get(step_state, 1)
   output = get(step_state, 2)
+
+  if vm.expr_is_ok(step_state) != true {
+    return vm.expr_flow(get(step_state, 4), env, output)
+  }
+
+  VTime step = get(step_state, 0)
 
   if start == NONE {
     if end == NONE {
       if step == NONE {
-        return [target[:], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+        return vm.expr_ok(target[:], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
       }
 
-      return [target[::step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+      return vm.expr_ok(target[::step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
     }
 
     if step == NONE {
-      return [target[:end], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+      return vm.expr_ok(target[:end], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
     }
 
-    return [target[:end:step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+    return vm.expr_ok(target[:end:step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
   }
 
   if end == NONE {
     if step == NONE {
-      return [target[start:], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+      return vm.expr_ok(target[start:], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
     }
 
-    return [target[start::step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+    return vm.expr_ok(target[start::step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
   }
 
   if step == NONE {
-    return [target[start:end], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+    return vm.expr_ok(target[start:end], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
   }
 
-  return [target[start:end:step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3))]
+  return vm.expr_ok(target[start:end:step], env, output, vm.slice_kind(get(target_state, 3), start, end, step, get(start_state, 3), get(end_state, 3), get(step_state, 3)))
 }
 
 func vm.is_builtin_call(name) {
@@ -767,13 +825,18 @@ func vm.eval_arg_values(arg_exprs, env, output, functions) {
 
   pick(arg_exprs): arg_expr {
     VTime arg_state = vm.eval_expr(arg_expr, env, output, functions)
-    add(args, get(arg_state, 0))
-    add(kinds, get(arg_state, 3))
     env = get(arg_state, 1)
     output = get(arg_state, 2)
+
+    if vm.expr_is_ok(arg_state) != true {
+      return [args, env, output, kinds, get(arg_state, 4)]
+    }
+
+    add(args, get(arg_state, 0))
+    add(kinds, get(arg_state, 3))
   }
 
-  return [args, env, output, kinds]
+  return [args, env, output, kinds, vm.FLOW_OK]
 }
 
 func vm.call_builtin(name, arg_exprs, env, output, functions) {
@@ -784,19 +847,24 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
       VTime add_name = ir.expr_value(list_expr)
 
       if vm.target_allows_list_mutation(env, add_name) != true {
-        return [NONE, env, output, "AV"]
+        return vm.expr_ok(NONE, env, output, "AV")
       }
 
       VTime value_state = vm.eval_expr(get(arg_exprs, 1), env, output, functions)
-      VTime value = get(value_state, 0)
       env = get(value_state, 1)
       output = get(value_state, 2)
+
+      if vm.expr_is_ok(value_state) != true {
+        return vm.expr_flow(get(value_state, 4), env, output)
+      }
+
+      VTime value = get(value_state, 0)
       VTime target = vm.env_get(env, add_name)
       add(target, value)
-      return [NONE, vm.env_put_meta(env, add_name, target, vm.list_kind_after_add(vm.env_kind(env, add_name), get(value_state, 3)), vm.env_type(env, add_name)), output, "AV"]
+      return vm.expr_ok(NONE, vm.env_put_meta(env, add_name, target, vm.list_kind_after_add(vm.env_kind(env, add_name), get(value_state, 3)), vm.env_type(env, add_name)), output, "AV")
     }
 
-    return [NONE, env, output, "AV"]
+    return vm.expr_ok(NONE, env, output, "AV")
   }
 
   if name == "pop" {
@@ -806,49 +874,54 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
       VTime pop_name = ir.expr_value(list_expr)
 
       if vm.target_allows_list_mutation(env, pop_name) != true {
-        return [NONE, env, output, "AV"]
+        return vm.expr_ok(NONE, env, output, "AV")
       }
 
       VTime target = vm.env_get(env, pop_name)
       VTime value = pop(target)
       VTime item_kind = vm.list_item_kind(vm.env_kind(env, pop_name), len(target))
-      return [value, vm.env_put_meta(env, pop_name, target, vm.list_kind_after_pop(vm.env_kind(env, pop_name)), vm.env_type(env, pop_name)), output, item_kind]
+      return vm.expr_ok(value, vm.env_put_meta(env, pop_name, target, vm.list_kind_after_pop(vm.env_kind(env, pop_name)), vm.env_type(env, pop_name)), output, item_kind)
     }
 
-    return [NONE, env, output, "AV"]
+    return vm.expr_ok(NONE, env, output, "AV")
   }
 
   VTime args_state = vm.eval_arg_values(arg_exprs, env, output, functions)
-  VTime args = get(args_state, 0)
   env = get(args_state, 1)
   output = get(args_state, 2)
 
+  if get(args_state, 4) != vm.FLOW_OK {
+    return vm.expr_flow(get(args_state, 4), env, output)
+  }
+
+  VTime args = get(args_state, 0)
+
   if name == "get" {
-    return [get(get(args, 0), get(args, 1)), env, output, vm.max_kind(vm.list_item_kind(get(get(args_state, 3), 0), get(args, 1)), get(get(args_state, 3), 1))]
+    return vm.expr_ok(get(get(args, 0), get(args, 1)), env, output, vm.max_kind(vm.list_item_kind(get(get(args_state, 3), 0), get(args, 1)), get(get(args_state, 3), 1)))
   }
 
   if name == "len" {
-    return [len(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(len(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "split" {
-    return [split(get(args, 0), get(args, 1)), env, output, vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1))]
+    return vm.expr_ok(split(get(args, 0), get(args, 1)), env, output, vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1)))
   }
 
   if name == "join" {
-    return [join(get(args, 0), get(args, 1)), env, output, vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1))]
+    return vm.expr_ok(join(get(args, 0), get(args, 1)), env, output, vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1)))
   }
 
   if name == "contains" {
-    return [contains(get(args, 0), get(args, 1)), env, output, vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1))]
+    return vm.expr_ok(contains(get(args, 0), get(args, 1)), env, output, vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1)))
   }
 
   if name == "ord" {
-    return [ord(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(ord(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "char" {
-    return [char(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(char(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "pow" {
@@ -857,7 +930,7 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
     VTime kind = vm.max_kind(get(get(args_state, 3), 0), get(get(args_state, 3), 1))
 
     if exponent < 0 {
-      return [NONE, env, output, kind]
+      return vm.expr_ok(NONE, env, output, kind)
     }
 
     VTime result = 1
@@ -868,119 +941,134 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
       index += 1
     }
 
-    return [result, env, output, kind]
+    return vm.expr_ok(result, env, output, kind)
   }
 
   if name == "int" {
-    return [int(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(int(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "float" {
-    return [float(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(float(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "bool" {
-    return [bool(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(bool(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "str" {
-    return [str(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(str(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "bytes" {
-    return [bytes(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(bytes(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
   if name == "json" {
-    return [json(get(args, 0)), env, output, get(get(args_state, 3), 0)]
+    return vm.expr_ok(json(get(args, 0)), env, output, get(get(args_state, 3), 0))
   }
 
-  return [NONE, env, output, "AV"]
+  return vm.expr_ok(NONE, env, output, "AV")
 }
 
 func vm.eval_unary(op, value_expr, env, output, functions) {
   VTime value_state = vm.eval_expr(value_expr, env, output, functions)
-  VTime value = get(value_state, 0)
   env = get(value_state, 1)
   output = get(value_state, 2)
 
+  if vm.expr_is_ok(value_state) != true {
+    return vm.expr_flow(get(value_state, 4), env, output)
+  }
+
+  VTime value = get(value_state, 0)
+
   if op == "-" {
-    return [value - value - value, env, output, get(value_state, 3)]
+    return vm.expr_ok(value - value - value, env, output, get(value_state, 3))
   }
 
   if op == "not" {
-    return [not value, env, output, get(value_state, 3)]
+    return vm.expr_ok(not value, env, output, get(value_state, 3))
   }
 
-  return [NONE, env, output, "AV"]
+  return vm.expr_ok(NONE, env, output, "AV")
 }
 
 func vm.eval_binary(op, left_expr, right_expr, env, output, functions) {
   VTime left_state = vm.eval_expr(left_expr, env, output, functions)
-  VTime left = get(left_state, 0)
   env = get(left_state, 1)
   output = get(left_state, 2)
+
+  if vm.expr_is_ok(left_state) != true {
+    return vm.expr_flow(get(left_state, 4), env, output)
+  }
+
+  VTime left = get(left_state, 0)
   VTime right_state = vm.eval_expr(right_expr, env, output, functions)
-  VTime right = get(right_state, 0)
   env = get(right_state, 1)
   output = get(right_state, 2)
 
+  if vm.expr_is_ok(right_state) != true {
+    return vm.expr_flow(get(right_state, 4), env, output)
+  }
+
+  VTime right = get(right_state, 0)
+
   if op == "==" {
-    return [left == right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left == right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "!=" {
-    return [left != right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left != right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == ">" {
-    return [left > right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left > right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "<" {
-    return [left < right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left < right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == ">=" {
-    return [left >= right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left >= right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "<=" {
-    return [left <= right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left <= right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "and" {
-    return [left and right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left and right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "or" {
-    return [left or right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left or right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "+" {
-    return [left + right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left + right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "-" {
-    return [left - right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left - right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "*" {
-    return [left * right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left * right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
   if op == "/" {
-    return [left / right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3))]
+    return vm.expr_ok(left / right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
-  return [NONE, env, output, "AV"]
+  return vm.expr_ok(NONE, env, output, "AV")
 }
 
 func vm.call_func(name, arg_exprs, env, output, functions) {
   VTime function_index = vm.func_index(functions, name)
 
   if function_index == NONE {
-    return [NONE, env, output, "AV"]
+    return vm.expr_ok(NONE, env, output, "AV")
   }
 
   return vm.call_func_slot(function_index, arg_exprs, env, output, functions)
@@ -988,20 +1076,25 @@ func vm.call_func(name, arg_exprs, env, output, functions) {
 
 func vm.call_func_slot(function_index, arg_exprs, env, output, functions) {
   if function_index < 0 {
-    return [NONE, env, output, "AV"]
+    return vm.expr_ok(NONE, env, output, "AV")
   }
 
   if function_index >= len(vm.func_names(functions)) {
-    return [NONE, env, output, "AV"]
+    return vm.expr_ok(NONE, env, output, "AV")
   }
 
   VTime params = get(vm.func_params(functions), function_index)
   VTime body = get(vm.func_bodies(functions), function_index)
   VTime args_state = vm.eval_arg_values(arg_exprs, env, output, functions)
-  VTime args = get(args_state, 0)
-  VTime arg_kinds = get(args_state, 3)
   env = get(args_state, 1)
   output = get(args_state, 2)
+
+  if get(args_state, 4) != vm.FLOW_OK {
+    return vm.expr_flow(get(args_state, 4), env, output)
+  }
+
+  VTime args = get(args_state, 0)
+  VTime arg_kinds = get(args_state, 3)
 
   VTime call_env = vm.env_begin_scope(env)
   VTime index = 0
@@ -1016,10 +1109,14 @@ func vm.call_func_slot(function_index, arg_exprs, env, output, functions) {
   output = get(state, 2)
 
   if get(state, 0) == vm.FLOW_RETURN {
-    return [get(state, 3), caller_env, output, get(state, 4)]
+    return vm.expr_ok(get(state, 3), caller_env, output, get(state, 4))
   }
 
-  return [NONE, caller_env, output, "AV"]
+  if get(state, 0) != vm.FLOW_OK {
+    return vm.expr_flow(get(state, 0), caller_env, output)
+  }
+
+  return vm.expr_ok(NONE, caller_env, output, "AV")
 }
 
 func vm.apply_assign(current, op, value) {
@@ -1145,7 +1242,7 @@ func vm.coerce_value(value, value_type) {
 }
 
 func vm.coerce_state(value_state, value_type) {
-  return [vm.coerce_value(get(value_state, 0), value_type), get(value_state, 1), get(value_state, 2), get(value_state, 3)]
+  return [vm.coerce_value(get(value_state, 0), value_type), get(value_state, 1), get(value_state, 2), get(value_state, 3), get(value_state, 4)]
 }
 
 func vm.add_public_reason(output, value_state, fallback) {
@@ -1182,6 +1279,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
     }
 
     VTime value_state = vm.eval_expr(get(instruction, 3), env, output, functions)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
     value_state = vm.coerce_state(value_state, vm.decl_type(decl_keyword))
     VTime value = get(value_state, 0)
     env = get(value_state, 1)
@@ -1203,9 +1305,14 @@ func vm.exec_instruction(instruction, env, output, functions) {
     }
 
     VTime value_state = vm.eval_expr(get(instruction, 2), env, output, functions)
-    VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
+    VTime value = get(value_state, 0)
     return [vm.FLOW_OK, vm.env_declare_meta(env, name, value, get(value_state, 3), "List"), output]
   }
 
@@ -1217,9 +1324,14 @@ func vm.exec_instruction(instruction, env, output, functions) {
     }
 
     VTime value_state = vm.eval_expr(get(instruction, 2), env, output, functions)
-    VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
+    VTime value = get(value_state, 0)
     return [vm.FLOW_OK, vm.env_declare_meta(env, name, value, get(value_state, 3), "VTime"), output]
   }
 
@@ -1262,9 +1374,14 @@ func vm.exec_instruction(instruction, env, output, functions) {
     }
 
     VTime value_state = vm.eval_expr(get(instruction, 3), env, output, functions)
-    VTime value = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
+    VTime value = get(value_state, 0)
     VTime current = vm.env_get(env, name)
 
     if op == "=" {
@@ -1283,6 +1400,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
 
   if opcode == ir.OP_EXPR {
     VTime value_state = vm.eval_expr(get(instruction, 1), env, output, functions)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
     return [vm.FLOW_OK, get(value_state, 1), get(value_state, 2)]
   }
 
@@ -1290,6 +1412,10 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime value_state = vm.eval_expr(get(instruction, 1), env, output, functions)
     env = get(value_state, 1)
     VTime next_output = get(value_state, 2)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
 
     if vm.kind_is_public(get(value_state, 3)) != true {
       add(next_output, "DENIED")
@@ -1303,12 +1429,22 @@ func vm.exec_instruction(instruction, env, output, functions) {
   if opcode == ir.OP_STOP {
     VTime value_state = vm.eval_expr(get(instruction, 1), env, output, functions)
     env = get(value_state, 1)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
     return [vm.FLOW_STOP, env, vm.add_public_reason(output, value_state, NONE)]
   }
 
   if opcode == ir.OP_FAIL {
     VTime value_state = vm.eval_expr(get(instruction, 1), env, output, functions)
     env = get(value_state, 1)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
     return [vm.FLOW_FAIL, env, vm.add_public_reason(output, value_state, "FAIL")]
   }
 
@@ -1322,6 +1458,11 @@ func vm.exec_instruction(instruction, env, output, functions) {
 
   if opcode == ir.OP_RETURN {
     VTime value_state = vm.eval_expr(get(instruction, 1), env, output, functions)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
     return [vm.FLOW_RETURN, get(value_state, 1), get(value_state, 2), get(value_state, 0), get(value_state, 3)]
   }
 
@@ -1352,6 +1493,10 @@ func vm.exec_instruction(instruction, env, output, functions) {
     env = get(condition_state, 1)
     output = get(condition_state, 2)
 
+    if vm.expr_is_ok(condition_state) != true {
+      return vm.state_from_expr(condition_state)
+    }
+
     if get(condition_state, 0) {
       VTime state = vm.run_ir_state(get(instruction, 2), vm.env_begin_scope(env), output, functions)
       return vm.state_end_scope(state)
@@ -1371,6 +1516,10 @@ func vm.exec_instruction(instruction, env, output, functions) {
       VTime condition_state = vm.eval_expr(condition, env, output, functions)
       env = get(condition_state, 1)
       output = get(condition_state, 2)
+
+      if vm.expr_is_ok(condition_state) != true {
+        return vm.state_from_expr(condition_state)
+      }
 
       if get(condition_state, 0) != true {
         break
@@ -1412,9 +1561,14 @@ func vm.exec_instruction(instruction, env, output, functions) {
 
   if opcode == ir.OP_PICK {
     VTime value_state = vm.eval_expr(get(instruction, 1), env, output, functions)
-    VTime items = get(value_state, 0)
     env = get(value_state, 1)
     output = get(value_state, 2)
+
+    if vm.expr_is_ok(value_state) != true {
+      return vm.state_from_expr(value_state)
+    }
+
+    VTime items = get(value_state, 0)
     VTime item_name = get(instruction, 2)
     VTime body = get(instruction, 3)
 

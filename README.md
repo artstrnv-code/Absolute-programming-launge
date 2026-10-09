@@ -56,6 +56,25 @@ runtime, compiler package generator, and CLI. The standard prelude is composed
 from APL files in `std/`, so some runtime behavior is already written in APL
 itself.
 
+## Compilation Targets
+
+APL's production target is AOT native compilation. The intended backend lowers
+APL into a low-level native IR, can emit readable assembly or platform object
+files, and uses the platform linker to produce PE `.exe`, ELF, and Mach-O
+executables. AppImage packaging sits on top of the Linux ELF result. A future
+freestanding profile must work without the Rust host so APL can participate in
+OS-level development while unsafe memory and hardware operations remain behind
+explicit C/C++/Rust/ASM component contracts.
+
+Two bootstrap execution paths exist today. The Rust-hosted path serializes a
+checked `Program` into binary `.aplc`, then lowers it on load to an in-memory
+`CompiledProgram` with linear statement opcodes, jumps, and stack expression
+opcodes. `.aplc` is not a stable emitted bytecode format. The APL-written
+self-host path serializes list-based IR into `APLMOD2` and `APLLINK2`; its VM is
+the portable semantic reference and bootstrap vehicle, not the final production
+backend. A bytecode target may remain useful for portability and debugging, but
+native object and executable output is the primary goal.
+
 ## Current Syntax
 
 ```apl
