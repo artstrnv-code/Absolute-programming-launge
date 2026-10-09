@@ -159,6 +159,31 @@ func checker.validate_decl_name(node, names, allow_predeclared_func) {
   return checker.ok(names)
 }
 
+func checker.validate_decl_collision(node, names, allow_predeclared_func) {
+  VTime name = checker.declared_name(node)
+  VTime kind = parser.node_kind(node)
+
+  if name == NONE {
+    return checker.ok(names)
+  }
+
+  if kind == parser.NODE_FUNC {
+    VTime existing = checker.find_name(names, name)
+
+    if existing != NONE {
+      if (allow_predeclared_func == true) and (checker.entry_role(existing) == "Func") {
+        return checker.ok(names)
+      }
+    }
+  }
+
+  if checker.name_exists(names, name) {
+    return checker.fail(names, join(["duplicate name `", name, "`"], ""))
+  }
+
+  return checker.ok(names)
+}
+
 func checker.require_name(names, name, message) {
   if checker.name_exists(names, name) {
     return checker.ok(names)
@@ -504,6 +529,64 @@ func checker.type_allows(actual, expected) {
   }
 
   return actual == expected
+}
+
+func checker.type_is_dynamic(actual) {
+  if actual == "VTime" {
+    return true
+  }
+
+  if actual == "None" {
+    return true
+  }
+
+  if actual == "Input" {
+    return true
+  }
+
+  return actual == "SecretInput"
+}
+
+func checker.type_is_assignable(actual, expected) {
+  if checker.type_is_dynamic(actual) {
+    return true
+  }
+
+  return actual == expected
+}
+
+func checker.type_mismatch(names, name, expected, actual) {
+  return checker.fail(names, join(["type mismatch `", name, "`: expected ", expected, ", got ", actual], ""))
+}
+
+func checker.validate_decl_type(node, names) {
+  VTime name = get(node, 2)
+  VTime expected = checker.decl_value_type(get(node, 1))
+  VTime actual = checker.expr_type(get(node, 3), names)
+
+  if checker.type_is_assignable(actual, expected) {
+    return checker.ok(names)
+  }
+
+  return checker.type_mismatch(names, name, expected, actual)
+}
+
+func checker.validate_assignment_type(node, names) {
+  VTime name = get(node, 1)
+  VTime entry = checker.find_name(names, name)
+
+  if checker.entry_role(entry) == "VTime" {
+    return checker.ok(names)
+  }
+
+  VTime expected = checker.entry_value_type(entry)
+  VTime actual = checker.expr_type(get(node, 3), names)
+
+  if checker.type_is_assignable(actual, expected) {
+    return checker.ok(names)
+  }
+
+  return checker.type_mismatch(names, name, expected, actual)
 }
 
 func checker.type_is_pickable(actual) {
@@ -913,11 +996,23 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
     return checker.fail(names, get(node, 1))
   }
 
+  VTime collision_state = checker.validate_decl_collision(node, names, allow_predeclared_func)
+
+  if get(collision_state, 0) != checker.STATUS_OK {
+    return collision_state
+  }
+
   if kind == parser.NODE_DECL {
     VTime init_state = checker.validate_expr(get(node, 3), names)
 
     if get(init_state, 0) != checker.STATUS_OK {
       return init_state
+    }
+
+    VTime type_state = checker.validate_decl_type(node, names)
+
+    if get(type_state, 0) != checker.STATUS_OK {
+      return type_state
     }
   }
 
@@ -951,7 +1046,13 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return target_state
     }
 
-    return checker.validate_expr(get(node, 3), names)
+    VTime value_state = checker.validate_expr(get(node, 3), names)
+
+    if get(value_state, 0) != checker.STATUS_OK {
+      return value_state
+    }
+
+    return checker.validate_assignment_type(node, names)
   }
 
   if kind == parser.NODE_SECRETUP {

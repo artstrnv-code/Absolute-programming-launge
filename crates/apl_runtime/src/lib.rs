@@ -3459,6 +3459,51 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_validates_decl_and_assignment_types_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_exact = "AVInt integer = 1 AVFloat decimal = 1.0 AVBool flag = true AVStr text = str(1) AVBytes raw = bytes(text) AVJson document = json(text) integer = 2 decimal = 2.0 flag = false text = str(2) raw = bytes(text) document = json(text)"
+            AVStr valid_dynamic = "AVInt value = input value = NONE VTime dynamic = 1 dynamic = str(dynamic) value = dynamic"
+            AVStr bad_int = "AVInt value = str(1)"
+            AVStr bad_float = "AVFloat value = 1"
+            AVStr bad_bool = "AVBool value = 1"
+            AVStr bad_str = "AVStr value = 1"
+            AVStr bad_bytes = "AVBytes value = str(1)"
+            AVStr bad_json = "AVJson value = str(1)"
+            AVStr bad_assignment = "AVInt value = 1 value = str(2)"
+            AVStr bad_compound = "AVInt value = 1 value += 1.0"
+
+            List reports = [
+              bootstrap.compile_report(valid_exact),
+              bootstrap.compile_report(valid_dynamic),
+              bootstrap.compile_report(bad_int),
+              bootstrap.compile_report(bad_float),
+              bootstrap.compile_report(bad_bool),
+              bootstrap.compile_report(bad_str),
+              bootstrap.compile_report(bad_bytes),
+              bootstrap.compile_report(bad_json),
+              bootstrap.compile_report(bad_assignment),
+              bootstrap.compile_report(bad_compound)
+            ]
+
+            pick(reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nOK\nFAIL\ntype mismatch `value`: expected Int, got Str\nFAIL\ntype mismatch `value`: expected Float, got Int\nFAIL\ntype mismatch `value`: expected Bool, got Int\nFAIL\ntype mismatch `value`: expected Str, got Int\nFAIL\ntype mismatch `value`: expected Bytes, got Str\nFAIL\ntype mismatch `value`: expected Json, got Str\nFAIL\ntype mismatch `value`: expected Int, got Str\nFAIL\ntype mismatch `value`: expected Int, got Float\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"

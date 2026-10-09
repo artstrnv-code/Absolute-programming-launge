@@ -545,9 +545,12 @@ APL-owned runtime code:
   also conservatively infers expression types for literals, absolute variables,
   lists, slices, unary/binary result shapes, conversions, and builtin results.
   It rejects statically invalid builtin arguments while allowing `VTime`,
-  function results, and other genuinely dynamic values to defer to runtime.
-  Full declaration, assignment, condition, and operator type parity remains a
-  subsequent checker stage.
+  function results, and other genuinely dynamic values to defer to runtime. It
+  now applies the same conservative inference to typed absolute declarations
+  and assignments: a statically known value must exactly match the declared
+  base type, with no implicit `Int`/`Float` widening, while `VTime`, `NONE`,
+  `input`, and `secret input` remain dynamically assignable. Full protection
+  flow, condition, and operator type parity remains a subsequent checker stage.
   `VTime` declarations and function parameters remain local to their function
   or block during validation. Leaving a function, `if`, `while`, or `pick`
   merges only newly discovered absolute, list, and function names into the
@@ -560,8 +563,9 @@ APL-owned runtime code:
   calls before module and user IR are combined. The function-only facade remains
   available for `APLMOD1` compatibility.
 - `examples/test_checker.apl`, `examples/test_checker_targets.apl`,
-  `examples/test_checker_exprs.apl`, `examples/test_checker_calls.apl`, and
-  `examples/test_checker_builtin_types.apl` are the checker smoke-tests.
+  `examples/test_checker_exprs.apl`, `examples/test_checker_calls.apl`,
+  `examples/test_checker_builtin_types.apl`, and
+  `examples/test_checker_assign_types.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,
