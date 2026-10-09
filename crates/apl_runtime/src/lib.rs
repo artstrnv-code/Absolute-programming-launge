@@ -3330,6 +3330,9 @@ mod tests {
             AVStr var_as_func = "AVInt x = 1 out x()"
             AVStr bad_arity = "func go(a) { return a } out go()"
             AVStr missing_arg = "out len(missing)"
+            AVStr builtin_missing = "out len()"
+            AVStr builtin_extra = "out pow(2, 3, 4)"
+            AVStr mutating_builtin_missing = "add()"
 
             VTime valid_report = bootstrap.run_report(valid_forward)
             VTime builtin_report = bootstrap.run_report(builtin_ok)
@@ -3337,6 +3340,9 @@ mod tests {
             VTime var_func_report = bootstrap.compile_report(var_as_func)
             VTime arity_report = bootstrap.compile_report(bad_arity)
             VTime missing_arg_report = bootstrap.compile_report(missing_arg)
+            VTime builtin_missing_report = bootstrap.compile_report(builtin_missing)
+            VTime builtin_extra_report = bootstrap.compile_report(builtin_extra)
+            VTime mutating_builtin_report = bootstrap.compile_report(mutating_builtin_missing)
 
             out get(valid_report, 0)
             out get(get(valid_report, 1), 0)
@@ -3350,14 +3356,57 @@ mod tests {
             out get(arity_report, 1)
             out get(missing_arg_report, 0)
             out get(missing_arg_report, 1)
+            out get(builtin_missing_report, 0)
+            out get(builtin_missing_report, 1)
+            out get(builtin_extra_report, 0)
+            out get(builtin_extra_report, 1)
+            out get(mutating_builtin_report, 0)
+            out get(mutating_builtin_report, 1)
             "#,
         )
         .unwrap();
 
         assert_eq!(
             output,
-            "OK\n7\nOK\n2\nFAIL\nunknown function `missing`\nFAIL\ninvalid function `x`\nFAIL\nwrong argument count `go`\nFAIL\nunknown variable `missing`\n"
+            "OK\n7\nOK\n2\nFAIL\nunknown function `missing`\nFAIL\ninvalid function `x`\nFAIL\nwrong argument count `go`\nFAIL\nunknown variable `missing`\nFAIL\nwrong argument count `len`\nFAIL\nwrong argument count `pow`\nFAIL\nwrong argument count `add`\n"
         );
+    }
+
+    #[test]
+    fn source_runtime_checker_builtin_arities_match_verifier_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            List binary_builtins = ["get", "split", "join", "contains", "pow", "add"]
+            List unary_builtins = ["len", "ord", "char", "pop", "int", "float", "bool", "str", "bytes", "json"]
+            AVBool builtin_arity_matches = true
+
+            pick(binary_builtins): builtin_name {
+              if checker.builtin_arity(builtin_name) != 2 {
+                builtin_arity_matches = false
+              }
+
+              if checker.builtin_arity(builtin_name) != verifier.builtin_arity(builtin_name) {
+                builtin_arity_matches = false
+              }
+            }
+
+            pick(unary_builtins): builtin_name {
+              if checker.builtin_arity(builtin_name) != 1 {
+                builtin_arity_matches = false
+              }
+
+              if checker.builtin_arity(builtin_name) != verifier.builtin_arity(builtin_name) {
+                builtin_arity_matches = false
+              }
+            }
+
+            out builtin_arity_matches
+            out checker.builtin_arity("missing")
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "true\n-1\n");
     }
 
     #[test]

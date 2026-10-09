@@ -179,79 +179,88 @@ func checker.type_is_public_numeric(typ) {
   return false
 }
 
-func checker.is_builtin_call(name) {
+func checker.builtin_arity(name) {
   if name == "get" {
-    return true
-  }
-
-  if name == "len" {
-    return true
+    return 2
   }
 
   if name == "split" {
-    return true
+    return 2
   }
 
   if name == "join" {
-    return true
+    return 2
   }
 
   if name == "contains" {
-    return true
-  }
-
-  if name == "ord" {
-    return true
-  }
-
-  if name == "char" {
-    return true
+    return 2
   }
 
   if name == "pow" {
-    return true
-  }
-
-  if name == "pop" {
-    return true
+    return 2
   }
 
   if name == "add" {
-    return true
+    return 2
+  }
+
+  if name == "len" {
+    return 1
+  }
+
+  if name == "ord" {
+    return 1
+  }
+
+  if name == "char" {
+    return 1
+  }
+
+  if name == "pop" {
+    return 1
   }
 
   if name == "int" {
-    return true
+    return 1
   }
 
   if name == "float" {
-    return true
+    return 1
   }
 
   if name == "bool" {
-    return true
+    return 1
   }
 
   if name == "str" {
-    return true
+    return 1
   }
 
   if name == "bytes" {
-    return true
+    return 1
   }
 
   if name == "json" {
-    return true
+    return 1
   }
 
-  return false
+  return -1
+}
+
+func checker.is_builtin_call(name) {
+  return checker.builtin_arity(name) >= 0
 }
 
 func checker.validate_call_target(expression, names) {
   VTime name = get(expression, 1)
   VTime args = get(expression, 2)
+  VTime builtin_arity = checker.builtin_arity(name)
 
-  if checker.is_builtin_call(name) {
+  if builtin_arity >= 0 {
+    if len(args) != builtin_arity {
+      return checker.fail(names, join(["wrong argument count `", name, "`"], ""))
+    }
+
     return checker.ok(names)
   }
 

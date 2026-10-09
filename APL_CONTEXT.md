@@ -539,7 +539,10 @@ APL-owned runtime code:
   literals, indexing/slicing, tags, and `=self=` targets. Function-call
   validation accepts known VM builtins, accepts user functions including
   top-level forward calls, rejects unknown function names, rejects attempts to
-  call non-function values, and checks user-function argument counts.
+  call non-function values, and checks both builtin and user-function argument
+  counts. Builtin arities match the untrusted-artifact verifier, so malformed
+  calls such as `len()` or `pow(2, 3, 4)` fail before IR lowering. Static
+  builtin argument-type validation is still a subsequent checker stage.
   `VTime` declarations and function parameters remain local to their function
   or block during validation. Leaving a function, `if`, `while`, or `pick`
   merges only newly discovered absolute, list, and function names into the

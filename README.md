@@ -351,7 +351,8 @@ declarations, assignments, output, conditions, function-call arguments, list
 literals, indexing/slicing, tags, and `=self=` targets. It also validates
 function-call targets: VM builtins are allowed, user functions may be called
 before their top-level declaration, non-functions cannot be called, and
-user-function argument counts must match:
+builtin and user-function argument counts must match. Builtin argument types
+are not yet fully validated by this bootstrap checker:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
