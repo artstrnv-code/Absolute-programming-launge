@@ -2762,7 +2762,7 @@ mod tests {
     fn source_runtime_uses_apl_vm_tagged_list_elements_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = join(["AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " List items = [1:SASV, ", char(34), "public", char(34), "] add(items, ", char(34), "hidden", char(34), ":ASV) typ, level = info(items) out typ out level out items out get(items, 0) out get(items, 1) out get(items, 2)"], "")
+            AVStr source = join(["AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " List items = [1:SASV, ", char(34), "public", char(34), "] add(items, ", char(34), "hidden", char(34), ":ASV) typ, level = info(items) out typ out level out items out get(items, 0) out get(items, 1) out get(items, 2) pick(items): item { out item }"], "")
             VTime vm_output = vm.run_source(source)
 
             out len(vm_output)
@@ -2772,11 +2772,17 @@ mod tests {
             out get(vm_output, 3)
             out get(vm_output, 4)
             out get(vm_output, 5)
+            out get(vm_output, 6)
+            out get(vm_output, 7)
+            out get(vm_output, 8)
             "#,
         )
         .unwrap();
 
-        assert_eq!(output, "6\nList\nSASV\nDENIED\nDENIED\npublic\nDENIED\n");
+        assert_eq!(
+            output,
+            "9\nList\nSASV\nDENIED\nDENIED\npublic\nDENIED\nDENIED\npublic\nDENIED\n"
+        );
     }
 
     #[test]

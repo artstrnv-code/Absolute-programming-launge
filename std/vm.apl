@@ -1571,10 +1571,13 @@ func vm.exec_instruction(instruction, env, output, functions) {
     VTime items = get(value_state, 0)
     VTime item_name = get(instruction, 2)
     VTime body = get(instruction, 3)
+    VTime item_index = 0
 
     pick(items): item {
+      VTime item_kind = vm.list_item_kind(get(value_state, 3), item_index)
+      item_index += 1
       VTime item_env = vm.env_begin_scope(env)
-      item_env = vm.env_declare_meta(item_env, item_name, item, get(value_state, 3), "VTime")
+      item_env = vm.env_declare_meta(item_env, item_name, item, item_kind, "VTime")
       VTime state = vm.run_ir_state(body, item_env, output, functions)
       state = vm.state_end_scope(state)
       env = get(state, 1)

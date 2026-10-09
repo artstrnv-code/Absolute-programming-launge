@@ -24,6 +24,8 @@ The core idea is simple:
 - `break` and `continue` work inside `while` and `pick`;
 - `pick(value): item` iterates over a value and exposes each item as scoped
   `VTime`;
+- `pick` preserves each list element's own protection label instead of applying
+  the aggregate list label to every item;
 - `VTime` is a local temporary variable that can change its value type;
 - `func name(args)` defines functions with arguments as scoped `VTime`;
 - function calls use `name(args)`;

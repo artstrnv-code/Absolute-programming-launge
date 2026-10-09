@@ -639,8 +639,10 @@ APL-owned runtime code:
   absolute-variable protection from `AV` to `ASV` and from `ASV` to `SASV`
   while preserving initial values. Tagged values `value:ASV` and `value:SASV`
   raise VM expression protection. VM list values keep a parallel per-element
-  protection label table for `get`, `pop`, and slices; whole-list external
-  output still uses the strongest aggregate list protection. `input` and
+  protection label table for `get`, `pop`, slices, and `pick`. Each `pick`
+  binding receives the selected element's label rather than the strongest label
+  of the source list; whole-list external output still uses the strongest
+  aggregate list protection. `input` and
   `secret input` in VM-executed code consume an explicit input stream through
   `vm.run_source_with_input(source, inputs)` / `vm.run_ir_with_input(program, inputs)`.
   Exhausted input becomes `NONE`; `secret input` carries `ASV`
