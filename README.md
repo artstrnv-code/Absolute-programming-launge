@@ -357,7 +357,10 @@ and builtin results. Statically impossible calls are rejected, while `VTime`
 and function results remain runtime-checked. Typed absolute declarations and
 assignments require the exact declared value type when the expression type is
 known; `VTime`, `NONE`, and input expressions remain dynamically assignable.
-There is no implicit `Int`/`Float` widening:
+There is no implicit `Int`/`Float` widening. Unary and binary operands,
+index/slice operands, `pick` values, and `if`/`while` conditions are also
+validated when their types are statically known; `VTime` remains deferred to
+runtime:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -384,6 +387,10 @@ build\bat_test_checker_builtin_types\target\debug\test_checker_builtin_types_com
 .\run_aplc.bat build\test_checker_assign_types.aplc
 .\compile_apl.bat examples\test_checker_assign_types.apl build\bat_test_checker_assign_types
 build\bat_test_checker_assign_types\target\debug\test_checker_assign_types_compiled.exe
+.\emit_aplc.bat examples\test_checker_operand_types.apl build\test_checker_operand_types.aplc
+.\run_aplc.bat build\test_checker_operand_types.aplc
+.\compile_apl.bat examples\test_checker_operand_types.apl build\bat_test_checker_operand_types
+build\bat_test_checker_operand_types\target\debug\test_checker_operand_types_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

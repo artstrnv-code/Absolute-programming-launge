@@ -3504,6 +3504,63 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_validates_expression_operand_types_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_exact = "AVInt integer = 1 AVFloat decimal = 1.0 AVBool flag = true AVInt sum = integer + 2 AVFloat quotient = decimal / 2.0 AVBool equal = integer == 1 AVBool ordered = decimal >= 1.0 AVBool logical = flag and true if flag { out integer } while (integer < 2) (1) { integer += 1 } pick([integer]): item { out item }"
+            AVStr valid_dynamic = "VTime value = 1 VTime other = value + true VTime index = true VTime item = value[index] VTime part = value[index:index:index] if value { out other } while (value) (1) { value = false } pick(value): picked { out picked }"
+            AVStr bad_negate = "VTime value = -true"
+            AVStr bad_not = "VTime value = not 1"
+            AVStr bad_arithmetic_shape = "VTime value = 1 + 1.0"
+            AVStr bad_arithmetic_type = "VTime value = bytes(1) + bytes(2)"
+            AVStr bad_equality = "VTime value = 1 == bytes(1)"
+            AVStr bad_ordered = "VTime value = 1 < 1.0"
+            AVStr bad_logical = "VTime value = true and 1"
+            AVStr bad_if = "if 1 { out 1 }"
+            AVStr bad_while = "while (bytes(1)) (1) { out 1 }"
+            AVStr bad_pick = "pick(1): item { out item }"
+            AVStr bad_index_target = "VTime value = 1[0]"
+            AVStr bad_index_value = "VTime value = [1][true]"
+            AVStr bad_slice_target = "VTime value = true[:]"
+            AVStr bad_slice_bound = "VTime value = [1][1.0:]"
+
+            List reports = [
+              bootstrap.compile_report(valid_exact),
+              bootstrap.compile_report(valid_dynamic),
+              bootstrap.compile_report(bad_negate),
+              bootstrap.compile_report(bad_not),
+              bootstrap.compile_report(bad_arithmetic_shape),
+              bootstrap.compile_report(bad_arithmetic_type),
+              bootstrap.compile_report(bad_equality),
+              bootstrap.compile_report(bad_ordered),
+              bootstrap.compile_report(bad_logical),
+              bootstrap.compile_report(bad_if),
+              bootstrap.compile_report(bad_while),
+              bootstrap.compile_report(bad_pick),
+              bootstrap.compile_report(bad_index_target),
+              bootstrap.compile_report(bad_index_value),
+              bootstrap.compile_report(bad_slice_target),
+              bootstrap.compile_report(bad_slice_bound)
+            ]
+
+            pick(reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nOK\nFAIL\ninvalid unary operation for Bool\nFAIL\ninvalid unary operation for Int\nFAIL\narithmetic requires matching Int or Float values, got Int and Float\nFAIL\narithmetic requires matching Int or Float values, got Bytes and Bytes\nFAIL\ncomparison requires matching types, got Int and Bytes\nFAIL\nordered comparison requires matching Int or Float values, got Int and Float\nFAIL\nlogical operation requires Bool values, got Bool and Int\nFAIL\ntype mismatch `condition`: expected Bool, got Int\nFAIL\ntype mismatch `condition`: expected Bool, got Bytes\nFAIL\npick requires Str, Bytes, List, or VTime, got Int\nFAIL\nindex access requires Str, Bytes, List, or VTime, got Int\nFAIL\nindex must be Int or VTime, got Bool\nFAIL\nslice requires Str, Bytes, List, or VTime, got Bool\nFAIL\nslice bounds must be Int or VTime, got Float\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"

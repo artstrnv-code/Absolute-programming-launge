@@ -617,6 +617,199 @@ func checker.type_is_numeric(actual) {
   return actual == "Float"
 }
 
+func checker.binary_is_arithmetic(op) {
+  if op == "+" {
+    return true
+  }
+
+  if op == "-" {
+    return true
+  }
+
+  if op == "*" {
+    return true
+  }
+
+  return op == "/"
+}
+
+func checker.binary_is_equality(op) {
+  if op == "==" {
+    return true
+  }
+
+  return op == "!="
+}
+
+func checker.binary_is_ordered(op) {
+  if op == ">" {
+    return true
+  }
+
+  if op == ">=" {
+    return true
+  }
+
+  if op == "<" {
+    return true
+  }
+
+  return op == "<="
+}
+
+func checker.binary_is_logical(op) {
+  if op == "and" {
+    return true
+  }
+
+  return op == "or"
+}
+
+func checker.validate_unary_operand_types(expression, names) {
+  VTime op = get(expression, 1)
+  VTime actual = checker.expr_type(get(expression, 2), names)
+
+  if op == "-" {
+    if checker.type_is_numeric(actual) {
+      return checker.ok(names)
+    }
+  }
+
+  if op == "not" {
+    if checker.type_allows(actual, "Bool") {
+      return checker.ok(names)
+    }
+  }
+
+  return checker.fail(names, join(["invalid unary operation for ", actual], ""))
+}
+
+func checker.validate_binary_operand_types(expression, names) {
+  VTime op = get(expression, 1)
+  VTime left = checker.expr_type(get(expression, 2), names)
+  VTime right = checker.expr_type(get(expression, 3), names)
+
+  if left == "VTime" {
+    return checker.ok(names)
+  }
+
+  if right == "VTime" {
+    return checker.ok(names)
+  }
+
+  if checker.binary_is_arithmetic(op) {
+    if left == right {
+      if left == "Int" {
+        return checker.ok(names)
+      }
+
+      if left == "Float" {
+        return checker.ok(names)
+      }
+    }
+
+    return checker.fail(names, join(["arithmetic requires matching Int or Float values, got ", left, " and ", right], ""))
+  }
+
+  if checker.binary_is_equality(op) {
+    if left == "None" {
+      return checker.ok(names)
+    }
+
+    if right == "None" {
+      return checker.ok(names)
+    }
+
+    if left == right {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, join(["comparison requires matching types, got ", left, " and ", right], ""))
+  }
+
+  if checker.binary_is_ordered(op) {
+    if left == right {
+      if left == "Int" {
+        return checker.ok(names)
+      }
+
+      if left == "Float" {
+        return checker.ok(names)
+      }
+    }
+
+    return checker.fail(names, join(["ordered comparison requires matching Int or Float values, got ", left, " and ", right], ""))
+  }
+
+  if checker.binary_is_logical(op) {
+    if left == "Bool" {
+      if right == "Bool" {
+        return checker.ok(names)
+      }
+    }
+
+    return checker.fail(names, join(["logical operation requires Bool values, got ", left, " and ", right], ""))
+  }
+
+  return checker.fail(names, join(["unknown binary operator `", op, "`"], ""))
+}
+
+func checker.validate_index_operand_types(expression, names) {
+  VTime target = checker.expr_type(get(expression, 1), names)
+
+  if checker.type_is_pickable(target) != true {
+    return checker.fail(names, join(["index access requires Str, Bytes, List, or VTime, got ", target], ""))
+  }
+
+  VTime index = checker.expr_type(get(expression, 2), names)
+
+  if checker.type_allows(index, "Int") != true {
+    return checker.fail(names, join(["index must be Int or VTime, got ", index], ""))
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_slice_target_type(expression, names) {
+  VTime target = checker.expr_type(get(expression, 1), names)
+
+  if checker.type_is_pickable(target) {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join(["slice requires Str, Bytes, List, or VTime, got ", target], ""))
+}
+
+func checker.validate_slice_bound_type(bound, names) {
+  VTime actual = checker.expr_type(bound, names)
+
+  if checker.type_allows(actual, "Int") {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join(["slice bounds must be Int or VTime, got ", actual], ""))
+}
+
+func checker.validate_condition_type(expression, names) {
+  VTime actual = checker.expr_type(expression, names)
+
+  if checker.type_allows(actual, "Bool") {
+    return checker.ok(names)
+  }
+
+  return checker.type_mismatch(names, "condition", "Bool", actual)
+}
+
+func checker.validate_pick_type(expression, names) {
+  VTime actual = checker.expr_type(expression, names)
+
+  if checker.type_is_pickable(actual) {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join(["pick requires Str, Bytes, List, or VTime, got ", actual], ""))
+}
+
 func checker.validate_builtin_argument_types(expression, names) {
   VTime name = get(expression, 1)
 
@@ -883,7 +1076,13 @@ func checker.validate_expr(expression, names) {
   }
 
   if kind == parser.EXPR_UNARY {
-    return checker.validate_expr(get(expression, 2), names)
+    VTime inner_state = checker.validate_expr(get(expression, 2), names)
+
+    if get(inner_state, 0) != checker.STATUS_OK {
+      return inner_state
+    }
+
+    return checker.validate_unary_operand_types(expression, names)
   }
 
   if kind == parser.EXPR_BINARY {
@@ -893,7 +1092,13 @@ func checker.validate_expr(expression, names) {
       return left_state
     }
 
-    return checker.validate_expr(get(expression, 3), names)
+    VTime right_state = checker.validate_expr(get(expression, 3), names)
+
+    if get(right_state, 0) != checker.STATUS_OK {
+      return right_state
+    }
+
+    return checker.validate_binary_operand_types(expression, names)
   }
 
   if kind == parser.EXPR_CALL {
@@ -933,7 +1138,13 @@ func checker.validate_expr(expression, names) {
       return target_state
     }
 
-    return checker.validate_expr(get(expression, 2), names)
+    VTime index_state = checker.validate_expr(get(expression, 2), names)
+
+    if get(index_state, 0) != checker.STATUS_OK {
+      return index_state
+    }
+
+    return checker.validate_index_operand_types(expression, names)
   }
 
   if kind == parser.EXPR_SLICE {
@@ -941,6 +1152,12 @@ func checker.validate_expr(expression, names) {
 
     if get(target_state, 0) != checker.STATUS_OK {
       return target_state
+    }
+
+    VTime target_type_state = checker.validate_slice_target_type(expression, names)
+
+    if get(target_type_state, 0) != checker.STATUS_OK {
+      return target_type_state
     }
 
     VTime start = get(expression, 2)
@@ -953,6 +1170,12 @@ func checker.validate_expr(expression, names) {
       if get(start_state, 0) != checker.STATUS_OK {
         return start_state
       }
+
+      VTime start_type_state = checker.validate_slice_bound_type(start, names)
+
+      if get(start_type_state, 0) != checker.STATUS_OK {
+        return start_type_state
+      }
     }
 
     if end != NONE {
@@ -961,6 +1184,12 @@ func checker.validate_expr(expression, names) {
       if get(end_state, 0) != checker.STATUS_OK {
         return end_state
       }
+
+      VTime end_type_state = checker.validate_slice_bound_type(end, names)
+
+      if get(end_type_state, 0) != checker.STATUS_OK {
+        return end_type_state
+      }
     }
 
     if step != NONE {
@@ -968,6 +1197,12 @@ func checker.validate_expr(expression, names) {
 
       if get(step_state, 0) != checker.STATUS_OK {
         return step_state
+      }
+
+      VTime step_type_state = checker.validate_slice_bound_type(step, names)
+
+      if get(step_type_state, 0) != checker.STATUS_OK {
+        return step_type_state
       }
     }
 
@@ -1106,6 +1341,12 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return condition_state
     }
 
+    VTime condition_type_state = checker.validate_condition_type(get(node, 1), names)
+
+    if get(condition_type_state, 0) != checker.STATUS_OK {
+      return condition_type_state
+    }
+
     VTime body_state = checker.validate_block(get(node, 2), names[:], false)
 
     if get(body_state, 0) != checker.STATUS_OK {
@@ -1129,6 +1370,12 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return condition_state
     }
 
+    VTime condition_type_state = checker.validate_condition_type(get(node, 1), names)
+
+    if get(condition_type_state, 0) != checker.STATUS_OK {
+      return condition_type_state
+    }
+
     VTime body_state = checker.validate_block(get(node, 3), names[:], false)
 
     if get(body_state, 0) != checker.STATUS_OK {
@@ -1143,6 +1390,12 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
 
     if get(value_state, 0) != checker.STATUS_OK {
       return value_state
+    }
+
+    VTime value_type_state = checker.validate_pick_type(get(node, 1), names)
+
+    if get(value_type_state, 0) != checker.STATUS_OK {
+      return value_type_state
     }
 
     VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
