@@ -251,6 +251,408 @@ func checker.is_builtin_call(name) {
   return checker.builtin_arity(name) >= 0
 }
 
+func checker.decl_value_type(typ) {
+  if contains(typ, "Float") {
+    return "Float"
+  }
+
+  if contains(typ, "Bool") {
+    return "Bool"
+  }
+
+  if contains(typ, "Bytes") {
+    return "Bytes"
+  }
+
+  if contains(typ, "Json") {
+    return "Json"
+  }
+
+  if contains(typ, "Int") {
+    return "Int"
+  }
+
+  if contains(typ, "Str") {
+    return "Str"
+  }
+
+  return "VTime"
+}
+
+func checker.entry_value_type(entry) {
+  VTime role = checker.entry_role(entry)
+
+  if role == "Absolute" {
+    return checker.decl_value_type(checker.entry_type(entry))
+  }
+
+  if role == "List" {
+    return "List"
+  }
+
+  return "VTime"
+}
+
+func checker.call_result_type(name, args, names) {
+  if name == "int" {
+    return "Int"
+  }
+
+  if name == "float" {
+    return "Float"
+  }
+
+  if name == "bool" {
+    return "Bool"
+  }
+
+  if name == "str" {
+    return "Str"
+  }
+
+  if name == "bytes" {
+    return "Bytes"
+  }
+
+  if name == "json" {
+    return "Json"
+  }
+
+  if name == "split" {
+    return "List"
+  }
+
+  if name == "len" {
+    return "Int"
+  }
+
+  if name == "contains" {
+    return "Bool"
+  }
+
+  if name == "join" {
+    return "Str"
+  }
+
+  if name == "ord" {
+    return "Int"
+  }
+
+  if name == "char" {
+    return "Str"
+  }
+
+  if name == "pow" {
+    VTime base_type = checker.expr_type(get(args, 0), names)
+
+    if base_type == "Int" {
+      return "Int"
+    }
+
+    if base_type == "Float" {
+      return "Float"
+    }
+  }
+
+  return "VTime"
+}
+
+func checker.expr_type(expression, names) {
+  VTime kind = parser.expr_kind(expression)
+
+  if kind == parser.EXPR_INT {
+    return "Int"
+  }
+
+  if kind == parser.EXPR_FLOAT {
+    return "Float"
+  }
+
+  if kind == parser.EXPR_STR {
+    return "Str"
+  }
+
+  if kind == parser.EXPR_BOOL {
+    return "Bool"
+  }
+
+  if kind == parser.EXPR_NONE {
+    return "None"
+  }
+
+  if kind == parser.EXPR_INPUT {
+    return "Input"
+  }
+
+  if kind == parser.EXPR_SECRET_INPUT {
+    return "SecretInput"
+  }
+
+  if kind == parser.EXPR_VAR {
+    VTime entry = checker.find_name(names, parser.expr_value(expression))
+
+    if entry == NONE {
+      return "VTime"
+    }
+
+    return checker.entry_value_type(entry)
+  }
+
+  if kind == parser.EXPR_SELF {
+    return "Bool"
+  }
+
+  if kind == parser.EXPR_TAG {
+    return checker.expr_type(get(expression, 1), names)
+  }
+
+  if kind == parser.EXPR_LIST {
+    return "List"
+  }
+
+  if kind == parser.EXPR_INDEX {
+    return "VTime"
+  }
+
+  if kind == parser.EXPR_SLICE {
+    VTime target_type = checker.expr_type(get(expression, 1), names)
+
+    if target_type == "Str" {
+      return "Str"
+    }
+
+    if target_type == "Bytes" {
+      return "Bytes"
+    }
+
+    if target_type == "List" {
+      return "List"
+    }
+
+    return "VTime"
+  }
+
+  if kind == parser.EXPR_UNARY {
+    if get(expression, 1) == "not" {
+      return "Bool"
+    }
+
+    return checker.expr_type(get(expression, 2), names)
+  }
+
+  if kind == parser.EXPR_BINARY {
+    VTime op = get(expression, 1)
+
+    if op == "==" {
+      return "Bool"
+    }
+
+    if op == "!=" {
+      return "Bool"
+    }
+
+    if op == ">" {
+      return "Bool"
+    }
+
+    if op == "<" {
+      return "Bool"
+    }
+
+    if op == ">=" {
+      return "Bool"
+    }
+
+    if op == "<=" {
+      return "Bool"
+    }
+
+    if op == "and" {
+      return "Bool"
+    }
+
+    if op == "or" {
+      return "Bool"
+    }
+
+    VTime left_type = checker.expr_type(get(expression, 2), names)
+    VTime right_type = checker.expr_type(get(expression, 3), names)
+
+    if left_type == right_type {
+      if left_type == "Int" {
+        return "Int"
+      }
+
+      if left_type == "Float" {
+        return "Float"
+      }
+    }
+
+    return "VTime"
+  }
+
+  if kind == parser.EXPR_CALL {
+    return checker.call_result_type(get(expression, 1), get(expression, 2), names)
+  }
+
+  return "VTime"
+}
+
+func checker.type_allows(actual, expected) {
+  if actual == "VTime" {
+    return true
+  }
+
+  return actual == expected
+}
+
+func checker.type_is_pickable(actual) {
+  if actual == "VTime" {
+    return true
+  }
+
+  if actual == "Str" {
+    return true
+  }
+
+  if actual == "Bytes" {
+    return true
+  }
+
+  return actual == "List"
+}
+
+func checker.type_is_numeric(actual) {
+  if actual == "VTime" {
+    return true
+  }
+
+  if actual == "Int" {
+    return true
+  }
+
+  return actual == "Float"
+}
+
+func checker.validate_builtin_argument_types(expression, names) {
+  VTime name = get(expression, 1)
+
+  if checker.is_builtin_call(name) != true {
+    return checker.ok(names)
+  }
+
+  if name == "int" {
+    return checker.ok(names)
+  }
+
+  if name == "float" {
+    return checker.ok(names)
+  }
+
+  if name == "bool" {
+    return checker.ok(names)
+  }
+
+  if name == "str" {
+    return checker.ok(names)
+  }
+
+  if name == "bytes" {
+    return checker.ok(names)
+  }
+
+  if name == "json" {
+    return checker.ok(names)
+  }
+
+  VTime args = get(expression, 2)
+  VTime first_type = checker.expr_type(get(args, 0), names)
+
+  if name == "len" {
+    if checker.type_is_pickable(first_type) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "len(value) requires Str, Bytes, List, or VTime")
+  }
+
+  if name == "ord" {
+    if checker.type_allows(first_type, "Str") {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "ord(value) requires Str")
+  }
+
+  if name == "char" {
+    if checker.type_allows(first_type, "Int") {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "char(value) requires Int")
+  }
+
+  if name == "pop" {
+    if checker.type_allows(first_type, "List") {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "pop(list) requires List")
+  }
+
+  if name == "add" {
+    if checker.type_allows(first_type, "List") {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "add(list, value) requires List")
+  }
+
+  VTime second_type = checker.expr_type(get(args, 1), names)
+
+  if name == "get" {
+    if (checker.type_allows(first_type, "List")) and (checker.type_allows(second_type, "Int")) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "get(list, index) requires List and Int")
+  }
+
+  if name == "split" {
+    if (checker.type_allows(first_type, "Str")) and (checker.type_allows(second_type, "Str")) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "split(value, separator) requires Str and Str")
+  }
+
+  if name == "join" {
+    if (checker.type_allows(first_type, "List")) and (checker.type_allows(second_type, "Str")) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "join(values, separator) requires List and Str")
+  }
+
+  if name == "contains" {
+    if (checker.type_allows(first_type, "Str")) and (checker.type_allows(second_type, "Str")) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "contains(value, needle) requires Str and Str")
+  }
+
+  if name == "pow" {
+    if (checker.type_is_numeric(first_type)) and (checker.type_allows(second_type, "Int")) {
+      return checker.ok(names)
+    }
+
+    return checker.fail(names, "pow(base, exponent) requires Int/Float and Int")
+  }
+
+  return checker.ok(names)
+}
+
 func checker.validate_call_target(expression, names) {
   VTime name = get(expression, 1)
   VTime args = get(expression, 2)
@@ -261,7 +663,7 @@ func checker.validate_call_target(expression, names) {
       return checker.fail(names, join(["wrong argument count `", name, "`"], ""))
     }
 
-    return checker.ok(names)
+    return checker.validate_builtin_argument_types(expression, names)
   }
 
   VTime entry = checker.find_name(names, name)

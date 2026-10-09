@@ -352,7 +352,9 @@ literals, indexing/slicing, tags, and `=self=` targets. It also validates
 function-call targets: VM builtins are allowed, user functions may be called
 before their top-level declaration, non-functions cannot be called, and
 builtin and user-function argument counts must match. Builtin argument types
-are not yet fully validated by this bootstrap checker:
+are conservatively inferred from literals, declarations, slices, conversions,
+and builtin results. Statically impossible calls are rejected, while `VTime`
+and function results remain runtime-checked:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -371,6 +373,10 @@ build\bat_test_checker_exprs\target\debug\test_checker_exprs_compiled.exe
 .\run_aplc.bat build\test_checker_calls.aplc
 .\compile_apl.bat examples\test_checker_calls.apl build\bat_test_checker_calls
 build\bat_test_checker_calls\target\debug\test_checker_calls_compiled.exe
+.\emit_aplc.bat examples\test_checker_builtin_types.apl build\test_checker_builtin_types.aplc
+.\run_aplc.bat build\test_checker_builtin_types.aplc
+.\compile_apl.bat examples\test_checker_builtin_types.apl build\bat_test_checker_builtin_types
+build\bat_test_checker_builtin_types\target\debug\test_checker_builtin_types_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

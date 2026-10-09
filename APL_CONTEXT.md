@@ -541,8 +541,13 @@ APL-owned runtime code:
   top-level forward calls, rejects unknown function names, rejects attempts to
   call non-function values, and checks both builtin and user-function argument
   counts. Builtin arities match the untrusted-artifact verifier, so malformed
-  calls such as `len()` or `pow(2, 3, 4)` fail before IR lowering. Static
-  builtin argument-type validation is still a subsequent checker stage.
+  calls such as `len()` or `pow(2, 3, 4)` fail before IR lowering. The checker
+  also conservatively infers expression types for literals, absolute variables,
+  lists, slices, unary/binary result shapes, conversions, and builtin results.
+  It rejects statically invalid builtin arguments while allowing `VTime`,
+  function results, and other genuinely dynamic values to defer to runtime.
+  Full declaration, assignment, condition, and operator type parity remains a
+  subsequent checker stage.
   `VTime` declarations and function parameters remain local to their function
   or block during validation. Leaving a function, `if`, `while`, or `pick`
   merges only newly discovered absolute, list, and function names into the
@@ -554,9 +559,9 @@ APL-owned runtime code:
   with user declarations and validates imported reads, mutation targets, and
   calls before module and user IR are combined. The function-only facade remains
   available for `APLMOD1` compatibility.
-- `examples/test_checker.apl`, `examples/test_checker_targets.apl`, and
-  `examples/test_checker_exprs.apl`, and `examples/test_checker_calls.apl` are
-  the checker smoke-tests.
+- `examples/test_checker.apl`, `examples/test_checker_targets.apl`,
+  `examples/test_checker_exprs.apl`, `examples/test_checker_calls.apl`, and
+  `examples/test_checker_builtin_types.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,

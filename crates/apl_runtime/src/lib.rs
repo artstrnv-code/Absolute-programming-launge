@@ -3410,6 +3410,55 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_validates_builtin_argument_types_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_static = "List values = [1] out len(values) out get(values, 0) out char(65) out pow(2, 3)"
+            AVStr valid_dynamic = "VTime value = 1 out len(value) out split(value, value) out pow(value, value)"
+            AVStr bad_len = "out len(1)"
+            AVStr bad_get = "out get(1, 0)"
+            AVStr bad_split = "out split(1, 2)"
+            AVStr bad_join = "out join(1, 2)"
+            AVStr bad_contains = "out contains(1, 2)"
+            AVStr bad_ord = "out ord(1)"
+            AVStr bad_char = "out char(true)"
+            AVStr bad_pow = "out pow(true, 2)"
+            AVStr bad_pop = "VTime value = pop(1)"
+            AVStr bad_add = "AVInt value = 1 add(value, 2)"
+
+            List reports = [
+              bootstrap.compile_report(valid_static),
+              bootstrap.compile_report(valid_dynamic),
+              bootstrap.compile_report(bad_len),
+              bootstrap.compile_report(bad_get),
+              bootstrap.compile_report(bad_split),
+              bootstrap.compile_report(bad_join),
+              bootstrap.compile_report(bad_contains),
+              bootstrap.compile_report(bad_ord),
+              bootstrap.compile_report(bad_char),
+              bootstrap.compile_report(bad_pow),
+              bootstrap.compile_report(bad_pop),
+              bootstrap.compile_report(bad_add)
+            ]
+
+            pick(reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nOK\nFAIL\nlen(value) requires Str, Bytes, List, or VTime\nFAIL\nget(list, index) requires List and Int\nFAIL\nsplit(value, separator) requires Str and Str\nFAIL\njoin(values, separator) requires List and Str\nFAIL\ncontains(value, needle) requires Str and Str\nFAIL\nord(value) requires Str\nFAIL\nchar(value) requires Int\nFAIL\npow(base, exponent) requires Int/Float and Int\nFAIL\npop(list) requires List\nFAIL\nadd(list, value) requires List\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"
