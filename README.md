@@ -156,6 +156,27 @@ base is strict and testable.
 
 ## Run
 
+### APL Studio for Windows
+
+Build and open the small native Win32 editor:
+
+```powershell
+cargo build -p apl_studio
+.\target\debug\apl_studio.exe
+```
+
+APL Studio is a deliberately small source editor rather than a full IDE. It
+opens and saves `.apl` files, runs the current buffer with `F5`, and shows
+parser, checker, runtime errors, and program output in the lower pane. Use
+`Ctrl+O` and `Ctrl+S` for the standard file commands. A modified file that
+already has a path is saved before it runs; an untitled buffer can run without
+being written to disk.
+
+The first Studio version executes source through the Rust reference
+parser/checker/runtime path. It supplies an empty input list, so programs that
+need interactive `input` are still best tested with the CLI and redirected
+lines.
+
 Check syntax and language rules:
 
 ```powershell

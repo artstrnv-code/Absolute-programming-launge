@@ -7,6 +7,7 @@ members = [
     "crates/apl_parser",
     "crates/apl_runtime",
     "crates/apl_router",
+    "crates/apl_studio",
 ]
 resolver = "2"
 

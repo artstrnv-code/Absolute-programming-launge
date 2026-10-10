@@ -1,0 +1,11 @@
+[package]
+name = "apl_studio"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+apl_compiler = { path = "../apl_compiler" }
+apl_core = { path = "../apl_core" }
+apl_parser = { path = "../apl_parser" }
+apl_runtime = { path = "../apl_runtime" }

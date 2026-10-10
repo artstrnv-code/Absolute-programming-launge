@@ -493,6 +493,13 @@ Rust workspace:
   aliases), relocatable module `emit-module`/`extend-module`/
   `emit-standard-module`/`emit-linked-module`, and legacy `.aplc` package
   `build-host`/`compile-host` commands.
+- `apl_studio`: small Windows-only native Win32 editor for opening, saving,
+  checking, and running `.apl` source without leaving the window. It calls the
+  Rust reference parser/checker/runtime directly, keeps execution off the UI
+  thread, and displays output and diagnostics in a read-only lower pane. `F5`
+  runs, while `Ctrl+O` and `Ctrl+S` use standard Windows file dialogs. The
+  current version supplies an empty input list and is intentionally not a full
+  IDE or a frontend for the portable self-host VM.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:

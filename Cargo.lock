@@ -56,3 +56,13 @@ dependencies = [
  "apl_ir",
  "apl_parser",
 ]
+
+[[package]]
+name = "apl_studio"
+version = "0.1.0"
+dependencies = [
+ "apl_compiler",
+ "apl_core",
+ "apl_parser",
+ "apl_runtime",
+]
