@@ -317,6 +317,11 @@ VTime y = pop(items)
 ```
 
 `get` and `pop` return `VTime` values carrying the element protection label.
+`add` is statement-only because it has no value result. Both `add` and `pop`
+require a named `List` or list-valued `VTime`; list literals, slices, calls, and
+other temporary expressions cannot be mutation targets. Adding an `ASV` or
+`SASV` value to a `VTime` list raises the protection tracked for the complete
+dynamic value and prevents later public output or assignment.
 
 ## Indexing And Slices
 
@@ -599,7 +604,8 @@ APL-owned runtime code:
   `examples/test_checker_operand_types.apl`, and
   `examples/test_checker_control_flow.apl` and
   `examples/test_checker_protection.apl` and
-  `examples/test_checker_names.apl` are the checker smoke-tests.
+  `examples/test_checker_names.apl` and
+  `examples/test_checker_mutations.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,

@@ -1250,6 +1250,28 @@ func checker.validate_pick_type(expression, names) {
   return checker.fail(names, join(["pick requires Str, Bytes, List, or VTime, got ", actual], ""))
 }
 
+func checker.validate_named_list_target(expression, names, operation) {
+  if parser.expr_kind(expression) != parser.EXPR_VAR {
+    return checker.fail(names, join([operation, " requires a named List or VTime target"], ""))
+  }
+
+  VTime entry = checker.find_name(names, parser.expr_value(expression))
+
+  if entry == NONE {
+    return checker.ok(names)
+  }
+
+  if checker.entry_role(entry) == "List" {
+    return checker.ok(names)
+  }
+
+  if checker.entry_role(entry) == "VTime" {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join([operation, " requires a named List or VTime target"], ""))
+}
+
 func checker.validate_builtin_argument_types(expression, names) {
   VTime name = get(expression, 1)
 
@@ -1310,7 +1332,7 @@ func checker.validate_builtin_argument_types(expression, names) {
 
   if name == "pop" {
     if checker.type_allows(first_type, "List") {
-      return checker.ok(names)
+      return checker.validate_named_list_target(get(args, 0), names, "pop(list)")
     }
 
     return checker.fail(names, "pop(list) requires List")
@@ -1318,7 +1340,7 @@ func checker.validate_builtin_argument_types(expression, names) {
 
   if name == "add" {
     if checker.type_allows(first_type, "List") {
-      return checker.ok(names)
+      return checker.validate_named_list_target(get(args, 0), names, "add(list, value)")
     }
 
     return checker.fail(names, "add(list, value) requires List")
@@ -1598,6 +1620,10 @@ func checker.validate_expr(expression, names) {
   }
 
   if kind == parser.EXPR_CALL {
+    if get(expression, 1) == "add" {
+      return checker.fail(names, "add(list, value) is only valid as a statement")
+    }
+
     VTime call_state = checker.validate_call_target(expression, names)
 
     if get(call_state, 0) != checker.STATUS_OK {
@@ -1814,13 +1840,34 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
 
   if kind == parser.NODE_EXPR {
     VTime expression = get(node, 1)
+
+    if parser.expr_kind(expression) == parser.EXPR_CALL {
+      if get(expression, 1) == "add" {
+        VTime call_state = checker.validate_call_target(expression, names)
+
+        if get(call_state, 0) != checker.STATUS_OK {
+          return call_state
+        }
+
+        pick(get(expression, 2)): arg {
+          VTime arg_state = checker.validate_expr(arg, names)
+
+          if get(arg_state, 0) != checker.STATUS_OK {
+            return arg_state
+          }
+        }
+
+        return checker.apply_mutating_call_protection(expression, names)
+      }
+    }
+
     VTime expression_state = checker.validate_expr(expression, names)
 
     if get(expression_state, 0) != checker.STATUS_OK {
       return expression_state
     }
 
-    return checker.apply_mutating_call_protection(expression, names)
+    return checker.ok(names)
   }
 
   if kind == parser.NODE_OUT {

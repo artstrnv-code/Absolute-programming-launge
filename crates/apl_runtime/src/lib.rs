@@ -3512,6 +3512,41 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_validates_list_mutation_contracts_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_pop = "List items = [1] VTime item = pop(items) out item"
+            AVStr bad_expression_add = "List items = [1] VTime result = add(items, 2)"
+            AVStr bad_temporary_add = "add([1], 2)"
+            AVStr bad_temporary_pop = "VTime item = pop([1])"
+            AVStr bad_vtime_out = "VTime items = [1] ASVInt hidden = 2 add(items, hidden) out items"
+
+            List reports = [
+              bootstrap.compile_report(valid_pop),
+              bootstrap.compile_report(bad_expression_add),
+              bootstrap.compile_report(bad_temporary_add),
+              bootstrap.compile_report(bad_temporary_pop),
+              bootstrap.compile_report(bad_vtime_out)
+            ]
+
+            pick(reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nFAIL\nadd(list, value) is only valid as a statement\nFAIL\nadd(list, value) requires a named List or VTime target\nFAIL\npop(list) requires a named List or VTime target\nFAIL\nsecret expression denied `out`\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_checker_validates_decl_and_assignment_types_prelude() {
         let output = run_source_with_prelude(
             r#"

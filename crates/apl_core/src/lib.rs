@@ -637,7 +637,12 @@ impl Checker {
         element: &ListElement,
     ) -> Result<(), CheckError> {
         if self.is_vtime(list_name) {
-            self.check_list_element(element)?;
+            let info = self.check_list_element(element)?;
+            let protection = self
+                .vtime_protection(list_name)
+                .unwrap_or(ProtectionLevel::Av)
+                .max(info.protection);
+            self.update_vtime(list_name, protection);
             return Ok(());
         }
 
@@ -867,6 +872,11 @@ impl Checker {
         args: &[Expression],
     ) -> Result<ExpressionInfo, CheckError> {
         match name {
+            "add" => {
+                return Err(CheckError::InvalidOperation(
+                    "add(list, value) is only valid as a statement".to_owned(),
+                ));
+            }
             "int" | "float" | "bool" | "str" | "bytes" | "json" => {
                 if args.len() != 1 {
                     return Err(CheckError::WrongArgumentCount {
@@ -922,6 +932,11 @@ impl Checker {
                 ) {
                     return Err(CheckError::InvalidOperation(
                         "pop(list) requires List".to_owned(),
+                    ));
+                }
+                if expression_variable_name(&args[0]).is_none() {
+                    return Err(CheckError::InvalidOperation(
+                        "pop(list) requires a named List or VTime target".to_owned(),
                     ));
                 }
                 return Ok(ExpressionInfo {
@@ -1388,6 +1403,14 @@ fn conversion_type(name: &str) -> Option<ValueType> {
         "str" => Some(ValueType::Str),
         "bytes" => Some(ValueType::Bytes),
         "json" => Some(ValueType::Json),
+        _ => None,
+    }
+}
+
+fn expression_variable_name(expression: &Expression) -> Option<&str> {
+    match expression {
+        Expression::Variable(name) => Some(name),
+        Expression::Grouped(inner) => expression_variable_name(inner),
         _ => None,
     }
 }
@@ -1917,6 +1940,71 @@ mod tests {
             ],
         })]);
         assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn list_mutations_require_named_targets_and_track_vtime_protection() {
+        let protected_vtime = Program::new(vec![
+            Statement::VTimeDecl(VTimeDecl {
+                name: "items".to_owned(),
+                initial_value: Expression::ListLiteral(vec![ListElement {
+                    value: Expression::Literal(Value::Int(1)),
+                    protection: None,
+                }]),
+            }),
+            decl(
+                "hidden",
+                VariableKind::Asv,
+                ValueType::Int,
+                Expression::Literal(Value::Int(2)),
+            ),
+            Statement::AddToList {
+                list_name: "items".to_owned(),
+                element: ListElement {
+                    value: Expression::Variable("hidden".to_owned()),
+                    protection: None,
+                },
+            },
+            Statement::Out(Expression::Variable("items".to_owned())),
+        ]);
+        assert!(matches!(
+            validate_program(&protected_vtime),
+            Err(CheckError::SecretExpressionDenied(_))
+        ));
+
+        let temporary_pop = Program::new(vec![Statement::VTimeDecl(VTimeDecl {
+            name: "item".to_owned(),
+            initial_value: Expression::Call {
+                name: "pop".to_owned(),
+                args: vec![Expression::ListLiteral(vec![ListElement {
+                    value: Expression::Literal(Value::Int(1)),
+                    protection: None,
+                }])],
+            },
+        })]);
+        assert_eq!(
+            validate_program(&temporary_pop),
+            Err(CheckError::InvalidOperation(
+                "pop(list) requires a named List or VTime target".to_owned()
+            ))
+        );
+
+        let expression_add = Program::new(vec![Statement::VTimeDecl(VTimeDecl {
+            name: "result".to_owned(),
+            initial_value: Expression::Call {
+                name: "add".to_owned(),
+                args: vec![
+                    Expression::ListLiteral(vec![]),
+                    Expression::Literal(Value::Int(1)),
+                ],
+            },
+        })]);
+        assert_eq!(
+            validate_program(&expression_add),
+            Err(CheckError::InvalidOperation(
+                "add(list, value) is only valid as a statement".to_owned()
+            ))
+        );
     }
 
     #[test]

@@ -412,7 +412,10 @@ tags, mutations, `secretup`, function calls, and block merges. It rejects
 protection downgrades, secret values sent to `out`/`stop`/`fail`, public
 `=self=` checks on secret values, and invalid input/protection combinations
 before IR lowering. Successful checks export protection-aware symbols for
-`APLMOD3` modules.
+`APLMOD3` modules. `add(list, value)` is a statement-only mutation, while both
+`add` and `pop` require a named `List` or `VTime` target. Adding a protected
+value to a `VTime` list raises the dynamic list protection, so later public
+output or assignment cannot lose the element's protection.
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -455,6 +458,10 @@ build\bat_test_checker_protection\target\debug\test_checker_protection_compiled.
 .\run_aplc.bat build\test_checker_names.aplc
 .\compile_apl.bat examples\test_checker_names.apl build\bat_test_checker_names
 build\bat_test_checker_names\target\debug\test_checker_names_compiled.exe
+.\emit_aplc.bat examples\test_checker_mutations.apl build\test_checker_mutations.aplc
+.\run_aplc.bat build\test_checker_mutations.aplc
+.\compile_apl.bat examples\test_checker_mutations.apl build\bat_test_checker_mutations
+build\bat_test_checker_mutations\target\debug\test_checker_mutations_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser
