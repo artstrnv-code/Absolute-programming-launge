@@ -2828,7 +2828,7 @@ mod tests {
     fn source_runtime_runs_compiled_bootstrap_scenario_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "AVStr public = input ASVStr secret = secret input AVInt age = input List values = [age, 2, [3, 4]] func inc(x) { return x + 1 } VTime next = inc(age) VTime first = values[0] out public out next out first AVStr missing = input out missing"
+            AVStr source = "AVStr public = input ASVStr hidden = secret input AVInt age = input List values = [age, 2, [3, 4]] func inc(x) { return x + 1 } VTime next = inc(age) VTime first = values[0] out public out next out first AVStr missing = input out missing"
             VTime vm_output = bootstrap.run_with_input(source, ["hello", "token", "41"])
 
             out len(vm_output)
@@ -3180,6 +3180,15 @@ mod tests {
             VTime legacy_report = bootstrap.load_module_report(legacy_text)
             VTime legacy_symbols = artifact.module_symbols(get(legacy_report, 1))
 
+            VTime invalid_name_program = [["DECL", "AVInt", "bad?name", ["LITERAL", "Int", 1]]]
+            VTime invalid_name_image = artifact.node_list([
+              artifact.node_str("APLMOD3"),
+              artifact.wrap_program(invalid_name_program),
+              artifact.wrap_symbol_table([["bad?name", "Absolute", "AVInt", "AV"]])
+            ])
+            VTime invalid_name_text = join([artifact.MODULE_HEADER, artifact.encode_node(invalid_name_image)], "")
+            VTime invalid_name_report = bootstrap.load_module_report(invalid_name_text)
+
             out secret_list_text[:len(artifact.MODULE_HEADER)]
             out get(get(secret_list_symbols, 0), 3)
             out get(secret_list_link, 0)
@@ -3189,13 +3198,15 @@ mod tests {
             out get(promoted_link, 1)
             out get(legacy_report, 0)
             out get(get(legacy_symbols, 0), 3)
+            out get(invalid_name_report, 0)
+            out get(invalid_name_report, 1)
             "#,
         )
         .unwrap();
 
         assert_eq!(
             output,
-            "APLMOD3:\nASV\nFAIL\nsecret expression denied `out`\nASV\nFAIL\nsecret expression denied `out`\nOK\nSASV\n"
+            "APLMOD3:\nASV\nFAIL\nsecret expression denied `out`\nASV\nFAIL\nsecret expression denied `out`\nOK\nSASV\nFAIL\ninvalid module artifact image\n"
         );
     }
 
@@ -3650,30 +3661,88 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_validates_names_and_parameter_scopes_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_names = "AVInt alpha.beta_2 = 1 func echo(value) { return value } VTime result = echo(alpha.beta_2)"
+            AVStr valid_shadow = join(["AVStr value = ", char(34), "global", char(34), " func increment(value) { return value + 1 } func apply(increment) { return increment(increment) } out apply(1) out value"], "")
+            AVStr bad_symbol = "AVInt bad?name = 1"
+            AVStr bad_leading_dot = "AVInt .hidden = 1"
+            AVStr bad_reserved = "AVInt len = 1"
+            AVStr bad_function = "func bad?name(value) { return value }"
+            AVStr bad_duplicate_param = "func duplicate(value, value) { return value }"
+            AVStr bad_param = "func identity(bad?name) { return bad?name }"
+            AVStr bad_pick_collision = "AVInt item = 1 pick([1]): item { out item }"
+            AVStr bad_pick_name = "pick([1]): bad?name { out bad?name }"
+            AVStr bad_shadow_secretup = "AVInt value = 1 func promote(value) { secretup(value) }"
+            AVStr bad_shadow_self = "AVInt value = 1 func same(value) { return value =self= }"
+            AVStr bad_function_value = "func go() { return 1 } out go"
+
+            VTime valid_names_report = bootstrap.compile_report(valid_names)
+            VTime valid_shadow_report = bootstrap.run_report(valid_shadow)
+            List bad_reports = [
+              bootstrap.compile_report(bad_symbol),
+              bootstrap.compile_report(bad_leading_dot),
+              bootstrap.compile_report(bad_reserved),
+              bootstrap.compile_report(bad_function),
+              bootstrap.compile_report(bad_duplicate_param),
+              bootstrap.compile_report(bad_param),
+              bootstrap.compile_report(bad_pick_collision),
+              bootstrap.compile_report(bad_pick_name),
+              bootstrap.compile_report(bad_shadow_secretup),
+              bootstrap.compile_report(bad_shadow_self),
+              bootstrap.compile_report(bad_function_value)
+            ]
+
+            out get(valid_names_report, 0)
+            out get(valid_shadow_report, 0)
+
+            pick(get(valid_shadow_report, 1)): line {
+              out line
+            }
+
+            pick(bad_reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nOK\n2\nglobal\nFAIL\ninvalid name `bad?name`\nFAIL\ninvalid name `.hidden`\nFAIL\ninvalid name `len`\nFAIL\ninvalid name `bad?name`\nFAIL\nduplicate parameter `value`\nFAIL\ninvalid name `bad?name`\nFAIL\nduplicate name `item`\nFAIL\ninvalid name `bad?name`\nFAIL\ninvalid secretup target `value`\nFAIL\ninvalid self target `value`\nFAIL\nunknown variable `go`\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_checker_validates_protection_flow_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr valid_assignments = "ASVInt secret = 1 SASVInt vault = secret VTime temporary = secret ASVInt copy = temporary"
+            AVStr valid_assignments = "ASVInt hidden = 1 SASVInt vault = hidden VTime temporary = hidden ASVInt copy = temporary"
             AVStr valid_tags = "List items = [1:ASV, 2:SASV] SASVInt vault = 1"
             AVStr valid_secret_input = "ASVStr value = secret input"
-            AVStr bad_decl = "ASVInt secret = 1 AVInt public = secret"
-            AVStr bad_assign = "ASVInt secret = 1 AVInt public = 0 public = secret"
+            AVStr bad_decl = "ASVInt hidden = 1 AVInt public = hidden"
+            AVStr bad_assign = "ASVInt hidden = 1 AVInt public = 0 public = hidden"
             AVStr bad_secret_input_av = "AVStr public = secret input"
             AVStr bad_input_sasv = "SASVStr vault = input"
             AVStr bad_secret_input_sasv = "SASVStr vault = secret input"
-            AVStr bad_tag = "ASVInt secret = 1 List items = [secret:AV]"
-            AVStr bad_out = "ASVInt secret = 1 out secret"
-            AVStr bad_derived_out = "ASVInt secret = 1 out secret + 1"
-            AVStr bad_vtime = "ASVInt secret = 1 VTime temporary = secret AVInt public = temporary"
+            AVStr bad_tag = "ASVInt hidden = 1 List items = [hidden:AV]"
+            AVStr bad_out = "ASVInt hidden = 1 out hidden"
+            AVStr bad_derived_out = "ASVInt hidden = 1 out hidden + 1"
+            AVStr bad_vtime = "ASVInt hidden = 1 VTime temporary = hidden AVInt public = temporary"
             AVStr bad_list_out = "List items = [1:ASV] out items"
             AVStr bad_get_out = "List items = [1:ASV] out get(items, 0)"
-            AVStr bad_self = "ASVInt secret = 1 out secret =self="
-            AVStr bad_stop = "ASVInt secret = 1 stop secret"
-            AVStr bad_fail = "ASVInt secret = 1 fail secret"
+            AVStr bad_self = "ASVInt hidden = 1 out hidden =self="
+            AVStr bad_stop = "ASVInt hidden = 1 stop hidden"
+            AVStr bad_fail = "ASVInt hidden = 1 fail hidden"
             AVStr bad_secretup_out = "AVInt value = 1 secretup(value) out value"
             AVStr bad_secretup_limit = "AVInt value = 1 secretup(value) secretup(value) secretup(value)"
-            AVStr bad_add_out = "List items = [1] ASVInt secret = 2 add(items, secret) out items"
-            AVStr bad_call_out = "func echo(value) { return value } ASVInt secret = 1 out echo(secret)"
+            AVStr bad_add_out = "List items = [1] ASVInt hidden = 2 add(items, hidden) out items"
+            AVStr bad_call_out = "func echo(value) { return value } ASVInt hidden = 1 out echo(hidden)"
 
             List reports = [
               bootstrap.compile_report(valid_assignments),
@@ -3712,7 +3781,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\nOK\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `public`\nFAIL\nsecret expression denied `vault`\nFAIL\nsecret expression denied `vault`\nFAIL\nprotection downgrade `list element`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `secret`\nFAIL\nsecret expression denied `stop`\nFAIL\nsecret expression denied `fail`\nFAIL\nsecret expression denied `out`\nFAIL\ninvalid secretup target `value`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\n"
+            "OK\nOK\nOK\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `public`\nFAIL\nsecret expression denied `vault`\nFAIL\nsecret expression denied `vault`\nFAIL\nprotection downgrade `list element`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `hidden`\nFAIL\nsecret expression denied `stop`\nFAIL\nsecret expression denied `fail`\nFAIL\nsecret expression denied `out`\nFAIL\ninvalid secretup target `value`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\n"
         );
     }
 

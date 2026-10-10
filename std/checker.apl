@@ -72,13 +72,125 @@ func checker.name_exists(names, name) {
 }
 
 func checker.find_name(names, name) {
-  pick(names): existing {
+  VTime index = len(names) - 1
+
+  while (index >= 0) (-1) {
+    VTime existing = get(names, index)
+
     if checker.entry_name(existing) == name {
       return existing
+    }
+
+    index -= 1
+  }
+
+  return NONE
+}
+
+func checker.find_function(names, name) {
+  pick(names): existing {
+    if checker.entry_name(existing) == name {
+      if checker.entry_role(existing) == "Func" {
+        return existing
+      }
     }
   }
 
   return NONE
+}
+
+func checker.value_exists(values, value) {
+  pick(values): existing {
+    if existing == value {
+      return true
+    }
+  }
+
+  return false
+}
+
+func checker.is_ascii_letter(ch) {
+  VTime code = ord(ch)
+
+  if (code >= 65) and (code <= 90) {
+    return true
+  }
+
+  return (code >= 97) and (code <= 122)
+}
+
+func checker.name_part_is_valid(part) {
+  if len(part) == 0 {
+    return false
+  }
+
+  VTime first = part[0]
+
+  if first != "_" {
+    if checker.is_ascii_letter(first) != true {
+      return false
+    }
+  }
+
+  VTime index = 1
+
+  while (index < len(part)) (-1) {
+    VTime ch = part[index]
+
+    if ch != "_" {
+      if checker.is_ascii_letter(ch) != true {
+        if lexer.is_digit(ch) != true {
+          return false
+        }
+      }
+    }
+
+    index += 1
+  }
+
+  return true
+}
+
+func checker.name_is_valid(name) {
+  if len(name) == 0 {
+    return false
+  }
+
+  if lexer.is_keyword(name) {
+    return false
+  }
+
+  if checker.builtin_arity(name) >= 0 {
+    return false
+  }
+
+  if name[0] == "." {
+    return false
+  }
+
+  if name[len(name) - 1] == "." {
+    return false
+  }
+
+  if contains(name, "..") {
+    return false
+  }
+
+  pick(split(name, ".")): part {
+    if checker.name_part_is_valid(part) != true {
+      return false
+    }
+  }
+
+  return true
+}
+
+func checker.validate_name(names, name) {
+  if checker.name_is_valid(name) {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join(["invalid name `", name, "`"], ""))
 }
 
 func checker.add_name(names, name, role, typ) {
@@ -99,13 +211,27 @@ func checker.add_name_with_protection(names, name, role, typ, protection) {
 
 func checker.update_name_protection(names, name, protection) {
   VTime updated = []
+  VTime target_index = -1
+  VTime index = 0
 
   pick(names): entry {
     if checker.entry_name(entry) == name {
+      target_index = index
+    }
+
+    index += 1
+  }
+
+  index = 0
+
+  pick(names): entry {
+    if index == target_index {
       add(updated, [checker.entry_name(entry), checker.entry_role(entry), checker.entry_type(entry), protection])
     } else {
       add(updated, entry)
     }
+
+    index += 1
   }
 
   return updated
@@ -205,18 +331,19 @@ func checker.ok(names) {
 
 func checker.merge_global_names(names, scoped_names) {
   VTime merged = []
+  VTime index = 0
 
   pick(names): entry {
-    VTime scoped = checker.find_name(scoped_names, checker.entry_name(entry))
-
-    if scoped == NONE {
+    if index >= len(scoped_names) {
       add(merged, entry)
     } else {
-      add(merged, scoped)
+      add(merged, get(scoped_names, index))
     }
+
+    index += 1
   }
 
-  VTime index = len(names)
+  index = len(names)
 
   while (index < len(scoped_names)) (-1) {
     VTime entry = get(scoped_names, index)
@@ -237,6 +364,12 @@ func checker.validate_decl_name(node, names, allow_predeclared_func) {
 
   if name == NONE {
     return checker.ok(names)
+  }
+
+  VTime valid_state = checker.validate_name(names, name)
+
+  if get(valid_state, 0) != checker.STATUS_OK {
+    return valid_state
   }
 
   if kind == parser.NODE_FUNC {
@@ -263,6 +396,12 @@ func checker.validate_decl_collision(node, names, allow_predeclared_func) {
 
   if name == NONE {
     return checker.ok(names)
+  }
+
+  VTime valid_state = checker.validate_name(names, name)
+
+  if get(valid_state, 0) != checker.STATUS_OK {
+    return valid_state
   }
 
   if kind == parser.NODE_FUNC {
@@ -1243,14 +1382,14 @@ func checker.validate_call_target(expression, names) {
     return checker.validate_builtin_argument_types(expression, names)
   }
 
-  VTime entry = checker.find_name(names, name)
+  VTime entry = checker.find_function(names, name)
 
   if entry == NONE {
-    return checker.fail(names, join(["unknown function `", name, "`"], ""))
-  }
+    if checker.find_name(names, name) != NONE {
+      return checker.fail(names, join(["invalid function `", name, "`"], ""))
+    }
 
-  if checker.entry_role(entry) != "Func" {
-    return checker.fail(names, join(["invalid function `", name, "`"], ""))
+    return checker.fail(names, join(["unknown function `", name, "`"], ""))
   }
 
   if checker.entry_type(entry) != len(args) {
@@ -1402,9 +1541,12 @@ func checker.validate_expr(expression, names) {
 
   if kind == parser.EXPR_VAR {
     VTime name = parser.expr_value(expression)
+    VTime entry = checker.find_name(names, name)
 
-    if checker.name_exists(names, name) {
-      return checker.ok(names)
+    if entry != NONE {
+      if checker.entry_role(entry) != "Func" {
+        return checker.ok(names)
+      }
     }
 
     return checker.fail(names, join(["unknown variable `", name, "`"], ""))
@@ -1740,8 +1882,20 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
 
   if kind == parser.NODE_FUNC {
     VTime local_names = names[:]
+    VTime params = []
 
     pick(get(node, 2)): param {
+      VTime param_state = checker.validate_name(names, param)
+
+      if get(param_state, 0) != checker.STATUS_OK {
+        return param_state
+      }
+
+      if checker.value_exists(params, param) {
+        return checker.fail(names, join(["duplicate parameter `", param, "`"], ""))
+      }
+
+      add(params, param)
       local_names = checker.add_name(local_names, param, "VTime", "VTime")
     }
 
@@ -1824,7 +1978,18 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
       return value_type_state
     }
 
-    VTime local_names = checker.add_name_with_protection(names[:], get(node, 2), "VTime", "VTime", checker.expr_protection(get(node, 1), names))
+    VTime item_name = get(node, 2)
+    VTime item_name_state = checker.validate_name(names, item_name)
+
+    if get(item_name_state, 0) != checker.STATUS_OK {
+      return item_name_state
+    }
+
+    if checker.name_exists(names, item_name) {
+      return checker.fail(names, join(["duplicate name `", item_name, "`"], ""))
+    }
+
+    VTime local_names = checker.add_name_with_protection(names[:], item_name, "VTime", "VTime", checker.expr_protection(get(node, 1), names))
     VTime body_state = checker.validate_block(get(node, 3), local_names, false, in_function, loop_depth + 1)
 
     if get(body_state, 0) != checker.STATUS_OK {
@@ -1854,6 +2019,11 @@ func checker.collect_function_names(statements, names) {
   pick(statements): statement {
     if parser.node_kind(statement) == parser.NODE_FUNC {
       VTime name = get(statement, 1)
+      VTime name_state = checker.validate_name(names, name)
+
+      if get(name_state, 0) != checker.STATUS_OK {
+        return name_state
+      }
 
       if checker.name_exists(names, name) {
         return checker.fail(names, join(["duplicate name `", name, "`"], ""))
@@ -1869,6 +2039,11 @@ func checker.collect_function_names(statements, names) {
 func checker.add_external_symbols(names, symbols) {
   pick(symbols): symbol {
     VTime name = get(symbol, 0)
+    VTime name_state = checker.validate_name(names, name)
+
+    if get(name_state, 0) != checker.STATUS_OK {
+      return name_state
+    }
 
     if checker.name_exists(names, name) {
       return checker.fail(names, join(["duplicate name `", name, "`"], ""))

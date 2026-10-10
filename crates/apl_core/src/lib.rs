@@ -620,10 +620,12 @@ impl Checker {
     fn check_info_assignment(&mut self, assignment: &InfoAssignment) -> Result<(), CheckError> {
         self.require_av_str_target(&assignment.type_target)?;
         self.require_av_str_target(&assignment.protection_target)?;
-        if !matches!(
-            self.symbols.get(&assignment.source),
-            Some(Symbol::Absolute { .. })
-        ) {
+        if self.is_vtime(&assignment.source)
+            || !matches!(
+                self.symbols.get(&assignment.source),
+                Some(Symbol::Absolute { .. })
+            )
+        {
             return Err(CheckError::UnknownVariable(assignment.source.clone()));
         }
         Ok(())
@@ -650,10 +652,11 @@ impl Checker {
     }
 
     fn check_secretup(&mut self, name: &str) -> Result<(), CheckError> {
+        if self.is_vtime(name) {
+            return Err(CheckError::InvalidAssignmentTarget(name.to_owned()));
+        }
+
         let Some(symbol) = self.symbols.get_mut(name) else {
-            if self.is_vtime(name) {
-                return Err(CheckError::InvalidAssignmentTarget(name.to_owned()));
-            }
             return Err(CheckError::UnknownVariable(name.to_owned()));
         };
 
@@ -684,6 +687,10 @@ impl Checker {
     }
 
     fn require_av_str_target(&self, name: &str) -> Result<(), CheckError> {
+        if self.is_vtime(name) {
+            return Err(CheckError::InvalidAssignmentTarget(name.to_owned()));
+        }
+
         match self.symbols.get(name) {
             Some(Symbol::Absolute {
                 kind: VariableKind::Av,
@@ -799,12 +806,13 @@ impl Checker {
             } => self.check_slice(target, start.as_deref(), end.as_deref(), step.as_deref()),
             Expression::Grouped(inner) => self.check_expression(inner),
             Expression::SelfCheck(name) => {
+                if self.is_vtime(name) {
+                    return Err(CheckError::InvalidOperation(
+                        "`=self=` is only available for absolute variables".to_owned(),
+                    ));
+                }
+
                 let Some(symbol) = self.symbols.get(name) else {
-                    if self.is_vtime(name) {
-                        return Err(CheckError::InvalidOperation(
-                            "`=self=` is only available for absolute variables".to_owned(),
-                        ));
-                    }
                     return Err(CheckError::UnknownVariable(name.clone()));
                 };
                 let Symbol::Absolute { kind, .. } = symbol else {
@@ -1768,6 +1776,94 @@ mod tests {
             ),
         ]);
         assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn function_parameters_shadow_values_but_not_function_calls() {
+        let program = Program::new(vec![
+            av_decl(
+                "value",
+                ValueType::Str,
+                Expression::Literal(Value::Str("global".to_owned())),
+            ),
+            Statement::FunctionDecl(FunctionDecl {
+                name: "increment".to_owned(),
+                params: vec!["value".to_owned()],
+                body: vec![Statement::Return(Expression::Binary {
+                    left: Box::new(Expression::Variable("value".to_owned())),
+                    operator: BinaryOperator::Add,
+                    right: Box::new(Expression::Literal(Value::Int(1))),
+                })],
+            }),
+            Statement::FunctionDecl(FunctionDecl {
+                name: "apply".to_owned(),
+                params: vec!["increment".to_owned()],
+                body: vec![Statement::Return(Expression::Call {
+                    name: "increment".to_owned(),
+                    args: vec![Expression::Variable("increment".to_owned())],
+                })],
+            }),
+        ]);
+
+        assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn shadowed_absolutes_are_not_valid_absolute_operation_targets() {
+        let shadowed_secretup = Program::new(vec![
+            av_decl("value", ValueType::Int, Expression::Literal(Value::Int(1))),
+            Statement::FunctionDecl(FunctionDecl {
+                name: "promote".to_owned(),
+                params: vec!["value".to_owned()],
+                body: vec![Statement::SecretUp("value".to_owned())],
+            }),
+        ]);
+        assert_eq!(
+            validate_program(&shadowed_secretup),
+            Err(CheckError::InvalidAssignmentTarget("value".to_owned()))
+        );
+
+        let shadowed_info_target = Program::new(vec![
+            av_decl(
+                "metadata",
+                ValueType::Str,
+                Expression::Literal(Value::Str(String::new())),
+            ),
+            decl(
+                "master_key",
+                VariableKind::Sasv,
+                ValueType::Int,
+                Expression::Literal(Value::Int(1)),
+            ),
+            Statement::FunctionDecl(FunctionDecl {
+                name: "inspect".to_owned(),
+                params: vec!["metadata".to_owned()],
+                body: vec![Statement::InfoAssignment(InfoAssignment {
+                    type_target: "metadata".to_owned(),
+                    protection_target: "metadata".to_owned(),
+                    source: "master_key".to_owned(),
+                })],
+            }),
+        ]);
+        assert_eq!(
+            validate_program(&shadowed_info_target),
+            Err(CheckError::InvalidAssignmentTarget("metadata".to_owned()))
+        );
+
+        let shadowed_self = Program::new(vec![
+            av_decl("value", ValueType::Int, Expression::Literal(Value::Int(1))),
+            Statement::FunctionDecl(FunctionDecl {
+                name: "same".to_owned(),
+                params: vec!["value".to_owned()],
+                body: vec![Statement::Return(Expression::SelfCheck("value".to_owned()))],
+            }),
+        ]);
+        assert_eq!(
+            validate_program(&shadowed_self),
+            Err(CheckError::InvalidOperation(
+                "`=self=` is only available for absolute variables".to_owned()
+            ))
+        );
     }
 
     #[test]

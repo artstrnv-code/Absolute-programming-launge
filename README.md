@@ -379,6 +379,13 @@ runtime. Control-flow context is checked before lowering: `return` requires a
 function, `break`/`continue` require the current function to be inside a
 `while` or `pick`, and loop limits below `-1` are rejected.
 
+Names are checked against the language's ASCII namespace grammar before
+lowering or module import. Keywords and builtin names are reserved, function
+parameters must be valid and unique, and a `pick` item cannot collide with an
+existing visible name. Parameters are local values and may shadow a global
+value inside their function; call syntax still resolves the separately declared
+function symbol. Reading a bare function name as a value is rejected.
+
 The checker also tracks `AV`/`ASV`/`SASV` through expressions, `VTime`, lists,
 tags, mutations, `secretup`, function calls, and block merges. It rejects
 protection downgrades, secret values sent to `out`/`stop`/`fail`, public
@@ -423,6 +430,10 @@ build\bat_test_checker_control_flow\target\debug\test_checker_control_flow_compi
 .\run_aplc.bat build\test_checker_protection.aplc
 .\compile_apl.bat examples\test_checker_protection.apl build\bat_test_checker_protection
 build\bat_test_checker_protection\target\debug\test_checker_protection_compiled.exe
+.\emit_aplc.bat examples\test_checker_names.apl build\test_checker_names.aplc
+.\run_aplc.bat build\test_checker_names.aplc
+.\compile_apl.bat examples\test_checker_names.apl build\bat_test_checker_names
+build\bat_test_checker_names\target\debug\test_checker_names_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

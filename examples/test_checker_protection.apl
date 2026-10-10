@@ -1,16 +1,16 @@
 # Test APL checker protection-flow validation.
 
 List protection_sources = [
-  "ASVInt secret = 1 SASVInt vault = secret VTime temporary = secret ASVInt copy = temporary",
+  "ASVInt hidden = 1 SASVInt vault = hidden VTime temporary = hidden ASVInt copy = temporary",
   "List items = [1:ASV, 2:SASV] SASVInt vault = 1",
   "ASVStr value = secret input",
-  "ASVInt secret = 1 AVInt public = secret",
+  "ASVInt hidden = 1 AVInt public = hidden",
   "AVStr public = secret input",
   "SASVStr vault = input",
-  "ASVInt secret = 1 List items = [secret:AV]",
-  "ASVInt secret = 1 out secret",
-  "ASVInt secret = 1 VTime temporary = secret AVInt public = temporary",
-  "List items = [1] ASVInt secret = 2 add(items, secret) out items",
+  "ASVInt hidden = 1 List items = [hidden:AV]",
+  "ASVInt hidden = 1 out hidden",
+  "ASVInt hidden = 1 VTime temporary = hidden AVInt public = temporary",
+  "List items = [1] ASVInt hidden = 2 add(items, hidden) out items",
   "AVInt value = 1 secretup(value) secretup(value) secretup(value)"
 ]
 

@@ -152,7 +152,16 @@ Allowed:
 Names may use ASCII letters, digits, `_`, and `.` namespaces. Digits cannot be
 the first character of a name segment.
 
-Reserved words cannot be used as names.
+Reserved words and builtin function names cannot be used as names. The same
+validation applies to source declarations, function parameters, `pick` items,
+and symbols imported from portable modules.
+
+Function parameters must be unique within their parameter list. They are local
+values and may shadow a global value while the function body is checked and
+executed. Function calls use the function namespace, so a parameter with the
+same name as a function does not hide that function from call syntax. A bare
+function name is not a first-class value. `pick` items cannot shadow an already
+visible name.
 
 ## Arithmetic
 
@@ -580,7 +589,8 @@ APL-owned runtime code:
   `examples/test_checker_assign_types.apl`,
   `examples/test_checker_operand_types.apl`, and
   `examples/test_checker_control_flow.apl` and
-  `examples/test_checker_protection.apl` are the checker smoke-tests.
+  `examples/test_checker_protection.apl` and
+  `examples/test_checker_names.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,

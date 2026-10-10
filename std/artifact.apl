@@ -680,6 +680,10 @@ func artifact.module_symbols_are_valid(symbols) {
       return false
     }
 
+    if checker.name_is_valid(name) != true {
+      return false
+    }
+
     if verifier.is_str(role) != true {
       return false
     }
@@ -736,6 +740,10 @@ func artifact.module_v3_symbols_are_valid(symbols) {
     VTime protection = get(symbol, 3)
 
     if verifier.is_str(name) != true {
+      return false
+    }
+
+    if checker.name_is_valid(name) != true {
       return false
     }
 
@@ -832,6 +840,12 @@ func artifact.module_v1_image_is_valid(image) {
 
   if verifier.values_are_unique(names) != true {
     return false
+  }
+
+  pick(names): name {
+    if checker.name_is_valid(name) != true {
+      return false
+    }
   }
 
   if len(arities) != len(names) {
