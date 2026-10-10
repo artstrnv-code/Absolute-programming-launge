@@ -2990,6 +2990,38 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_apl_frontend_checks_numeric_literal_boundaries() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr min_source = "AVInt value = -9223372036854775808 out value"
+            AVStr positive_overflow = "AVInt value = 9223372036854775808"
+            AVStr negative_overflow = "AVInt value = -9223372036854775809"
+            AVStr trailing_dot = "AVFloat value = 1."
+
+            VTime min_report = bootstrap.run_report(min_source)
+            VTime positive_report = bootstrap.compile_report(positive_overflow)
+            VTime negative_report = bootstrap.compile_report(negative_overflow)
+            VTime float_report = bootstrap.compile_report(trailing_dot)
+
+            out get(min_report, 0)
+            out get(get(min_report, 1), 0)
+            out get(positive_report, 0)
+            out get(positive_report, 1)
+            out get(negative_report, 0)
+            out get(negative_report, 1)
+            out get(float_report, 0)
+            out get(float_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\n-9223372036854775808\nFAIL\ninteger literal out of range\nFAIL\ninteger literal out of range\nFAIL\ninvalid float literal\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_bootstrap_artifact_report_prelude() {
         let output = run_source_with_prelude(
             r#"

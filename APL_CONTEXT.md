@@ -190,6 +190,11 @@ Rules:
 - no string concatenation with `+`;
 - integer addition, subtraction, multiplication, division, and unary negation
   use checked `i64` arithmetic; overflow is a runtime error;
+- integer literals cover the complete signed `i64` range. The Rust parser and
+  APL-written frontend both accept `-9223372036854775808` without evaluating an
+  overflowing negation, and reject integer literals outside that range;
+- float literals require decimal digits on both sides of `.`, so `1.` is not a
+  valid float literal;
 - integer division by zero is a runtime error; `Float` arithmetic retains
   IEEE-754 behavior;
 - roots, trigonometry, and heavy math belong in functions or external
@@ -609,10 +614,11 @@ APL-owned runtime code:
   `examples/test_checker_exprs.apl`, `examples/test_checker_calls.apl`,
   `examples/test_checker_builtin_types.apl`,
   `examples/test_checker_assign_types.apl`,
-  `examples/test_checker_operand_types.apl`, and
-  `examples/test_checker_control_flow.apl` and
-  `examples/test_checker_protection.apl` and
-  `examples/test_checker_names.apl` and
+  `examples/test_checker_operand_types.apl`,
+  `examples/test_checker_literals.apl`,
+  `examples/test_checker_control_flow.apl`,
+  `examples/test_checker_protection.apl`,
+  `examples/test_checker_names.apl`, and
   `examples/test_checker_mutations.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the

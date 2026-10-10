@@ -48,6 +48,10 @@ The core idea is simple:
 - integer `+`, `-`, `*`, `/`, and unary negation are checked operations;
   overflow and integer division by zero produce runtime errors instead of
   panicking or depending on the Rust build profile;
+- integer literals cover the full signed `i64` range, including
+  `-9223372036854775808`; out-of-range literals are rejected before execution;
+- decimal float literals require digits on both sides of `.`, so `1.0` is
+  valid and `1.` is rejected;
 - `value[index]` reads one item and `value[start:end:step]` creates a slice;
 - slice `start`, `end`, and `step` are optional, as in `items[:3]`,
   `items[1:]`, and `items[::2]`;

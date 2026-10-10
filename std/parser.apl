@@ -156,6 +156,12 @@ func parser.parse_expr_token(token) {
     return [parser.EXPR_STR, value]
   }
 
+  if kind == lexer.TOKEN_IDENT {
+    if (lexer.is_digit(value[0])) and (contains(value, ".")) {
+      return [parser.EXPR_FLOAT, NONE]
+    }
+  }
+
   if value == "true" {
     return [parser.EXPR_BOOL, true]
   }
@@ -222,16 +228,6 @@ func parser.parse_expr_primary(tokens, index) {
   VTime kind = lexer.token_kind(token)
   VTime value = lexer.token_value(token)
   VTime next_token = get(tokens, index + 1)
-
-  if (kind == lexer.TOKEN_SYM) and (value == "-") {
-    if lexer.token_kind(next_token) == lexer.TOKEN_INT {
-      return [[parser.EXPR_INT, int(lexer.token_value(next_token)) * -1], index + 2]
-    }
-
-    if lexer.token_kind(next_token) == lexer.TOKEN_FLOAT {
-      return [[parser.EXPR_FLOAT, float(lexer.token_value(next_token)) * -1.0], index + 2]
-    }
-  }
 
   if (kind == lexer.TOKEN_SYM) and (value == "[") {
     VTime parsed_items = parser.parse_list_items(tokens, index + 1)
@@ -377,6 +373,19 @@ func parser.parse_expr_unary(tokens, index) {
   VTime op = lexer.token_value(token)
 
   if (kind == lexer.TOKEN_SYM) and (op == "-") {
+    VTime next_token = get(tokens, index + 1)
+    VTime next_kind = lexer.token_kind(next_token)
+
+    if next_kind == lexer.TOKEN_INT {
+      VTime signed_value = join(["-", lexer.token_value(next_token)], "")
+      return [[parser.EXPR_INT, int(signed_value)], index + 2]
+    }
+
+    if next_kind == lexer.TOKEN_FLOAT {
+      VTime signed_value = join(["-", lexer.token_value(next_token)], "")
+      return [[parser.EXPR_FLOAT, float(signed_value)], index + 2]
+    }
+
     VTime parsed_value = parser.parse_expr_unary(tokens, index + 1)
     return [[parser.EXPR_UNARY, op, get(parsed_value, 0)], get(parsed_value, 1)]
   }

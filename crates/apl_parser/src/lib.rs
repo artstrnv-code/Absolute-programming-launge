@@ -401,6 +401,11 @@ impl Parser<'_> {
 
     fn parse_unary(&mut self) -> Result<Expression, ParseError> {
         if self.eat_symbol(Symbol::Minus) {
+            if matches!(self.peek(), Some(Token::IntMinMagnitude)) {
+                self.next();
+                return Ok(Expression::Literal(Value::Int(i64::MIN)));
+            }
+
             return Ok(Expression::Unary {
                 operator: UnaryOperator::Negate,
                 expression: Box::new(self.parse_unary()?),
@@ -430,6 +435,9 @@ impl Parser<'_> {
     fn parse_primary(&mut self) -> Result<Expression, ParseError> {
         match self.next() {
             Some(Token::Int(value)) => Ok(Expression::Literal(Value::Int(value))),
+            Some(Token::IntMinMagnitude) => {
+                Err(self.error_at_previous("integer literal out of range"))
+            }
             Some(Token::Float(value)) => Ok(Expression::Literal(Value::Float(value))),
             Some(Token::Str(value)) => Ok(Expression::Literal(Value::Str(value))),
             Some(Token::Keyword(value)) if value == "true" => {
@@ -612,6 +620,7 @@ impl Parser<'_> {
         if self.eat_symbol(Symbol::Minus) {
             return match self.next() {
                 Some(Token::Int(value)) => Ok(-value),
+                Some(Token::IntMinMagnitude) => Ok(i64::MIN),
                 Some(_) => Err(self.error_at_previous("expected int literal after `-`")),
                 None => Err(self.error("expected int literal after `-`")),
             };
@@ -758,6 +767,7 @@ enum Token {
     Keyword(String),
     Ident(String),
     Int(i64),
+    IntMinMagnitude,
     Float(f64),
     Str(String),
     Symbol(Symbol),
@@ -921,10 +931,20 @@ fn read_number(source: &str, start: usize) -> Result<(Token, usize), ParseError>
 
     let raw = &source[start..cursor];
     if has_dot {
+        if raw.ends_with('.') {
+            return Err(parse_error_at(
+                source,
+                start,
+                format!("invalid float literal `{raw}`"),
+            ));
+        }
+
         let value = raw
             .parse::<f64>()
             .map_err(|_| parse_error_at(source, start, format!("invalid float literal `{raw}`")))?;
         Ok((Token::Float(value), cursor))
+    } else if raw == "9223372036854775808" {
+        Ok((Token::IntMinMagnitude, cursor))
     } else {
         let value = raw
             .parse::<i64>()
@@ -1061,6 +1081,47 @@ mod tests {
         assert_eq!(error.line, 2);
         assert_eq!(error.column, 1);
         assert_eq!(error.offset, 14);
+    }
+
+    #[test]
+    fn parses_minimum_int_literal() {
+        let program = parse_program("AVInt value = -9223372036854775808").unwrap();
+
+        let Statement::VariableDecl(declaration) = &program.statements[0] else {
+            panic!("expected declaration");
+        };
+        assert_eq!(
+            declaration.initial_value,
+            Expression::Literal(Value::Int(i64::MIN))
+        );
+        assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn rejects_positive_int_beyond_i64_range() {
+        let error = parse_program("AVInt value = 9223372036854775808").unwrap_err();
+
+        assert_eq!(error.message, "integer literal out of range");
+        assert_eq!(error.line, 1);
+        assert_eq!(error.column, 15);
+    }
+
+    #[test]
+    fn rejects_int_below_i64_range() {
+        let error = parse_program("AVInt value = -9223372036854775809").unwrap_err();
+
+        assert_eq!(error.message, "invalid int literal `9223372036854775809`");
+        assert_eq!(error.line, 1);
+        assert_eq!(error.column, 16);
+    }
+
+    #[test]
+    fn rejects_float_without_fractional_digits() {
+        let error = parse_program("AVFloat value = 1.").unwrap_err();
+
+        assert_eq!(error.message, "invalid float literal `1.`");
+        assert_eq!(error.line, 1);
+        assert_eq!(error.column, 17);
     }
 
     #[test]
