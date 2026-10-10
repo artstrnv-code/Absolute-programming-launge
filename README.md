@@ -45,6 +45,9 @@ The core idea is simple:
 - `split(value, separator)`, `join(values, separator)`, `len(value)`,
   `contains(value, needle)`, `ord(value)`, `char(value)`, and
   `pow(base, exponent)` provide minimal runtime helpers;
+- integer `+`, `-`, `*`, `/`, and unary negation are checked operations;
+  overflow and integer division by zero produce runtime errors instead of
+  panicking or depending on the Rust build profile;
 - `value[index]` reads one item and `value[start:end:step]` creates a slice;
 - slice `start`, `end`, and `step` are optional, as in `items[:3]`,
   `items[1:]`, and `items[::2]`;

@@ -1258,9 +1258,10 @@ impl<'a> Runtime<'a> {
         let protection = value.protection;
         match (operator, value.data) {
             (_, RuntimeData::None) => Ok(RuntimeValue::none(protection)),
-            (UnaryOperator::Negate, RuntimeData::Int(val)) => {
-                Ok(RuntimeValue::new(RuntimeData::Int(-val), protection))
-            }
+            (UnaryOperator::Negate, RuntimeData::Int(val)) => val
+                .checked_neg()
+                .map(|value| RuntimeValue::new(RuntimeData::Int(value), protection))
+                .ok_or_else(|| RuntimeError::Message("integer overflow in negate".to_owned())),
             (UnaryOperator::Negate, RuntimeData::Float(val)) => {
                 Ok(RuntimeValue::new(RuntimeData::Float(-val), protection))
             }
@@ -1280,9 +1281,10 @@ impl<'a> Runtime<'a> {
         let protection = left.protection.max(right.protection);
         match operator {
             BinaryOperator::Add => match (left.data, right.data) {
-                (RuntimeData::Int(a), RuntimeData::Int(b)) => {
-                    Ok(RuntimeValue::new(RuntimeData::Int(a + b), protection))
-                }
+                (RuntimeData::Int(a), RuntimeData::Int(b)) => a
+                    .checked_add(b)
+                    .map(|value| RuntimeValue::new(RuntimeData::Int(value), protection))
+                    .ok_or_else(|| RuntimeError::Message("integer overflow in add".to_owned())),
                 (RuntimeData::Float(a), RuntimeData::Float(b)) => {
                     Ok(RuntimeValue::new(RuntimeData::Float(a + b), protection))
                 }
@@ -1301,9 +1303,10 @@ impl<'a> Runtime<'a> {
                 _ => Err(RuntimeError::Message("invalid add operands".to_owned())),
             },
             BinaryOperator::Sub => match (left.data, right.data) {
-                (RuntimeData::Int(a), RuntimeData::Int(b)) => {
-                    Ok(RuntimeValue::new(RuntimeData::Int(a - b), protection))
-                }
+                (RuntimeData::Int(a), RuntimeData::Int(b)) => a
+                    .checked_sub(b)
+                    .map(|value| RuntimeValue::new(RuntimeData::Int(value), protection))
+                    .ok_or_else(|| RuntimeError::Message("integer overflow in sub".to_owned())),
                 (RuntimeData::Float(a), RuntimeData::Float(b)) => {
                     Ok(RuntimeValue::new(RuntimeData::Float(a - b), protection))
                 }
@@ -1318,9 +1321,10 @@ impl<'a> Runtime<'a> {
                 _ => Err(RuntimeError::Message("invalid sub operands".to_owned())),
             },
             BinaryOperator::Mul => match (left.data, right.data) {
-                (RuntimeData::Int(a), RuntimeData::Int(b)) => {
-                    Ok(RuntimeValue::new(RuntimeData::Int(a * b), protection))
-                }
+                (RuntimeData::Int(a), RuntimeData::Int(b)) => a
+                    .checked_mul(b)
+                    .map(|value| RuntimeValue::new(RuntimeData::Int(value), protection))
+                    .ok_or_else(|| RuntimeError::Message("integer overflow in mul".to_owned())),
                 (RuntimeData::Float(a), RuntimeData::Float(b)) => {
                     Ok(RuntimeValue::new(RuntimeData::Float(a * b), protection))
                 }
@@ -1339,7 +1343,9 @@ impl<'a> Runtime<'a> {
                     if b == 0 {
                         return Err(RuntimeError::Message("division by zero".to_owned()));
                     }
-                    Ok(RuntimeValue::new(RuntimeData::Int(a / b), protection))
+                    a.checked_div(b)
+                        .map(|value| RuntimeValue::new(RuntimeData::Int(value), protection))
+                        .ok_or_else(|| RuntimeError::Message("integer overflow in div".to_owned()))
                 }
                 (RuntimeData::Float(a), RuntimeData::Float(b)) => {
                     Ok(RuntimeValue::new(RuntimeData::Float(a / b), protection))
@@ -1919,6 +1925,71 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "3\n");
+    }
+
+    #[test]
+    fn integer_overflow_is_a_runtime_error() {
+        let binary_cases = [
+            (i64::MAX, BinaryOperator::Add, 1, "integer overflow in add"),
+            (i64::MIN, BinaryOperator::Sub, 1, "integer overflow in sub"),
+            (i64::MAX, BinaryOperator::Mul, 2, "integer overflow in mul"),
+            (i64::MIN, BinaryOperator::Div, -1, "integer overflow in div"),
+        ];
+
+        for (left, operator, right, message) in binary_cases {
+            let expression = Expression::Binary {
+                left: Box::new(Expression::Literal(Value::Int(left))),
+                operator,
+                right: Box::new(Expression::Literal(Value::Int(right))),
+            };
+            assert_eq!(
+                run(vec![Statement::Out(expression)]),
+                Err(RuntimeError::Message(message.to_owned()))
+            );
+        }
+
+        let negation = Expression::Unary {
+            operator: UnaryOperator::Negate,
+            expression: Box::new(Expression::Literal(Value::Int(i64::MIN))),
+        };
+        assert_eq!(
+            run(vec![Statement::Out(negation)]),
+            Err(RuntimeError::Message(
+                "integer overflow in negate".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn integer_division_by_zero_remains_a_runtime_error() {
+        let expression = Expression::Binary {
+            left: Box::new(Expression::Literal(Value::Int(1))),
+            operator: BinaryOperator::Div,
+            right: Box::new(Expression::Literal(Value::Int(0))),
+        };
+
+        assert_eq!(
+            run(vec![Statement::Out(expression)]),
+            Err(RuntimeError::Message("division by zero".to_owned()))
+        );
+    }
+
+    #[test]
+    fn source_runtime_apl_vm_propagates_integer_overflow_prelude() {
+        let error = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt value = input out -value"
+            VTime output = vm.run_source_with_input(source, ["-9223372036854775808"])
+            out output
+            "#,
+        )
+        .unwrap_err();
+
+        let RuntimeError::Message(message) = error else {
+            panic!("expected runtime error");
+        };
+        assert!(message.starts_with("integer overflow in sub"));
+        assert!(message.contains("in `vm.eval_unary`"));
     }
 
     #[test]

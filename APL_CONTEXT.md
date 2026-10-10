@@ -188,6 +188,10 @@ Rules:
 - `Int / Int` returns `Int`;
 - no implicit `Int` to `Float` conversion;
 - no string concatenation with `+`;
+- integer addition, subtraction, multiplication, division, and unary negation
+  use checked `i64` arithmetic; overflow is a runtime error;
+- integer division by zero is a runtime error; `Float` arithmetic retains
+  IEEE-754 behavior;
 - roots, trigonometry, and heavy math belong in functions or external
   languages.
 
