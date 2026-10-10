@@ -882,10 +882,22 @@ mod windows_app {
     }
 
     fn execute_source(source: &str, input: Vec<String>) -> String {
+        if let Err(error) = apl_parser::parse_program(source) {
+            return format!(
+                "Parse error at {}:{}:\r\n{}",
+                error.line, error.column, error.message
+            );
+        }
+
         let source = apl_compiler::compose_program(apl_compiler::STANDARD_PRELUDE, source);
         let program = match apl_parser::parse_program(&source) {
             Ok(program) => program,
-            Err(error) => return format!("Parse error:\r\n{}", error.message),
+            Err(error) => {
+                return format!(
+                    "Internal parse error at {}:{}:\r\n{}",
+                    error.line, error.column, error.message
+                )
+            }
         };
 
         if let Err(error) = apl_core::validate_program(&program) {
@@ -995,7 +1007,10 @@ mod windows_app {
 
         #[test]
         fn reports_invalid_source_in_output_panel() {
-            assert!(execute_source("AVInt = 4", Vec::new()).starts_with("Parse error:"));
+            assert_eq!(
+                execute_source("AVInt = 4", Vec::new()),
+                "Parse error at 1:7:\r\nexpected identifier"
+            );
         }
 
         #[test]

@@ -167,7 +167,8 @@ cargo build -p apl_studio
 
 APL Studio is a deliberately small source editor rather than a full IDE. It
 opens and saves `.apl` files, runs the current buffer with `F5`, and shows
-parser, checker, runtime errors, and program output in the lower pane. Use
+parser, checker, runtime errors, and program output in the lower pane. Lexer
+and parser diagnostics include one-based source `line:column` coordinates. Use
 `Ctrl+O` and `Ctrl+S` for the standard file commands. A modified file that
 already has a path is saved before it runs; an untitled buffer can run without
 being written to disk. The `Input` pane supplies one value per line to
@@ -182,6 +183,10 @@ Check syntax and language rules:
 ```powershell
 cargo run -p apl -- check examples\hello.apl
 ```
+
+Source syntax failures from `check` and `run` identify the offending location,
+for example `parse error at 3:8: expected expression`. Columns count Unicode
+characters rather than UTF-8 bytes.
 
 Execute with the Rust-hosted APL runtime and standard APL prelude:
 

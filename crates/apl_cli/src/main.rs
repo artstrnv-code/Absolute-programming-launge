@@ -24,11 +24,22 @@ fn main() {
                 process::exit(1);
             });
 
+            if let Err(error) = apl_parser::parse_program(&source) {
+                eprintln!(
+                    "parse error at {}:{}: {}",
+                    error.line, error.column, error.message
+                );
+                process::exit(1);
+            }
+
             let source = apl_compiler::compose_program(apl_compiler::STANDARD_PRELUDE, &source);
             let program = match apl_parser::parse_program(&source) {
                 Ok(program) => program,
                 Err(error) => {
-                    eprintln!("parse error: {}", error.message);
+                    eprintln!(
+                        "internal parse error at {}:{}: {}",
+                        error.line, error.column, error.message
+                    );
                     process::exit(1);
                 }
             };
@@ -330,7 +341,10 @@ fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {
         apl_compiler::CompileError::Io(error) => eprintln!("{verb} io error: {error}"),
         apl_compiler::CompileError::Ir(error) => eprintln!("{verb} IR error: {error:?}"),
         apl_compiler::CompileError::Parse(error) => {
-            eprintln!("{verb} parse error: {}", error.message)
+            eprintln!(
+                "{verb} parse error at {}:{}: {}",
+                error.line, error.column, error.message
+            )
         }
         apl_compiler::CompileError::Check(error) => eprintln!("{verb} check error: {error:?}"),
         apl_compiler::CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)) => {

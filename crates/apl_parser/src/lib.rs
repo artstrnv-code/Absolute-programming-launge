@@ -5,17 +5,24 @@ use apl_core::{
 };
 
 pub fn parse_program(source: &str) -> Result<Program, ParseError> {
-    let tokens = tokenize(source)?;
-    let mut parser = Parser { tokens, cursor: 0 };
+    let tokenized = tokenize(source)?;
+    let mut parser = Parser {
+        tokens: tokenized.tokens,
+        offsets: tokenized.offsets,
+        source,
+        cursor: 0,
+    };
     parser.parse_program()
 }
 
-struct Parser {
+struct Parser<'a> {
     tokens: Vec<Token>,
+    offsets: Vec<usize>,
+    source: &'a str,
     cursor: usize,
 }
 
-impl Parser {
+impl Parser<'_> {
     fn parse_program(&mut self) -> Result<Program, ParseError> {
         let mut statements = Vec::new();
 
@@ -268,7 +275,8 @@ impl Parser {
             Some(Token::Symbol(Symbol::SubAssign)) => AssignmentOperator::SubAssign,
             Some(Token::Symbol(Symbol::MulAssign)) => AssignmentOperator::MulAssign,
             Some(Token::Symbol(Symbol::DivAssign)) => AssignmentOperator::DivAssign,
-            _ => return Err(self.error("expected assignment operator")),
+            Some(_) => return Err(self.error_at_previous("expected assignment operator")),
+            None => return Err(self.error("expected assignment operator")),
         };
         let value = self.parse_expression()?;
 
@@ -287,9 +295,9 @@ impl Parser {
         let mut expression = self.parse_and()?;
 
         while self.eat_keyword("or") {
-            Self::require_grouped_logic_operand(&expression)?;
+            self.require_grouped_logic_operand(&expression)?;
             let right = self.parse_and()?;
-            Self::require_grouped_logic_operand(&right)?;
+            self.require_grouped_logic_operand(&right)?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: BinaryOperator::Or,
@@ -304,9 +312,9 @@ impl Parser {
         let mut expression = self.parse_comparison()?;
 
         while self.eat_keyword("and") {
-            Self::require_grouped_logic_operand(&expression)?;
+            self.require_grouped_logic_operand(&expression)?;
             let right = self.parse_comparison()?;
-            Self::require_grouped_logic_operand(&right)?;
+            self.require_grouped_logic_operand(&right)?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: BinaryOperator::And,
@@ -317,15 +325,14 @@ impl Parser {
         Ok(expression)
     }
 
-    fn require_grouped_logic_operand(expression: &Expression) -> Result<(), ParseError> {
+    fn require_grouped_logic_operand(&self, expression: &Expression) -> Result<(), ParseError> {
         match expression {
             Expression::Grouped(_)
             | Expression::Variable(_)
             | Expression::Literal(Value::Bool(_)) => Ok(()),
-            _ => Err(ParseError {
-                message: "logical operands with `and`/`or` must be grouped with parentheses"
-                    .to_owned(),
-            }),
+            _ => {
+                Err(self.error("logical operands with `and`/`or` must be grouped with parentheses"))
+            }
         }
     }
 
@@ -457,7 +464,8 @@ impl Parser {
                 self.expect_symbol(Symbol::RightParen)?;
                 Ok(Expression::Grouped(Box::new(expression)))
             }
-            _ => Err(self.error("expected expression")),
+            Some(_) => Err(self.error_at_previous("expected expression")),
+            None => Err(self.error("expected expression")),
         }
     }
 
@@ -595,7 +603,8 @@ impl Parser {
     fn expect_ident(&mut self) -> Result<String, ParseError> {
         match self.next() {
             Some(Token::Ident(value)) => Ok(value),
-            _ => Err(self.error("expected identifier")),
+            Some(_) => Err(self.error_at_previous("expected identifier")),
+            None => Err(self.error("expected identifier")),
         }
     }
 
@@ -603,13 +612,15 @@ impl Parser {
         if self.eat_symbol(Symbol::Minus) {
             return match self.next() {
                 Some(Token::Int(value)) => Ok(-value),
-                _ => Err(self.error("expected int literal after `-`")),
+                Some(_) => Err(self.error_at_previous("expected int literal after `-`")),
+                None => Err(self.error("expected int literal after `-`")),
             };
         }
 
         match self.next() {
             Some(Token::Int(value)) => Ok(value),
-            _ => Err(self.error("expected int literal")),
+            Some(_) => Err(self.error_at_previous("expected int literal")),
+            None => Err(self.error("expected int literal")),
         }
     }
 
@@ -618,7 +629,8 @@ impl Parser {
             Some(Token::Keyword(value)) if value == "AV" => Ok(ProtectionLevel::Av),
             Some(Token::Keyword(value)) if value == "ASV" => Ok(ProtectionLevel::Asv),
             Some(Token::Keyword(value)) if value == "SASV" => Ok(ProtectionLevel::Sasv),
-            _ => Err(self.error("expected protection level AV, ASV, or SASV")),
+            Some(_) => Err(self.error_at_previous("expected protection level AV, ASV, or SASV")),
+            None => Err(self.error("expected protection level AV, ASV, or SASV")),
         }
     }
 
@@ -709,15 +721,36 @@ impl Parser {
     }
 
     fn error(&self, message: impl Into<String>) -> ParseError {
-        ParseError {
-            message: message.into(),
-        }
+        let offset = self
+            .offsets
+            .get(self.cursor)
+            .copied()
+            .unwrap_or(self.source.len());
+        parse_error_at(self.source, offset, message)
+    }
+
+    fn error_at_previous(&self, message: impl Into<String>) -> ParseError {
+        let offset = self
+            .cursor
+            .checked_sub(1)
+            .and_then(|index| self.offsets.get(index))
+            .copied()
+            .unwrap_or(self.source.len());
+        parse_error_at(self.source, offset, message)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub message: String,
+    pub offset: usize,
+    pub line: usize,
+    pub column: usize,
+}
+
+struct Tokenized {
+    tokens: Vec<Token>,
+    offsets: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -789,8 +822,9 @@ impl Symbol {
     }
 }
 
-fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
+fn tokenize(source: &str) -> Result<Tokenized, ParseError> {
     let mut tokens = Vec::new();
+    let mut offsets = Vec::new();
     let mut cursor = 0;
 
     while cursor < source.len() {
@@ -810,6 +844,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
 
         if ch == '"' {
             let (value, next_cursor) = read_string(source, cursor)?;
+            offsets.push(cursor);
             tokens.push(Token::Str(value));
             cursor = next_cursor;
             continue;
@@ -817,6 +852,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
 
         if ch.is_ascii_digit() {
             let (token, next_cursor) = read_number(source, cursor)?;
+            offsets.push(cursor);
             tokens.push(token);
             cursor = next_cursor;
             continue;
@@ -833,6 +869,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
                 cursor += next.len_utf8();
             }
             let value = &source[start..cursor];
+            offsets.push(start);
             if is_keyword(value) || ValueType::parse_decl_keyword(value).is_some() {
                 tokens.push(Token::Keyword(value.to_owned()));
             } else {
@@ -842,11 +879,12 @@ fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
         }
 
         let (symbol, next_cursor) = read_symbol(source, cursor)?;
+        offsets.push(cursor);
         tokens.push(Token::Symbol(symbol));
         cursor = next_cursor;
     }
 
-    Ok(tokens)
+    Ok(Tokenized { tokens, offsets })
 }
 
 fn read_string(source: &str, start: usize) -> Result<(String, usize), ParseError> {
@@ -862,9 +900,7 @@ fn read_string(source: &str, start: usize) -> Result<(String, usize), ParseError
         cursor += ch.len_utf8();
     }
 
-    Err(ParseError {
-        message: "unterminated string literal".to_owned(),
-    })
+    Err(parse_error_at(source, start, "unterminated string literal"))
 }
 
 fn read_number(source: &str, start: usize) -> Result<(Token, usize), ParseError> {
@@ -885,14 +921,14 @@ fn read_number(source: &str, start: usize) -> Result<(Token, usize), ParseError>
 
     let raw = &source[start..cursor];
     if has_dot {
-        let value = raw.parse::<f64>().map_err(|_| ParseError {
-            message: format!("invalid float literal `{raw}`"),
-        })?;
+        let value = raw
+            .parse::<f64>()
+            .map_err(|_| parse_error_at(source, start, format!("invalid float literal `{raw}`")))?;
         Ok((Token::Float(value), cursor))
     } else {
-        let value = raw.parse::<i64>().map_err(|_| ParseError {
-            message: format!("invalid int literal `{raw}`"),
-        })?;
+        let value = raw
+            .parse::<i64>()
+            .map_err(|_| parse_error_at(source, start, format!("invalid int literal `{raw}`")))?;
         Ok((Token::Int(value), cursor))
     }
 }
@@ -935,13 +971,32 @@ fn read_symbol(source: &str, cursor: usize) -> Result<(Symbol, usize), ParseErro
         ',' => Symbol::Comma,
         ':' => Symbol::Colon,
         _ => {
-            return Err(ParseError {
-                message: format!("unexpected character `{ch}`"),
-            })
+            return Err(parse_error_at(
+                source,
+                cursor,
+                format!("unexpected character `{ch}`"),
+            ))
         }
     };
 
     Ok((symbol, cursor + ch.len_utf8()))
+}
+
+fn parse_error_at(source: &str, offset: usize, message: impl Into<String>) -> ParseError {
+    let prefix = &source[..offset];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix, |(_, current_line)| current_line)
+        .chars()
+        .count()
+        + 1;
+    ParseError {
+        message: message.into(),
+        offset,
+        line,
+        column,
+    }
 }
 
 fn is_keyword(value: &str) -> bool {
@@ -987,6 +1042,26 @@ fn is_ident_continue(ch: char) -> bool {
 mod tests {
     use super::*;
     use apl_core::{validate_program, VariableKind};
+
+    #[test]
+    fn reports_tokenizer_line_and_unicode_column() {
+        let error = parse_program("AVStr text = \"Привет\"\n  @").unwrap_err();
+
+        assert_eq!(error.message, "unexpected character `@`");
+        assert_eq!(error.line, 2);
+        assert_eq!(error.column, 3);
+        assert_eq!(error.offset, 30);
+    }
+
+    #[test]
+    fn reports_parser_location_at_end_of_source() {
+        let error = parse_program("AVInt value =\n").unwrap_err();
+
+        assert_eq!(error.message, "expected expression");
+        assert_eq!(error.line, 2);
+        assert_eq!(error.column, 1);
+        assert_eq!(error.offset, 14);
+    }
 
     #[test]
     fn parses_variable_declarations_and_arithmetic() {

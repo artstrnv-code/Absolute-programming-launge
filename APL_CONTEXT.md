@@ -470,7 +470,9 @@ that function call.
 Rust workspace:
 
 - `apl_core`: AST and semantic checker.
-- `apl_parser`: lexer/parser.
+- `apl_parser`: Rust reference lexer/parser. Every token retains its source byte
+  offset for diagnostics; public `ParseError` values expose one-based `line`
+  and Unicode-character `column` coordinates in addition to the byte `offset`.
 - `apl_runtime`: runtime v0.1 interpreter for the current base language.
 - `apl_ir`: binary `.aplc` IR encoder/decoder for checked APL programs.
 - `apl_compiler`: generates Rust-hosted executable packages from portable
@@ -505,7 +507,9 @@ Rust workspace:
   multiline input pane maps lines, including empty lines, to successive
   `input` and `secret input` expressions. Input remains visible plain text and
   is only intended for testing. `F5` runs, while `Ctrl+O` and `Ctrl+S` use
-  standard Windows file dialogs. Studio is intentionally not a full IDE or a
+  standard Windows file dialogs. Lexer/parser failures are reported against the
+  user buffer with one-based `line:column` coordinates rather than hidden
+  standard-prelude offsets. Studio is intentionally not a full IDE or a
   frontend for the portable self-host VM.
 - `apl_router`: placeholder for future router/container phase.
 
