@@ -2,7 +2,8 @@
 # Scalars are tagged and length-prefixed, so strings need no escaping.
 
 AVStr artifact.HEADER = "APLLINK2:"
-AVStr artifact.MODULE_HEADER = "APLMOD2:"
+AVStr artifact.MODULE_HEADER = "APLMOD3:"
+AVStr artifact.MODULE_HEADER_V2 = "APLMOD2:"
 AVStr artifact.MODULE_HEADER_V1 = "APLMOD1:"
 AVStr artifact.NODE_NONE = "n"
 AVStr artifact.NODE_BOOL = "b"
@@ -593,11 +594,17 @@ func artifact.wrap_symbol_table(symbols) {
       wrapped_type = artifact.node_int(typ)
     }
 
-    add(wrapped, artifact.node_list([
+    VTime fields = [
       artifact.node_str(get(symbol, 0)),
       artifact.node_str(get(symbol, 1)),
       wrapped_type
-    ]))
+    ]
+
+    if len(symbol) >= 4 {
+      add(fields, artifact.node_str(get(symbol, 3)))
+    }
+
+    add(wrapped, artifact.node_list(fields))
   }
 
   return artifact.node_list(wrapped)
@@ -620,6 +627,38 @@ func artifact.program_symbols(program) {
     if opcode == ir.OP_FUNC {
       add(symbols, [get(instruction, 1), "Func", len(get(instruction, 2))])
     }
+  }
+
+  return symbols
+}
+
+func artifact.protection_for_type(typ) {
+  if contains(typ, "SASV") {
+    return "SASV"
+  }
+
+  if contains(typ, "ASV") {
+    return "ASV"
+  }
+
+  return "AV"
+}
+
+func artifact.default_program_symbols(program) {
+  VTime symbols = []
+
+  pick(artifact.program_symbols(program)): symbol {
+    VTime protection = "AV"
+
+    if get(symbol, 1) == "Absolute" {
+      protection = artifact.protection_for_type(get(symbol, 2))
+    }
+
+    if get(symbol, 1) == "List" {
+      protection = "SASV"
+    }
+
+    add(symbols, [get(symbol, 0), get(symbol, 1), get(symbol, 2), protection])
   }
 
   return symbols
@@ -669,6 +708,109 @@ func artifact.module_symbols_are_valid(symbols) {
   }
 
   return verifier.values_are_unique(names)
+}
+
+func artifact.protection_is_valid(protection) {
+  if protection == "AV" {
+    return true
+  }
+
+  if protection == "ASV" {
+    return true
+  }
+
+  return protection == "SASV"
+}
+
+func artifact.module_v3_symbols_are_valid(symbols) {
+  VTime names = []
+
+  pick(symbols): symbol {
+    if len(symbol) != 4 {
+      return false
+    }
+
+    VTime name = get(symbol, 0)
+    VTime role = get(symbol, 1)
+    VTime typ = get(symbol, 2)
+    VTime protection = get(symbol, 3)
+
+    if verifier.is_str(name) != true {
+      return false
+    }
+
+    if verifier.is_str(role) != true {
+      return false
+    }
+
+    if artifact.protection_is_valid(protection) != true {
+      return false
+    }
+
+    if role == "Func" {
+      if verifier.is_int(typ) != true {
+        return false
+      }
+
+      if typ < 0 {
+        return false
+      }
+
+      if protection != "AV" {
+        return false
+      }
+    } else if role == "Absolute" {
+      if parser.is_decl_keyword(typ) != true {
+        return false
+      }
+
+      if checker.protection_rank(protection) < checker.protection_rank(artifact.protection_for_type(typ)) {
+        return false
+      }
+    } else if role == "List" {
+      if typ != "List" {
+        return false
+      }
+    } else {
+      return false
+    }
+
+    add(names, name)
+  }
+
+  return verifier.values_are_unique(names)
+}
+
+func artifact.module_v3_symbols_match_program(program, symbols) {
+  VTime expected = artifact.program_symbols(program)
+
+  if len(expected) != len(symbols) {
+    return false
+  }
+
+  pick(expected): expected_symbol {
+    VTime found = false
+
+    pick(symbols): symbol {
+      if get(symbol, 0) == get(expected_symbol, 0) {
+        if get(symbol, 1) != get(expected_symbol, 1) {
+          return false
+        }
+
+        if get(symbol, 2) != get(expected_symbol, 2) {
+          return false
+        }
+
+        found = true
+      }
+    }
+
+    if found != true {
+      return false
+    }
+  }
+
+  return true
 }
 
 func artifact.module_v1_image_is_valid(image) {
@@ -732,7 +874,7 @@ func artifact.module_v1_symbols(image) {
   VTime index = 0
 
   while (index < len(names)) (-1) {
-    add(symbols, [get(names, index), "Func", get(arities, index)])
+    add(symbols, [get(names, index), "Func", get(arities, index), "AV"])
     index += 1
   }
 
@@ -748,14 +890,35 @@ func artifact.module_image_is_valid(image) {
     return false
   }
 
-  if get(image, 0) != "APLMOD2" {
+  if get(image, 0) == "APLMOD2" {
+    VTime program = get(image, 1)
+    VTime symbols = get(image, 2)
+
+    if artifact.module_symbols_are_valid(symbols) != true {
+      return false
+    }
+
+    if verifier.program_contains_call_slot(program) {
+      return false
+    }
+
+    VTime loaded_report = vm.load_ir_report(program)
+
+    if get(loaded_report, 0) != vm.FLOW_OK {
+      return false
+    }
+
+    return artifact.program_symbols(program) == symbols
+  }
+
+  if get(image, 0) != "APLMOD3" {
     return false
   }
 
   VTime program = get(image, 1)
   VTime symbols = get(image, 2)
 
-  if artifact.module_symbols_are_valid(symbols) != true {
+  if artifact.module_v3_symbols_are_valid(symbols) != true {
     return false
   }
 
@@ -769,7 +932,7 @@ func artifact.module_image_is_valid(image) {
     return false
   }
 
-  return artifact.program_symbols(program) == symbols
+  return artifact.module_v3_symbols_match_program(program, symbols)
 }
 
 func artifact.module_program(image) {
@@ -781,10 +944,30 @@ func artifact.module_symbols(image) {
     return artifact.module_v1_symbols(image)
   }
 
+  if get(image, 0) == "APLMOD2" {
+    VTime normalized = []
+
+    pick(get(image, 2)): symbol {
+      VTime protection = "AV"
+
+      if get(symbol, 1) == "Absolute" {
+        protection = artifact.protection_for_type(get(symbol, 2))
+      }
+
+      if get(symbol, 1) == "List" {
+        protection = "SASV"
+      }
+
+      add(normalized, [get(symbol, 0), get(symbol, 1), get(symbol, 2), protection])
+    }
+
+    return normalized
+  }
+
   return get(image, 2)
 }
 
-func artifact.encode_module_report(program) {
+func artifact.encode_module_with_symbols_report(program, symbols) {
   VTime loaded_report = vm.load_ir_report(program)
 
   if get(loaded_report, 0) != vm.FLOW_OK {
@@ -795,14 +978,25 @@ func artifact.encode_module_report(program) {
     return [vm.FLOW_FAIL, "module program is already linked"]
   }
 
-  VTime symbols = artifact.program_symbols(program)
+  if artifact.module_v3_symbols_are_valid(symbols) != true {
+    return [vm.FLOW_FAIL, "invalid module symbol table"]
+  }
+
+  if artifact.module_v3_symbols_match_program(program, symbols) != true {
+    return [vm.FLOW_FAIL, "module symbol table does not match program"]
+  }
+
   VTime wrapped = artifact.node_list([
-    artifact.node_str("APLMOD2"),
+    artifact.node_str("APLMOD3"),
     artifact.wrap_program(program),
     artifact.wrap_symbol_table(symbols)
   ])
 
   return [vm.FLOW_OK, join([artifact.MODULE_HEADER, artifact.encode_node(wrapped)], "")]
+}
+
+func artifact.encode_module_report(program) {
+  return artifact.encode_module_with_symbols_report(program, artifact.default_program_symbols(program))
 }
 
 func artifact.encode_module(program) {
@@ -819,8 +1013,10 @@ func artifact.decode_module_report(encoded) {
   VTime header = encoded[:header_size]
 
   if header != artifact.MODULE_HEADER {
-    if header != artifact.MODULE_HEADER_V1 {
-      return [vm.FLOW_FAIL, "invalid module artifact header"]
+    if header != artifact.MODULE_HEADER_V2 {
+      if header != artifact.MODULE_HEADER_V1 {
+        return [vm.FLOW_FAIL, "invalid module artifact header"]
+      }
     }
   }
 

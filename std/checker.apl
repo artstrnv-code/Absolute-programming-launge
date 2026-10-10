@@ -17,6 +17,50 @@ func checker.entry_type(entry) {
   return get(entry, 2)
 }
 
+func checker.decl_protection(typ) {
+  if contains(typ, "SASV") {
+    return "SASV"
+  }
+
+  if contains(typ, "ASV") {
+    return "ASV"
+  }
+
+  return "AV"
+}
+
+func checker.entry_protection(entry) {
+  if len(entry) >= 4 {
+    return get(entry, 3)
+  }
+
+  if checker.entry_role(entry) == "Absolute" {
+    return checker.decl_protection(checker.entry_type(entry))
+  }
+
+  return "AV"
+}
+
+func checker.protection_rank(protection) {
+  if protection == "SASV" {
+    return 2
+  }
+
+  if protection == "ASV" {
+    return 1
+  }
+
+  return 0
+}
+
+func checker.max_protection(left, right) {
+  if checker.protection_rank(left) >= checker.protection_rank(right) {
+    return left
+  }
+
+  return right
+}
+
 func checker.name_exists(names, name) {
   pick(names): existing {
     if checker.entry_name(existing) == name {
@@ -38,8 +82,33 @@ func checker.find_name(names, name) {
 }
 
 func checker.add_name(names, name, role, typ) {
-  add(names, [name, role, typ])
+  VTime protection = "AV"
+
+  if role == "Absolute" {
+    protection = checker.decl_protection(typ)
+  }
+
+  add(names, [name, role, typ, protection])
   return names
+}
+
+func checker.add_name_with_protection(names, name, role, typ, protection) {
+  add(names, [name, role, typ, protection])
+  return names
+}
+
+func checker.update_name_protection(names, name, protection) {
+  VTime updated = []
+
+  pick(names): entry {
+    if checker.entry_name(entry) == name {
+      add(updated, [checker.entry_name(entry), checker.entry_role(entry), checker.entry_type(entry), protection])
+    } else {
+      add(updated, entry)
+    }
+  }
+
+  return updated
 }
 
 func checker.declared_name(node) {
@@ -108,6 +177,24 @@ func checker.declared_type(node) {
   return NONE
 }
 
+func checker.declared_protection(node, names) {
+  VTime kind = parser.node_kind(node)
+
+  if kind == parser.NODE_DECL {
+    return checker.decl_protection(get(node, 1))
+  }
+
+  if kind == parser.NODE_LIST_DECL {
+    return checker.expr_protection(get(node, 2), names)
+  }
+
+  if kind == parser.NODE_VTIME_DECL {
+    return checker.expr_protection(get(node, 2), names)
+  }
+
+  return "AV"
+}
+
 func checker.fail(names, message) {
   return [checker.STATUS_FAIL, names, message]
 }
@@ -117,7 +204,18 @@ func checker.ok(names) {
 }
 
 func checker.merge_global_names(names, scoped_names) {
-  VTime merged = names[:]
+  VTime merged = []
+
+  pick(names): entry {
+    VTime scoped = checker.find_name(scoped_names, checker.entry_name(entry))
+
+    if scoped == NONE {
+      add(merged, entry)
+    } else {
+      add(merged, scoped)
+    }
+  }
+
   VTime index = len(names)
 
   while (index < len(scoped_names)) (-1) {
@@ -155,7 +253,7 @@ func checker.validate_decl_name(node, names, allow_predeclared_func) {
     return checker.fail(names, join(["duplicate name `", name, "`"], ""))
   }
 
-  names = checker.add_name(names, name, checker.declared_role(node), checker.declared_type(node))
+  names = checker.add_name_with_protection(names, name, checker.declared_role(node), checker.declared_type(node), checker.declared_protection(node, names))
   return checker.ok(names)
 }
 
@@ -521,6 +619,209 @@ func checker.expr_type(expression, names) {
   }
 
   return "VTime"
+}
+
+func checker.max_expr_protection(expressions, names) {
+  VTime protection = "AV"
+
+  pick(expressions): expression {
+    protection = checker.max_protection(protection, checker.expr_protection(expression, names))
+  }
+
+  return protection
+}
+
+func checker.call_result_protection(name, args, names) {
+  if name == "add" {
+    return "AV"
+  }
+
+  if name == "get" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "pop" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "len" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "ord" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "char" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "int" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "float" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "bool" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "str" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "bytes" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  if name == "json" {
+    return checker.expr_protection(get(args, 0), names)
+  }
+
+  return checker.max_expr_protection(args, names)
+}
+
+func checker.expr_protection(expression, names) {
+  VTime kind = parser.expr_kind(expression)
+
+  if kind == parser.EXPR_SECRET_INPUT {
+    return "ASV"
+  }
+
+  if kind == parser.EXPR_VAR {
+    VTime entry = checker.find_name(names, parser.expr_value(expression))
+
+    if entry == NONE {
+      return "AV"
+    }
+
+    return checker.entry_protection(entry)
+  }
+
+  if kind == parser.EXPR_TAG {
+    return get(expression, 2)
+  }
+
+  if kind == parser.EXPR_LIST {
+    return checker.max_expr_protection(get(expression, 1), names)
+  }
+
+  if kind == parser.EXPR_INDEX {
+    return checker.max_protection(checker.expr_protection(get(expression, 1), names), checker.expr_protection(get(expression, 2), names))
+  }
+
+  if kind == parser.EXPR_SLICE {
+    VTime protection = checker.expr_protection(get(expression, 1), names)
+    VTime start = get(expression, 2)
+    VTime end = get(expression, 3)
+    VTime step = get(expression, 4)
+
+    if start != NONE {
+      protection = checker.max_protection(protection, checker.expr_protection(start, names))
+    }
+
+    if end != NONE {
+      protection = checker.max_protection(protection, checker.expr_protection(end, names))
+    }
+
+    if step != NONE {
+      protection = checker.max_protection(protection, checker.expr_protection(step, names))
+    }
+
+    return protection
+  }
+
+  if kind == parser.EXPR_UNARY {
+    return checker.expr_protection(get(expression, 2), names)
+  }
+
+  if kind == parser.EXPR_BINARY {
+    return checker.max_protection(checker.expr_protection(get(expression, 2), names), checker.expr_protection(get(expression, 3), names))
+  }
+
+  if kind == parser.EXPR_CALL {
+    return checker.call_result_protection(get(expression, 1), get(expression, 2), names)
+  }
+
+  return "AV"
+}
+
+func checker.protection_downgrade(names, name, source, target) {
+  return checker.fail(names, join(["protection downgrade `", name, "`: source ", source, ", target ", target], ""))
+}
+
+func checker.validate_tag_protection(expression, names) {
+  VTime source = checker.expr_protection(get(expression, 1), names)
+  VTime target = get(expression, 2)
+
+  if checker.protection_rank(source) <= checker.protection_rank(target) {
+    return checker.ok(names)
+  }
+
+  return checker.protection_downgrade(names, "list element", source, target)
+}
+
+func checker.validate_decl_protection(node, names) {
+  VTime name = get(node, 2)
+  VTime expression = get(node, 3)
+  VTime kind = parser.expr_kind(expression)
+  VTime target = checker.decl_protection(get(node, 1))
+
+  if kind == parser.EXPR_SECRET_INPUT {
+    if target != "ASV" {
+      return checker.fail(names, join(["secret expression denied `", name, "`"], ""))
+    }
+  }
+
+  if target == "SASV" {
+    if kind == parser.EXPR_INPUT {
+      return checker.fail(names, join(["secret expression denied `", name, "`"], ""))
+    }
+
+    if kind == parser.EXPR_SECRET_INPUT {
+      return checker.fail(names, join(["secret expression denied `", name, "`"], ""))
+    }
+  }
+
+  VTime source = checker.expr_protection(expression, names)
+
+  if checker.protection_rank(source) > checker.protection_rank(target) {
+    return checker.protection_downgrade(names, name, source, target)
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_assignment_protection(node, names) {
+  VTime name = get(node, 1)
+  VTime entry = checker.find_name(names, name)
+  VTime source = checker.expr_protection(get(node, 3), names)
+
+  if checker.entry_role(entry) == "VTime" {
+    return checker.ok(checker.update_name_protection(names, name, source))
+  }
+
+  VTime target = checker.entry_protection(entry)
+
+  if checker.protection_rank(source) > checker.protection_rank(target) {
+    return checker.protection_downgrade(names, name, source, target)
+  }
+
+  return checker.ok(names)
+}
+
+func checker.validate_public_expression(expression, names, channel) {
+  if expression == NONE {
+    return checker.ok(names)
+  }
+
+  if checker.expr_protection(expression, names) == "AV" {
+    return checker.ok(names)
+  }
+
+  return checker.fail(names, join(["secret expression denied `", channel, "`"], ""))
 }
 
 func checker.type_allows(actual, expected) {
@@ -984,8 +1285,16 @@ func checker.validate_assignment_target(node, names) {
     return checker.ok(names)
   }
 
-  if checker.type_is_public_numeric(checker.entry_type(entry)) {
-    return checker.ok(names)
+  if checker.entry_protection(entry) == "AV" {
+    VTime value_type = checker.entry_value_type(entry)
+
+    if value_type == "Int" {
+      return checker.ok(names)
+    }
+
+    if value_type == "Float" {
+      return checker.ok(names)
+    }
   }
 
   return checker.fail(names, join(["invalid compound assignment target `", name, "`"], ""))
@@ -1003,7 +1312,17 @@ func checker.validate_secretup_target(node, names) {
     return checker.fail(names, join(["invalid secretup target `", name, "`"], ""))
   }
 
-  return checker.ok(names)
+  VTime protection = checker.entry_protection(entry)
+
+  if protection == "SASV" {
+    return checker.fail(names, join(["invalid secretup target `", name, "`"], ""))
+  }
+
+  if protection == "ASV" {
+    return checker.ok(checker.update_name_protection(names, name, "SASV"))
+  }
+
+  return checker.ok(checker.update_name_protection(names, name, "ASV"))
 }
 
 func checker.validate_info_target(names, name) {
@@ -1013,7 +1332,11 @@ func checker.validate_info_target(names, name) {
     return checker.fail(names, join(["unknown info target `", name, "`"], ""))
   }
 
-  if checker.entry_type(entry) != "AVStr" {
+  if checker.entry_value_type(entry) != "Str" {
+    return checker.fail(names, join(["invalid info target `", name, "`"], ""))
+  }
+
+  if checker.entry_protection(entry) != "AV" {
     return checker.fail(names, join(["invalid info target `", name, "`"], ""))
   }
 
@@ -1047,6 +1370,33 @@ func checker.validate_info_assignment(node, names) {
   return checker.ok(names)
 }
 
+func checker.apply_mutating_call_protection(expression, names) {
+  if parser.expr_kind(expression) != parser.EXPR_CALL {
+    return checker.ok(names)
+  }
+
+  if get(expression, 1) != "add" {
+    return checker.ok(names)
+  }
+
+  VTime args = get(expression, 2)
+  VTime target = get(args, 0)
+
+  if parser.expr_kind(target) != parser.EXPR_VAR {
+    return checker.ok(names)
+  }
+
+  VTime name = parser.expr_value(target)
+  VTime entry = checker.find_name(names, name)
+
+  if entry == NONE {
+    return checker.ok(names)
+  }
+
+  VTime protection = checker.max_protection(checker.entry_protection(entry), checker.expr_protection(get(args, 1), names))
+  return checker.ok(checker.update_name_protection(names, name, protection))
+}
+
 func checker.validate_expr(expression, names) {
   VTime kind = parser.expr_kind(expression)
 
@@ -1070,6 +1420,10 @@ func checker.validate_expr(expression, names) {
 
     if checker.entry_role(entry) != "Absolute" {
       return checker.fail(names, join(["invalid self target `", name, "`"], ""))
+    }
+
+    if checker.entry_protection(entry) != "AV" {
+      return checker.fail(names, join(["secret expression denied `", name, "`"], ""))
     }
 
     return checker.ok(names)
@@ -1210,7 +1564,13 @@ func checker.validate_expr(expression, names) {
   }
 
   if kind == parser.EXPR_TAG {
-    return checker.validate_expr(get(expression, 1), names)
+    VTime value_state = checker.validate_expr(get(expression, 1), names)
+
+    if get(value_state, 0) != checker.STATUS_OK {
+      return value_state
+    }
+
+    return checker.validate_tag_protection(expression, names)
   }
 
   return checker.ok(names)
@@ -1248,6 +1608,12 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
 
     if get(type_state, 0) != checker.STATUS_OK {
       return type_state
+    }
+
+    VTime protection_state = checker.validate_decl_protection(node, names)
+
+    if get(protection_state, 0) != checker.STATUS_OK {
+      return protection_state
     }
   }
 
@@ -1287,7 +1653,13 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
       return value_state
     }
 
-    return checker.validate_assignment_type(node, names)
+    VTime type_state = checker.validate_assignment_type(node, names)
+
+    if get(type_state, 0) != checker.STATUS_OK {
+      return type_state
+    }
+
+    return checker.validate_assignment_protection(node, names)
   }
 
   if kind == parser.NODE_SECRETUP {
@@ -1299,19 +1671,47 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
   }
 
   if kind == parser.NODE_EXPR {
-    return checker.validate_expr(get(node, 1), names)
+    VTime expression = get(node, 1)
+    VTime expression_state = checker.validate_expr(expression, names)
+
+    if get(expression_state, 0) != checker.STATUS_OK {
+      return expression_state
+    }
+
+    return checker.apply_mutating_call_protection(expression, names)
   }
 
   if kind == parser.NODE_OUT {
-    return checker.validate_expr(get(node, 1), names)
+    VTime expression = get(node, 1)
+    VTime expression_state = checker.validate_expr(expression, names)
+
+    if get(expression_state, 0) != checker.STATUS_OK {
+      return expression_state
+    }
+
+    return checker.validate_public_expression(expression, names, "out")
   }
 
   if kind == parser.NODE_STOP {
-    return checker.validate_optional_expr(get(node, 1), names)
+    VTime expression = get(node, 1)
+    VTime expression_state = checker.validate_optional_expr(expression, names)
+
+    if get(expression_state, 0) != checker.STATUS_OK {
+      return expression_state
+    }
+
+    return checker.validate_public_expression(expression, names, "stop")
   }
 
   if kind == parser.NODE_FAIL {
-    return checker.validate_expr(get(node, 1), names)
+    VTime expression = get(node, 1)
+    VTime expression_state = checker.validate_expr(expression, names)
+
+    if get(expression_state, 0) != checker.STATUS_OK {
+      return expression_state
+    }
+
+    return checker.validate_public_expression(expression, names, "fail")
   }
 
   if kind == parser.NODE_BREAK {
@@ -1424,7 +1824,7 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
       return value_type_state
     }
 
-    VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
+    VTime local_names = checker.add_name_with_protection(names[:], get(node, 2), "VTime", "VTime", checker.expr_protection(get(node, 1), names))
     VTime body_state = checker.validate_block(get(node, 3), local_names, false, in_function, loop_depth + 1)
 
     if get(body_state, 0) != checker.STATUS_OK {
@@ -1474,10 +1874,26 @@ func checker.add_external_symbols(names, symbols) {
       return checker.fail(names, join(["duplicate name `", name, "`"], ""))
     }
 
-    names = checker.add_name(names, name, get(symbol, 1), get(symbol, 2))
+    if len(symbol) >= 4 {
+      names = checker.add_name_with_protection(names, name, get(symbol, 1), get(symbol, 2), get(symbol, 3))
+    } else {
+      names = checker.add_name(names, name, get(symbol, 1), get(symbol, 2))
+    }
   }
 
   return checker.ok(names)
+}
+
+func checker.export_symbols(names) {
+  VTime symbols = []
+
+  pick(names): entry {
+    if checker.entry_role(entry) != "VTime" {
+      add(symbols, [checker.entry_name(entry), checker.entry_role(entry), checker.entry_type(entry), checker.entry_protection(entry)])
+    }
+  }
+
+  return symbols
 }
 
 func checker.validate_report_with_symbols(statements, symbols) {
@@ -1499,7 +1915,7 @@ func checker.validate_report_with_symbols(statements, symbols) {
     return [get(state, 0), get(state, 2)]
   }
 
-  return [checker.STATUS_OK, statements]
+  return [checker.STATUS_OK, statements, checker.export_symbols(get(state, 1))]
 }
 
 func checker.validate_report_with_functions(statements, function_names, arities) {

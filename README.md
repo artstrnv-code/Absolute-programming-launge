@@ -72,7 +72,7 @@ Two bootstrap execution paths exist today. The Rust-hosted path serializes a
 checked `Program` into binary `.aplc`, then lowers it on load to an in-memory
 `CompiledProgram` with linear statement opcodes, jumps, and stack expression
 opcodes. `.aplc` is not a stable emitted bytecode format. The APL-written
-self-host path serializes list-based IR into `APLMOD2` and `APLLINK2`; its VM is
+self-host path serializes list-based IR into `APLMOD3` and `APLLINK2`; its VM is
 the portable semantic reference and bootstrap vehicle, not the final production
 backend. A bytecode target may remain useful for portability and debugging, but
 native object and executable output is the primary goal.
@@ -257,14 +257,17 @@ APL invocation. The combined IR and symbol table stay in memory and are encoded
 once. The current VM-in-VM smoke-test is computationally expensive, so release
 mode is recommended for that final command.
 
-`.aplmod` now uses the `APLMOD2:` portable format. It stores unlinked IR plus a
+`.aplmod` now uses the `APLMOD3:` portable format. It stores unlinked IR plus a
 verified symbol table for functions, absolute variables, and `List`
 declarations. Function symbols carry arity; absolute symbols carry their full
-declared type. Decoding rejects malformed structure, trailing data,
+declared type, and every symbol carries its conservative protection state.
+This lets the checker reject secret flow across separately compiled module
+boundaries. Decoding rejects malformed structure, trailing data,
 inconsistent or duplicate exports, and any pre-existing `CALL_SLOT` opcode.
 The user checker imports the symbols, then module IR and user IR are combined
 and assigned one final function-slot namespace. The decoder remains compatible
-with function-only `APLMOD1:` artifacts.
+with `APLMOD1:` and `APLMOD2:` artifacts; legacy lists are imported as `SASV`
+because those formats did not record their aggregate protection.
 
 The explicit `build-linked` and `compile-linked` names are aliases for the
 default `build` and `compile` commands:
@@ -374,7 +377,14 @@ index/slice operands, `pick` values, and `if`/`while` conditions are also
 validated when their types are statically known; `VTime` remains deferred to
 runtime. Control-flow context is checked before lowering: `return` requires a
 function, `break`/`continue` require the current function to be inside a
-`while` or `pick`, and loop limits below `-1` are rejected:
+`while` or `pick`, and loop limits below `-1` are rejected.
+
+The checker also tracks `AV`/`ASV`/`SASV` through expressions, `VTime`, lists,
+tags, mutations, `secretup`, function calls, and block merges. It rejects
+protection downgrades, secret values sent to `out`/`stop`/`fail`, public
+`=self=` checks on secret values, and invalid input/protection combinations
+before IR lowering. Successful checks export protection-aware symbols for
+`APLMOD3` modules.
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -409,6 +419,10 @@ build\bat_test_checker_operand_types\target\debug\test_checker_operand_types_com
 .\run_aplc.bat build\test_checker_control_flow.aplc
 .\compile_apl.bat examples\test_checker_control_flow.apl build\bat_test_checker_control_flow
 build\bat_test_checker_control_flow\target\debug\test_checker_control_flow_compiled.exe
+.\emit_aplc.bat examples\test_checker_protection.apl build\test_checker_protection.aplc
+.\run_aplc.bat build\test_checker_protection.aplc
+.\compile_apl.bat examples\test_checker_protection.apl build\bat_test_checker_protection
+build\bat_test_checker_protection\target\debug\test_checker_protection_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

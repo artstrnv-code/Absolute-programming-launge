@@ -692,7 +692,7 @@ mod tests {
             "func module.add_one(value) { return value + 1 } func module.twice(value) { return module.add_one(module.add_one(value)) }",
         )
         .unwrap();
-        assert!(module.starts_with("APLMOD2:"));
+        assert!(module.starts_with("APLMOD3:"));
 
         let artifact =
             compile_linked_artifact_with_precompiled_module(&module, "out module.twice(40)")
@@ -712,7 +712,7 @@ mod tests {
             "List module.extra = [1] func module.total() { return module.add_one(module.base) + get(module.extra, 0) }",
         )
         .unwrap();
-        assert!(extended.starts_with("APLMOD2:"));
+        assert!(extended.starts_with("APLMOD3:"));
 
         let artifact =
             compile_linked_artifact_with_precompiled_module(&extended, "out module.total()")

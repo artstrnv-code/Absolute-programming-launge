@@ -2828,7 +2828,7 @@ mod tests {
     fn source_runtime_runs_compiled_bootstrap_scenario_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "AVStr public = input ASVStr secret = secret input AVInt age = input List values = [age, 2, [3, 4], secret:ASV] func inc(x) { return x + 1 } VTime next = inc(age) VTime first = values[0] out public out next out first out secret out values out len(values) AVStr missing = input out missing"
+            AVStr source = "AVStr public = input ASVStr secret = secret input AVInt age = input List values = [age, 2, [3, 4]] func inc(x) { return x + 1 } VTime next = inc(age) VTime first = values[0] out public out next out first AVStr missing = input out missing"
             VTime vm_output = bootstrap.run_with_input(source, ["hello", "token", "41"])
 
             out len(vm_output)
@@ -2836,14 +2836,11 @@ mod tests {
             out get(vm_output, 1)
             out get(vm_output, 2)
             out get(vm_output, 3)
-            out get(vm_output, 4)
-            out get(vm_output, 5)
-            out get(vm_output, 6)
             "#,
         )
         .unwrap();
 
-        assert_eq!(output, "7\nhello\n42\n41\nDENIED\nDENIED\nDENIED\nNONE\n");
+        assert_eq!(output, "4\nhello\n42\n41\nNONE\n");
     }
 
     #[test]
@@ -3153,7 +3150,52 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLMOD2:\nOK\nOK\nOK\n40\n2\n42\nFAIL\nunknown function `module.missing`\nFAIL\nduplicate name `module.answer`\nFAIL\ninvalid module artifact header\nFAIL\nmodule program is already linked\nFAIL\ninvalid module artifact image\nOK\nAPLMOD1\n"
+            "OK\nAPLMOD3:\nOK\nOK\nOK\n40\n2\n42\nFAIL\nunknown function `module.missing`\nFAIL\nduplicate name `module.answer`\nFAIL\ninvalid module artifact header\nFAIL\nmodule program is already linked\nFAIL\ninvalid module artifact image\nOK\nAPLMOD1\n"
+        );
+    }
+
+    #[test]
+    fn source_runtime_preserves_protection_across_apl_modules_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime secret_list_report = bootstrap.module_report("List module.items = [1:ASV]")
+            VTime secret_list_text = get(secret_list_report, 1)
+            VTime secret_list_image = get(bootstrap.load_module_report(secret_list_text), 1)
+            VTime secret_list_symbols = artifact.module_symbols(secret_list_image)
+            VTime secret_list_link = bootstrap.linked_artifact_with_module_report(secret_list_text, "out get(module.items, 0)")
+
+            VTime promoted_report = bootstrap.module_report("AVInt module.value = 1 secretup(module.value)")
+            VTime promoted_text = get(promoted_report, 1)
+            VTime promoted_image = get(bootstrap.load_module_report(promoted_text), 1)
+            VTime promoted_symbols = artifact.module_symbols(promoted_image)
+            VTime promoted_link = bootstrap.linked_artifact_with_module_report(promoted_text, "out module.value")
+
+            VTime legacy_program = artifact.module_program(secret_list_image)
+            VTime legacy_image = artifact.node_list([
+              artifact.node_str("APLMOD2"),
+              artifact.wrap_program(legacy_program),
+              artifact.wrap_symbol_table(artifact.program_symbols(legacy_program))
+            ])
+            VTime legacy_text = join([artifact.MODULE_HEADER_V2, artifact.encode_node(legacy_image)], "")
+            VTime legacy_report = bootstrap.load_module_report(legacy_text)
+            VTime legacy_symbols = artifact.module_symbols(get(legacy_report, 1))
+
+            out secret_list_text[:len(artifact.MODULE_HEADER)]
+            out get(get(secret_list_symbols, 0), 3)
+            out get(secret_list_link, 0)
+            out get(secret_list_link, 1)
+            out get(get(promoted_symbols, 0), 3)
+            out get(promoted_link, 0)
+            out get(promoted_link, 1)
+            out get(legacy_report, 0)
+            out get(get(legacy_symbols, 0), 3)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "APLMOD3:\nASV\nFAIL\nsecret expression denied `out`\nASV\nFAIL\nsecret expression denied `out`\nOK\nSASV\n"
         );
     }
 
@@ -3604,6 +3646,73 @@ mod tests {
         assert_eq!(
             output,
             "OK\nOK\nOK\nFAIL\nreturn outside function\nFAIL\nreturn outside function\nFAIL\nbreak outside loop\nFAIL\ncontinue outside loop\nFAIL\nbreak outside loop\nFAIL\nbreak outside loop\nFAIL\ninvalid loop limit `-2`\nFAIL\nbreak outside loop\n"
+        );
+    }
+
+    #[test]
+    fn source_runtime_checker_validates_protection_flow_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_assignments = "ASVInt secret = 1 SASVInt vault = secret VTime temporary = secret ASVInt copy = temporary"
+            AVStr valid_tags = "List items = [1:ASV, 2:SASV] SASVInt vault = 1"
+            AVStr valid_secret_input = "ASVStr value = secret input"
+            AVStr bad_decl = "ASVInt secret = 1 AVInt public = secret"
+            AVStr bad_assign = "ASVInt secret = 1 AVInt public = 0 public = secret"
+            AVStr bad_secret_input_av = "AVStr public = secret input"
+            AVStr bad_input_sasv = "SASVStr vault = input"
+            AVStr bad_secret_input_sasv = "SASVStr vault = secret input"
+            AVStr bad_tag = "ASVInt secret = 1 List items = [secret:AV]"
+            AVStr bad_out = "ASVInt secret = 1 out secret"
+            AVStr bad_derived_out = "ASVInt secret = 1 out secret + 1"
+            AVStr bad_vtime = "ASVInt secret = 1 VTime temporary = secret AVInt public = temporary"
+            AVStr bad_list_out = "List items = [1:ASV] out items"
+            AVStr bad_get_out = "List items = [1:ASV] out get(items, 0)"
+            AVStr bad_self = "ASVInt secret = 1 out secret =self="
+            AVStr bad_stop = "ASVInt secret = 1 stop secret"
+            AVStr bad_fail = "ASVInt secret = 1 fail secret"
+            AVStr bad_secretup_out = "AVInt value = 1 secretup(value) out value"
+            AVStr bad_secretup_limit = "AVInt value = 1 secretup(value) secretup(value) secretup(value)"
+            AVStr bad_add_out = "List items = [1] ASVInt secret = 2 add(items, secret) out items"
+            AVStr bad_call_out = "func echo(value) { return value } ASVInt secret = 1 out echo(secret)"
+
+            List reports = [
+              bootstrap.compile_report(valid_assignments),
+              bootstrap.compile_report(valid_tags),
+              bootstrap.compile_report(valid_secret_input),
+              bootstrap.compile_report(bad_decl),
+              bootstrap.compile_report(bad_assign),
+              bootstrap.compile_report(bad_secret_input_av),
+              bootstrap.compile_report(bad_input_sasv),
+              bootstrap.compile_report(bad_secret_input_sasv),
+              bootstrap.compile_report(bad_tag),
+              bootstrap.compile_report(bad_out),
+              bootstrap.compile_report(bad_derived_out),
+              bootstrap.compile_report(bad_vtime),
+              bootstrap.compile_report(bad_list_out),
+              bootstrap.compile_report(bad_get_out),
+              bootstrap.compile_report(bad_self),
+              bootstrap.compile_report(bad_stop),
+              bootstrap.compile_report(bad_fail),
+              bootstrap.compile_report(bad_secretup_out),
+              bootstrap.compile_report(bad_secretup_limit),
+              bootstrap.compile_report(bad_add_out),
+              bootstrap.compile_report(bad_call_out)
+            ]
+
+            pick(reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nOK\nOK\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `public`\nFAIL\nsecret expression denied `vault`\nFAIL\nsecret expression denied `vault`\nFAIL\nprotection downgrade `list element`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `secret`\nFAIL\nsecret expression denied `stop`\nFAIL\nsecret expression denied `fail`\nFAIL\nsecret expression denied `out`\nFAIL\ninvalid secretup target `value`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\n"
         );
     }
 

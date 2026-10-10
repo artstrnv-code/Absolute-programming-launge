@@ -34,7 +34,7 @@ func bootstrap.ir_error(program) {
   return NONE
 }
 
-func bootstrap.compile_report(source) {
+func bootstrap.compile_with_symbols_report(source) {
   VTime ast = bootstrap.ast(source)
   VTime checked = checker.validate_report(ast)
 
@@ -48,17 +48,27 @@ func bootstrap.compile_report(source) {
     return [vm.FLOW_FAIL, bootstrap.ir_error(program)]
   }
 
-  return [vm.FLOW_OK, program]
+  return [vm.FLOW_OK, program, get(checked, 2)]
 }
 
-func bootstrap.module_report(source) {
-  VTime compiled = bootstrap.compile_report(source)
+func bootstrap.compile_report(source) {
+  VTime compiled = bootstrap.compile_with_symbols_report(source)
 
   if get(compiled, 0) != vm.FLOW_OK {
     return compiled
   }
 
-  return artifact.encode_module_report(get(compiled, 1))
+  return [vm.FLOW_OK, get(compiled, 1)]
+}
+
+func bootstrap.module_report(source) {
+  VTime compiled = bootstrap.compile_with_symbols_report(source)
+
+  if get(compiled, 0) != vm.FLOW_OK {
+    return compiled
+  }
+
+  return artifact.encode_module_with_symbols_report(get(compiled, 1), get(compiled, 2))
 }
 
 func bootstrap.module(source) {
@@ -87,10 +97,10 @@ func bootstrap.modules_report(sources) {
       add(combined, instruction)
     }
 
-    symbols = artifact.program_symbols(combined)
+    symbols = get(checked, 2)
   }
 
-  return artifact.encode_module_report(combined)
+  return artifact.encode_module_with_symbols_report(combined, symbols)
 }
 
 func bootstrap.modules(sources) {
@@ -132,7 +142,7 @@ func bootstrap.extend_module_report(encoded_module, source) {
     add(combined, instruction)
   }
 
-  return artifact.encode_module_report(combined)
+  return artifact.encode_module_with_symbols_report(combined, get(checked, 2))
 }
 
 func bootstrap.extend_module(encoded_module, source) {

@@ -62,7 +62,7 @@ There are currently two compiled execution paths. The legacy Rust-hosted path
 stores a checked `Program` in binary `.aplc` form, then lowers it at load time
 to an in-memory `CompiledProgram`: linear statement opcodes with program-counter
 jumps and stack opcodes for expressions. `.aplc` is therefore not itself the
-runtime bytecode format. The APL-written self-host path emits `APLMOD2` and
+runtime bytecode format. The APL-written self-host path emits `APLMOD3` and
 `APLLINK2`, which serialize recursive list-based IR interpreted by `std/vm.apl`.
 That portable IR is a bootstrap and semantic-reference format, not the final
 native backend. Bytecode may remain useful as a VM/debugging target, but native
@@ -473,7 +473,7 @@ Rust workspace:
   32 MiB-stack thread while the bootstrap parser still uses recursive host
   calls. `compile_module_artifact_sources` feeds an explicit source count and
   compiles multiple module sources inside one APL invocation; the combined IR
-  and symbol table remain in memory until one final `APLMOD2` encoding.
+  and symbol table remain in memory until one final `APLMOD3` encoding.
   `compile_standard_module_artifact` uses that path for every `std/*.apl`
   compiler/runtime layer. Runtime strings cache Unicode characters and runtime
   lists use copy-on-write storage, avoiding whole-source and whole-AST copies
@@ -557,8 +557,12 @@ APL-owned runtime code:
   `return` is valid only in a function, `break`/`continue` require a `while` or
   `pick` in the current function, and a function body does not inherit an
   enclosing declaration site's loop context. `while` limits below `-1` are
-  rejected before lowering. Full protection-flow parity remains a subsequent
-  checker stage.
+  rejected before lowering. The checker also propagates `AV`/`ASV`/`SASV`
+  through expressions, dynamic `VTime` values, lists, tags, mutation calls,
+  `secretup`, calls, and block merges. It rejects static protection downgrades,
+  secret public-channel expressions, secret self-checks, and invalid
+  input/protection combinations. Runtime checks remain authoritative for
+  genuinely dynamic values.
   `VTime` declarations and function parameters remain local to their function
   or block during validation. Leaving a function, `if`, `while`, or `pick`
   merges only newly discovered absolute, list, and function names into the
@@ -575,7 +579,8 @@ APL-owned runtime code:
   `examples/test_checker_builtin_types.apl`,
   `examples/test_checker_assign_types.apl`,
   `examples/test_checker_operand_types.apl`, and
-  `examples/test_checker_control_flow.apl` are the checker smoke-tests.
+  `examples/test_checker_control_flow.apl` and
+  `examples/test_checker_protection.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,
@@ -602,14 +607,16 @@ APL-owned runtime code:
   payloads, and recursive lists. The APL decoder reconstructs the linked image
   without source parsing and rejects bad headers, malformed/truncated nodes,
   unknown tags, trailing data, and structures rejected by the APL verifier.
-  The same scalar/list codec emits `APLMOD2:` relocatable modules containing
+  The same scalar/list codec emits `APLMOD3:` relocatable modules containing
   unlinked IR and a symbol table for functions, absolute variables, and `List`
   declarations. Function symbols carry arity; absolute symbols retain their
-  complete declaration type. Module decoding rejects malformed/trailing data,
+  complete declaration type, and all symbols retain the checker's conservative
+  protection state. Module decoding rejects malformed/trailing data,
   duplicate or inconsistent exports, pre-existing `CALL_SLOT`, and programs
   that cannot produce a valid loaded image. The decoder remains compatible
-  with the earlier function-only `APLMOD1:` format and normalizes its exports
-  for the external checker.
+  with `APLMOD1:` and `APLMOD2:` and normalizes their exports for the external
+  checker. Because old module formats did not store list protection, their
+  lists are conservatively imported as `SASV`.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`. Its environment is
   `[bindings, inputs, input_index, scope_depth]`, where each compact binding is
@@ -759,11 +766,13 @@ APL-owned runtime code:
   `bootstrap.run_with_input_report(source, inputs)` return `[status, output]`,
   where status is `OK`, `STOP`, or `FAIL`.
   The current bootstrap gate is now closed at the portable VM level:
-  `emit-standard-module` produces one `APLMOD2` containing the APL-written
+  `emit-standard-module` produces one `APLMOD3` containing the APL-written
   runtime and compiler, `emit-linked-module` links
   `examples/bootstrap_runtime.apl` against it, and that `APLLINK2` successfully
   runs the compiler pipeline again inside the APL-written VM. The nested run
-  produces the expected public values and `DENIED` for secret outputs. A Rust
+  produces the expected public values while static secret outputs are rejected
+  by the checker before lowering. Direct VM tests separately verify `DENIED`
+  for untrusted or dynamically protected output. A Rust
   host still loads and executes the outer VM, and no native backend exists yet,
   so this is self-hosted portable compiler/VM bootstrap rather than the final
   native bootstrap. Use a release host for the VM-in-VM smoke-test; debug mode
@@ -839,7 +848,7 @@ Legacy host-compiled runtime path:
   generated standalone executable embeds compiled APL IR, runs the APL-written
   lexer/parser/IR/VM from the standard prelude through `bootstrap.run_with_input`,
   and that VM executes a nested APL program with input, secret input, functions,
-  nested lists, typed input coercion, and secret-aware output.
+  nested lists, typed input coercion, and checker-approved public output.
 - `apl_runtime::compile_ir_bytes` loads IR into `CompiledProgram`, splitting
   executable entry code from the function table before execution.
 - `CompiledProgram` stores one linear statement opcode `code` segment. Blocks
