@@ -1561,6 +1561,10 @@ func checker.apply_mutating_call_protection(expression, names) {
 func checker.validate_expr(expression, names) {
   VTime kind = parser.expr_kind(expression)
 
+  if kind == parser.EXPR_ERROR {
+    return checker.fail(names, parser.expr_value(expression))
+  }
+
   if kind == parser.EXPR_INT {
     if parser.expr_value(expression) == NONE {
       return checker.fail(names, "integer literal out of range")

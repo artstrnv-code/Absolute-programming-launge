@@ -380,13 +380,17 @@ The prelude also contains a first parser bootstrap in `std/parser.apl`. It
 turns lexer tokens into small AST records for declarations, assignments,
 `out`, `stop`, and `fail`. Syntax delimiters are matched by token kind as well
 as value, so string literals such as `"("`, `"["`, `"]"`, `"input"`, and
-`"secret"` remain ordinary strings:
+`"secret"` remain ordinary strings. Unmatched or unclosed blocks, groups,
+calls, lists, indexes, and slices become explicit parser errors. Calls and list
+literals require commas between values and reject trailing commas, so malformed
+source cannot be lowered as a partial program:
 
 ```powershell
 .\emit_aplc.bat examples\test_parser.apl build\test_parser.aplc
 .\run_aplc.bat build\test_parser.aplc
 .\compile_apl.bat examples\test_parser.apl build\bat_test_parser
 build\bat_test_parser\target\debug\test_parser_compiled.exe
+cargo run -p apl -- run examples\test_parser_errors.apl
 ```
 
 `std/checker.apl` is the first APL-written semantic checker layer. It currently

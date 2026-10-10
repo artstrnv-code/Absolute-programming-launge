@@ -1125,6 +1125,29 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unclosed_delimiters_and_bad_separators() {
+        let invalid_sources = [
+            "if true { out 1",
+            "AVInt value = (1 + 2",
+            "VTime value = len([1]",
+            "List values = [1, 2",
+            "VTime value = pow(2 3)",
+            "List values = [1 2]",
+            "VTime value = pow(2,)",
+            "List values = [1] VTime value = values[0",
+            "out 1 } out 2",
+            "if true { out 1 \"}\"",
+        ];
+
+        for source in invalid_sources {
+            assert!(
+                parse_program(source).is_err(),
+                "Rust parser unexpectedly accepted `{source}`"
+            );
+        }
+    }
+
+    #[test]
     fn parses_variable_declarations_and_arithmetic() {
         let program = parse_program(
             r#"

@@ -561,7 +561,15 @@ APL-owned runtime code:
   function/builtin calls, postfix indexing/slicing, unary `-`/`not`
   expressions, and binary expressions with precedence levels for `*`/`/`,
   `+`/`-`, comparisons, `and`, and `or`.
-- `examples/test_parser.apl` is the current parser smoke-test.
+  Structural failures are represented by `EXPR_ERROR` or `NODE_ERROR` and are
+  rejected by the checker before IR lowering. Nested blocks must close with
+  `}`, unmatched `}` is rejected at top level, groups/calls close with `)`,
+  and lists/indexes/slices close with `]`. Calls and list literals require
+  commas between values and reject trailing commas, matching
+  the Rust parser's acceptance rules for these cases.
+- `examples/test_parser.apl` is the successful parser smoke-test;
+  `examples/test_parser_errors.apl` exercises structural failures through
+  `bootstrap.compile_report`.
 - `std/checker.apl`: the first APL-written semantic checker layer. It validates
   duplicate declaration/function names before IR lowering, including names found
   in nested `if`, `while`, `pick`, and function bodies. It also rejects unknown

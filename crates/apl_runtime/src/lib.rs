@@ -2211,13 +2211,21 @@ mod tests {
               out parser.expr_kind(expression)
               out parser.expr_value(expression)
             }
+
+            AVStr index_source = join(["List values = [", quote, "a", quote, "] VTime value = values[", quote, ":", quote, "] out value"], "")
+            VTime index_statements = parser.parse_source(index_source)
+            VTime index_expression = get(get(index_statements, 1), 2)
+            VTime string_index = get(index_expression, 2)
+            out parser.expr_kind(index_expression)
+            out parser.expr_kind(string_index)
+            out parser.expr_value(string_index)
             "#,
         )
         .unwrap();
 
         assert_eq!(
             output,
-            "6\nStr\n(\nStr\n[\nStr\n]\nStr\ninput\nStr\nsecret\nStr\n-\n"
+            "6\nStr\n(\nStr\n[\nStr\n]\nStr\ninput\nStr\nsecret\nStr\n-\nIndex\nStr\n:\n"
         );
     }
 
@@ -3018,6 +3026,39 @@ mod tests {
         assert_eq!(
             output,
             "OK\n-9223372036854775808\nFAIL\ninteger literal out of range\nFAIL\ninteger literal out of range\nFAIL\ninvalid float literal\n"
+        );
+    }
+
+    #[test]
+    fn source_runtime_apl_frontend_rejects_unclosed_delimiters_and_bad_separators() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime quote = char(34)
+            List sources = [
+              "if true { out 1",
+              "AVInt value = (1 + 2",
+              "VTime value = len([1]",
+              "List values = [1, 2",
+              "VTime value = pow(2 3)",
+              "List values = [1 2]",
+              "VTime value = pow(2,)",
+              "List values = [1] VTime value = values[0",
+              "out 1 } out 2",
+              join(["if true { out 1 ", quote, "}", quote], "")
+            ]
+
+            pick(sources): source {
+              VTime report = bootstrap.compile_report(source)
+              out get(report, 0)
+              out get(report, 1)
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "FAIL\nexpected }\nFAIL\ngroup expects )\nFAIL\ncall expects )\nFAIL\nlist expects ]\nFAIL\ncall expects , or )\nFAIL\nlist expects , or ]\nFAIL\nexpected expression after ,\nFAIL\nindex expects ]\nFAIL\nunexpected }\nFAIL\nunknown statement\n"
         );
     }
 
