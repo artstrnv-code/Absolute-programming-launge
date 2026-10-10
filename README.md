@@ -170,12 +170,12 @@ opens and saves `.apl` files, runs the current buffer with `F5`, and shows
 parser, checker, runtime errors, and program output in the lower pane. Use
 `Ctrl+O` and `Ctrl+S` for the standard file commands. A modified file that
 already has a path is saved before it runs; an untitled buffer can run without
-being written to disk.
+being written to disk. The `Input` pane supplies one value per line to
+successive `input` and `secret input` expressions. Empty lines are preserved.
 
 The first Studio version executes source through the Rust reference
-parser/checker/runtime path. It supplies an empty input list, so programs that
-need interactive `input` are still best tested with the CLI and redirected
-lines.
+parser/checker/runtime path. Studio input is visible plain text intended for
+language testing, not storage or entry of real secrets.
 
 Check syntax and language rules:
 

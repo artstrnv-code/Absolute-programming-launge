@@ -231,6 +231,7 @@ mod windows_app {
     const ID_EXIT: usize = 1005;
     const ID_EDITOR: usize = 1101;
     const ID_OUTPUT: usize = 1102;
+    const ID_INPUT: usize = 1103;
 
     const WM_CREATE: Uint = 0x0001;
     const WM_DESTROY: Uint = 0x0002;
@@ -288,6 +289,8 @@ mod windows_app {
 
     struct AppState {
         editor: Hwnd,
+        input: Hwnd,
+        input_label: Hwnd,
         output: Hwnd,
         output_label: Hwnd,
         path_label: Hwnd,
@@ -305,6 +308,8 @@ mod windows_app {
         fn new() -> Self {
             Self {
                 editor: null_mut(),
+                input: null_mut(),
+                input_label: null_mut(),
                 output: null_mut(),
                 output_label: null_mut(),
                 path_label: null_mut(),
@@ -567,6 +572,29 @@ mod windows_app {
                 | ES_WANTRETURN,
             ID_EDITOR,
         );
+        state.input_label = create_control(
+            instance,
+            hwnd,
+            "STATIC",
+            "Input",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            0,
+        );
+        state.input = create_control(
+            instance,
+            hwnd,
+            "EDIT",
+            "",
+            WS_CHILD
+                | WS_VISIBLE
+                | WS_BORDER
+                | WS_TABSTOP
+                | WS_VSCROLL
+                | ES_MULTILINE
+                | ES_AUTOVSCROLL
+                | ES_WANTRETURN,
+            ID_INPUT,
+        );
         state.output_label = create_control(
             instance,
             hwnd,
@@ -596,6 +624,8 @@ mod windows_app {
 
         for control in [
             state.editor,
+            state.input,
+            state.input_label,
             state.output,
             state.path_label,
             state.output_label,
@@ -645,11 +675,13 @@ mod windows_app {
         let toolbar_height = 40;
         let button_width = 82;
         let button_height = 30;
-        let output_height = (height / 3).clamp(130, 260);
-        let output_label_height = 25;
+        let output_height = (height / 4).clamp(110, 210);
+        let input_height = (height / 7).clamp(65, 120);
+        let section_label_height = 25;
         let editor_top = margin + toolbar_height;
         let output_top = height - margin - output_height;
-        let editor_height = (output_top - output_label_height - editor_top - 6).max(80);
+        let input_top = output_top - section_label_height - 6 - input_height;
+        let editor_height = (input_top - section_label_height - editor_top - 6).max(80);
 
         MoveWindow(
             state.open_button,
@@ -692,11 +724,27 @@ mod windows_app {
             1,
         );
         MoveWindow(
+            state.input_label,
+            margin,
+            input_top - section_label_height,
+            width - margin * 2,
+            section_label_height,
+            1,
+        );
+        MoveWindow(
+            state.input,
+            margin,
+            input_top,
+            width - margin * 2,
+            input_height,
+            1,
+        );
+        MoveWindow(
             state.output_label,
             margin,
-            output_top - output_label_height,
+            output_top - section_label_height,
             width - margin * 2,
-            output_label_height,
+            section_label_height,
             1,
         );
         MoveWindow(
@@ -814,6 +862,7 @@ mod windows_app {
         }
 
         let source = get_text(state.editor);
+        let input = parse_input(&get_text(state.input));
         state.running = true;
         EnableWindow(state.run_button, 0);
         set_text(state.output_label, "Running...");
@@ -821,7 +870,7 @@ mod windows_app {
         let window = hwnd as isize;
 
         thread::spawn(move || {
-            let result = execute_source(&source);
+            let result = execute_source(&source, input);
             let result_ptr = Box::into_raw(Box::new(result));
             let posted = unsafe {
                 PostMessageW(window as Hwnd, WM_APP_RUN_COMPLETE, 0, result_ptr as Lparam)
@@ -832,7 +881,7 @@ mod windows_app {
         });
     }
 
-    fn execute_source(source: &str) -> String {
+    fn execute_source(source: &str, input: Vec<String>) -> String {
         let source = apl_compiler::compose_program(apl_compiler::STANDARD_PRELUDE, source);
         let program = match apl_parser::parse_program(&source) {
             Ok(program) => program,
@@ -843,13 +892,22 @@ mod windows_app {
             return format!("Check error:\r\n{error:?}");
         }
 
-        match apl_runtime::run_program(&program, Vec::new()) {
+        match apl_runtime::run_program(&program, input) {
             Ok(output) if output.stdout.is_empty() => "Program finished with no output.".to_owned(),
             Ok(output) => output.stdout,
             Err(apl_runtime::RuntimeError::Failed(message)) => {
                 format!("APL fail:\r\n{message}")
             }
             Err(error) => format!("Runtime error:\r\n{error:?}"),
+        }
+    }
+
+    fn parse_input(text: &str) -> Vec<String> {
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        if normalized.is_empty() {
+            Vec::new()
+        } else {
+            normalized.split('\n').map(str::to_owned).collect()
         }
     }
 
@@ -925,16 +983,32 @@ mod windows_app {
 
     #[cfg(test)]
     mod tests {
-        use super::execute_source;
+        use super::{execute_source, parse_input};
 
         #[test]
         fn executes_source_from_editor_buffer() {
-            assert_eq!(execute_source("AVInt value = 6 * 7\nout value"), "42\n");
+            assert_eq!(
+                execute_source("AVInt value = 6 * 7\nout value", Vec::new()),
+                "42\n"
+            );
         }
 
         #[test]
         fn reports_invalid_source_in_output_panel() {
-            assert!(execute_source("AVInt = 4").starts_with("Parse error:"));
+            assert!(execute_source("AVInt = 4", Vec::new()).starts_with("Parse error:"));
+        }
+
+        #[test]
+        fn passes_editor_input_lines_to_runtime() {
+            let input = parse_input("41\r\nhello\r\n");
+            assert_eq!(input, vec!["41", "hello", ""]);
+            assert_eq!(
+                execute_source(
+                    "AVInt number = input\nAVStr word = input\nout number\nout word",
+                    input,
+                ),
+                "41\nhello\n"
+            );
         }
     }
 }
