@@ -1224,7 +1224,7 @@ func checker.validate_optional_expr(expression, names) {
   return checker.validate_expr(expression, names)
 }
 
-func checker.validate_statement(node, names, allow_predeclared_func) {
+func checker.validate_statement(node, names, allow_predeclared_func, in_function, loop_depth) {
   VTime kind = parser.node_kind(node)
 
   if kind == parser.NODE_ERROR {
@@ -1314,7 +1314,27 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
     return checker.validate_expr(get(node, 1), names)
   }
 
+  if kind == parser.NODE_BREAK {
+    if loop_depth <= 0 {
+      return checker.fail(names, "break outside loop")
+    }
+
+    return checker.ok(names)
+  }
+
+  if kind == parser.NODE_CONTINUE {
+    if loop_depth <= 0 {
+      return checker.fail(names, "continue outside loop")
+    }
+
+    return checker.ok(names)
+  }
+
   if kind == parser.NODE_RETURN {
+    if in_function != true {
+      return checker.fail(names, "return outside function")
+    }
+
     return checker.validate_expr(get(node, 1), names)
   }
 
@@ -1325,7 +1345,7 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       local_names = checker.add_name(local_names, param, "VTime", "VTime")
     }
 
-    VTime body_state = checker.validate_block(get(node, 3), local_names, false)
+    VTime body_state = checker.validate_block(get(node, 3), local_names, false, true, 0)
 
     if get(body_state, 0) != checker.STATUS_OK {
       return body_state
@@ -1347,14 +1367,14 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return condition_type_state
     }
 
-    VTime body_state = checker.validate_block(get(node, 2), names[:], false)
+    VTime body_state = checker.validate_block(get(node, 2), names[:], false, in_function, loop_depth)
 
     if get(body_state, 0) != checker.STATUS_OK {
       return body_state
     }
 
     names = checker.merge_global_names(names, get(body_state, 1))
-    VTime else_state = checker.validate_block(get(node, 3), names[:], false)
+    VTime else_state = checker.validate_block(get(node, 3), names[:], false, in_function, loop_depth)
 
     if get(else_state, 0) != checker.STATUS_OK {
       return else_state
@@ -1364,6 +1384,12 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
   }
 
   if kind == parser.NODE_WHILE {
+    VTime limit = get(node, 2)
+
+    if limit < -1 {
+      return checker.fail(names, join(["invalid loop limit `", str(limit), "`"], ""))
+    }
+
     VTime condition_state = checker.validate_expr(get(node, 1), names)
 
     if get(condition_state, 0) != checker.STATUS_OK {
@@ -1376,7 +1402,7 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
       return condition_type_state
     }
 
-    VTime body_state = checker.validate_block(get(node, 3), names[:], false)
+    VTime body_state = checker.validate_block(get(node, 3), names[:], false, in_function, loop_depth + 1)
 
     if get(body_state, 0) != checker.STATUS_OK {
       return body_state
@@ -1399,7 +1425,7 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
     }
 
     VTime local_names = checker.add_name(names[:], get(node, 2), "VTime", "VTime")
-    VTime body_state = checker.validate_block(get(node, 3), local_names, false)
+    VTime body_state = checker.validate_block(get(node, 3), local_names, false, in_function, loop_depth + 1)
 
     if get(body_state, 0) != checker.STATUS_OK {
       return body_state
@@ -1411,9 +1437,9 @@ func checker.validate_statement(node, names, allow_predeclared_func) {
   return checker.ok(names)
 }
 
-func checker.validate_block(statements, names, allow_predeclared_func) {
+func checker.validate_block(statements, names, allow_predeclared_func, in_function, loop_depth) {
   pick(statements): statement {
-    VTime state = checker.validate_statement(statement, names, allow_predeclared_func)
+    VTime state = checker.validate_statement(statement, names, allow_predeclared_func, in_function, loop_depth)
     names = get(state, 1)
 
     if get(state, 0) != checker.STATUS_OK {
@@ -1467,7 +1493,7 @@ func checker.validate_report_with_symbols(statements, symbols) {
     return [get(collect_state, 0), get(collect_state, 2)]
   }
 
-  VTime state = checker.validate_block(statements, get(collect_state, 1), true)
+  VTime state = checker.validate_block(statements, get(collect_state, 1), true, false, 0)
 
   if get(state, 0) != checker.STATUS_OK {
     return [get(state, 0), get(state, 2)]

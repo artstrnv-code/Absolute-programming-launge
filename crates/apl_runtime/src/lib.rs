@@ -3561,6 +3561,53 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_validates_control_flow_context_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr valid_function = "func choose(value) { if true { return value } return NONE } VTime result = choose(1)"
+            AVStr valid_loops = "func work() { while (true) (1) { continue } pick([1]): item { break } return NONE }"
+            AVStr valid_unlimited = "while (true) (-1) { break }"
+            AVStr bad_return = "return NONE"
+            AVStr bad_nested_return = "if true { return NONE }"
+            AVStr bad_break = "break"
+            AVStr bad_continue = "continue"
+            AVStr bad_nested_break = "if true { break }"
+            AVStr bad_function_break = "func work() { break }"
+            AVStr bad_limit = "while (true) (-2) { break }"
+            AVStr bad_nested_function_break = "while (true) (1) { func nested() { break } }"
+
+            List reports = [
+              bootstrap.compile_report(valid_function),
+              bootstrap.compile_report(valid_loops),
+              bootstrap.compile_report(valid_unlimited),
+              bootstrap.compile_report(bad_return),
+              bootstrap.compile_report(bad_nested_return),
+              bootstrap.compile_report(bad_break),
+              bootstrap.compile_report(bad_continue),
+              bootstrap.compile_report(bad_nested_break),
+              bootstrap.compile_report(bad_function_break),
+              bootstrap.compile_report(bad_limit),
+              bootstrap.compile_report(bad_nested_function_break)
+            ]
+
+            pick(reports): report {
+              out get(report, 0)
+
+              if get(report, 0) == checker.STATUS_FAIL {
+                out get(report, 1)
+              }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK\nOK\nOK\nFAIL\nreturn outside function\nFAIL\nreturn outside function\nFAIL\nbreak outside loop\nFAIL\ncontinue outside loop\nFAIL\nbreak outside loop\nFAIL\nbreak outside loop\nFAIL\ninvalid loop limit `-2`\nFAIL\nbreak outside loop\n"
+        );
+    }
+
+    #[test]
     fn source_runtime_uses_apl_vm_typed_input_coercion_prelude() {
         let output = run_source_with_prelude(
             r#"

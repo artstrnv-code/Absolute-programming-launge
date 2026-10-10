@@ -464,12 +464,21 @@ apl_compiler = {{ path = "{compiler_path}" }}
 
 fn render_main(ir: &[u8]) -> String {
     format!(
-        r#"use std::{{io::Read, process}};
+        r#"use std::{{io::{{IsTerminal, Read}}, process}};
+
+fn read_input() -> Vec<String> {{
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {{
+        return Vec::new();
+    }}
+
+    let mut input = String::new();
+    let _ = stdin.read_to_string(&mut input);
+    input.lines().map(str::to_owned).collect()
+}}
 
 fn main() {{
-    let mut stdin = String::new();
-    let _ = std::io::stdin().read_to_string(&mut stdin);
-    let input = stdin.lines().map(str::to_owned).collect();
+    let input = read_input();
 
     match apl_runtime::run_ir_bytes(COMPILED_APL_IR, input) {{
         Ok(output) => print!("{{}}", output.stdout),
@@ -493,12 +502,21 @@ const COMPILED_APL_IR: &[u8] = &[
 }
 
 fn render_linked_main() -> String {
-    r#"use std::{io::Read, process};
+    r#"use std::{io::{IsTerminal, Read}, process};
+
+fn read_input() -> Vec<String> {
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        return Vec::new();
+    }
+
+    let mut input = String::new();
+    let _ = stdin.read_to_string(&mut input);
+    input.lines().map(str::to_owned).collect()
+}
 
 fn main() {
-    let mut stdin = String::new();
-    let _ = std::io::stdin().read_to_string(&mut stdin);
-    let input = stdin.lines().map(str::to_owned).collect();
+    let input = read_input();
 
     match apl_compiler::run_linked_artifact(APL_LINKED_ARTIFACT, input) {
         Ok(output) => print!("{}", output.stdout),
@@ -618,6 +636,7 @@ mod tests {
 
         assert!(rendered.contains("COMPILED_APL_IR"));
         assert!(rendered.contains("run_ir_bytes"));
+        assert!(rendered.contains("stdin.is_terminal()"));
         assert!(!rendered.contains("parse_program"));
         assert!(!rendered.contains("PROGRAM_SOURCE"));
     }
@@ -709,6 +728,7 @@ mod tests {
         assert!(rendered.contains("APL_LINKED_ARTIFACT"));
         assert!(rendered.contains("program.apllink"));
         assert!(rendered.contains("run_linked_artifact"));
+        assert!(rendered.contains("stdin.is_terminal()"));
         assert!(!rendered.contains("run_ir_bytes"));
         assert!(!rendered.contains("parse_program"));
     }

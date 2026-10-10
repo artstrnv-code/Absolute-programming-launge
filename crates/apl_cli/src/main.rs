@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    io::Read,
+    io::{IsTerminal, Read},
     path::{Path, PathBuf},
     process,
 };
@@ -41,9 +41,7 @@ fn main() {
             if command == "check" {
                 println!("ok: {} statement(s)", program.statements.len());
             } else {
-                let mut stdin = String::new();
-                let _ = std::io::stdin().read_to_string(&mut stdin);
-                let input = stdin.lines().map(str::to_owned).collect();
+                let input = read_input();
 
                 match apl_runtime::run_program(&program, input) {
                     Ok(output) => print!("{}", output.stdout),
@@ -86,9 +84,7 @@ fn main() {
                 eprintln!("failed to read `{path}`: {error}");
                 process::exit(1);
             });
-            let mut stdin = String::new();
-            let _ = std::io::stdin().read_to_string(&mut stdin);
-            let input = stdin.lines().map(str::to_owned).collect();
+            let input = read_input();
 
             match apl_runtime::run_ir_bytes(&bytes, input) {
                 Ok(output) => print!("{}", output.stdout),
@@ -198,9 +194,7 @@ fn main() {
                 eprintln!("failed to read `{path}`: {error}");
                 process::exit(1);
             });
-            let mut stdin = String::new();
-            let _ = std::io::stdin().read_to_string(&mut stdin);
-            let input = stdin.lines().map(str::to_owned).collect();
+            let input = read_input();
 
             match apl_compiler::run_linked_artifact(&artifact, input) {
                 Ok(output) => print!("{}", output.stdout),
@@ -280,6 +274,17 @@ fn main() {
             process::exit(2);
         }
     }
+}
+
+fn read_input() -> Vec<String> {
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        return Vec::new();
+    }
+
+    let mut input = String::new();
+    let _ = stdin.read_to_string(&mut input);
+    input.lines().map(str::to_owned).collect()
 }
 
 fn print_usage() {

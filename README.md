@@ -169,6 +169,18 @@ cargo run -p apl -- run examples\hello.apl
 cargo run -p apl -- run examples\calculator.apl
 ```
 
+Direct terminal launches do not wait for an EOF marker when no input is piped.
+Programs that consume `input` or `secret input` currently receive their input
+as redirected lines:
+
+```powershell
+@("25", "password") | cargo run -p apl -- run examples\hello.apl
+```
+
+This terminal-aware behavior is shared by `run`, `run-ir`, `run-linked`, and
+generated bootstrap executables. A future native runtime will provide a truly
+interactive input source instead of pre-collecting redirected lines.
+
 Generate a Rust-hosted package whose program payload is compiled by the
 APL-written pipeline into `program.apllink`. The generated executable loads,
 verifies, and executes that portable artifact:
@@ -360,7 +372,9 @@ known; `VTime`, `NONE`, and input expressions remain dynamically assignable.
 There is no implicit `Int`/`Float` widening. Unary and binary operands,
 index/slice operands, `pick` values, and `if`/`while` conditions are also
 validated when their types are statically known; `VTime` remains deferred to
-runtime:
+runtime. Control-flow context is checked before lowering: `return` requires a
+function, `break`/`continue` require the current function to be inside a
+`while` or `pick`, and loop limits below `-1` are rejected:
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc
@@ -391,6 +405,10 @@ build\bat_test_checker_assign_types\target\debug\test_checker_assign_types_compi
 .\run_aplc.bat build\test_checker_operand_types.aplc
 .\compile_apl.bat examples\test_checker_operand_types.apl build\bat_test_checker_operand_types
 build\bat_test_checker_operand_types\target\debug\test_checker_operand_types_compiled.exe
+.\emit_aplc.bat examples\test_checker_control_flow.apl build\test_checker_control_flow.aplc
+.\run_aplc.bat build\test_checker_control_flow.aplc
+.\compile_apl.bat examples\test_checker_control_flow.apl build\bat_test_checker_control_flow
+build\bat_test_checker_control_flow\target\debug\test_checker_control_flow_compiled.exe
 ```
 
 The next bootstrap compiler layer lives in `std/ir.apl`. It lowers the parser

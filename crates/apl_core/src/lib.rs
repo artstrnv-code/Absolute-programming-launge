@@ -564,6 +564,8 @@ impl Checker {
             }
         }
 
+        let enclosing_loop_depth = self.loop_depth;
+        self.loop_depth = 0;
         self.function_depth += 1;
         let result = self.with_scope(|checker| {
             for param in &function.params {
@@ -572,6 +574,7 @@ impl Checker {
             checker.check_statements(&function.body)
         });
         self.function_depth -= 1;
+        self.loop_depth = enclosing_loop_depth;
         result
     }
 
@@ -1681,6 +1684,24 @@ mod tests {
     fn rejects_break_outside_loop() {
         assert_eq!(
             validate_program(&Program::new(vec![Statement::Break])),
+            Err(CheckError::BreakOutsideLoop)
+        );
+    }
+
+    #[test]
+    fn function_declared_in_loop_cannot_break_the_enclosing_loop() {
+        let program = Program::new(vec![Statement::While(WhileStatement {
+            condition: Expression::Literal(Value::Bool(true)),
+            limit: 1,
+            body: vec![Statement::FunctionDecl(FunctionDecl {
+                name: "nested".to_owned(),
+                params: vec![],
+                body: vec![Statement::Break],
+            })],
+        })]);
+
+        assert_eq!(
+            validate_program(&program),
             Err(CheckError::BreakOutsideLoop)
         );
     }

@@ -553,8 +553,12 @@ APL-owned runtime code:
   operands follow the Rust checker rules for numeric, equality, ordered, and
   logical operations. Index/slice operands, `pick` values, and `if`/`while`
   conditions are also rejected when a statically known type is incompatible;
-  `VTime` defers these decisions to runtime. Full protection-flow and
-  control-flow-context parity remains a subsequent checker stage.
+  `VTime` defers these decisions to runtime. Control-flow context is explicit:
+  `return` is valid only in a function, `break`/`continue` require a `while` or
+  `pick` in the current function, and a function body does not inherit an
+  enclosing declaration site's loop context. `while` limits below `-1` are
+  rejected before lowering. Full protection-flow parity remains a subsequent
+  checker stage.
   `VTime` declarations and function parameters remain local to their function
   or block during validation. Leaving a function, `if`, `while`, or `pick`
   merges only newly discovered absolute, list, and function names into the
@@ -569,8 +573,9 @@ APL-owned runtime code:
 - `examples/test_checker.apl`, `examples/test_checker_targets.apl`,
   `examples/test_checker_exprs.apl`, `examples/test_checker_calls.apl`,
   `examples/test_checker_builtin_types.apl`,
-  `examples/test_checker_assign_types.apl`, and
-  `examples/test_checker_operand_types.apl` are the checker smoke-tests.
+  `examples/test_checker_assign_types.apl`,
+  `examples/test_checker_operand_types.apl`, and
+  `examples/test_checker_control_flow.apl` are the checker smoke-tests.
 - `std/ir.apl`: the first APL-written IR bootstrap. It lowers the parser AST
   into list-based IR instructions. Current instruction coverage mirrors the
   parser bootstrap: `DECL`, `ASSIGN`, `IF`, `WHILE`, `PICK`, `BREAK`,
@@ -816,6 +821,11 @@ Legacy host-compiled runtime path:
   parses/checks APL plus the prelude and writes a binary `.aplc` artifact.
 - `cargo run -p apl -- run-ir build\compiled_runtime.aplc` decodes and executes
   that artifact without parsing APL source text.
+- CLI `run`, `run-ir`, and `run-linked` commands, plus generated bootstrap
+  executables, inspect whether stdin is attached to a terminal. A direct launch
+  with no redirected input starts immediately instead of waiting for EOF;
+  redirected lines remain the current input transport. A future native runtime
+  should expose a lazy interactive input source.
 - `cargo run -p apl -- build-host examples\compiled_runtime.apl build\compiled_runtime`
   validates the APL prelude plus user source and generates a separate Rust
   package.
