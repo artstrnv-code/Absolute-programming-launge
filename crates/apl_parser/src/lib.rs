@@ -1148,6 +1148,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_identifier_name_tokens_and_unterminated_strings() {
+        let invalid_sources = [
+            "out \"hello",
+            "AVInt \"x\" = 1",
+            "List \"items\" = []",
+            "VTime \"temp\" = 1",
+            "func \"f\"() { return 1 }",
+            "func f(\"x\") { return 1 }",
+            "func f(a b) { return a }",
+            "func f(a,) { return a }",
+            "pick([1]): \"item\" { out 1 }",
+            "secretup(\"value\")",
+            "type, \"level\" = info(source)",
+            "type, level = info(\"source\")",
+            "\"if\" true { out 1 }",
+            "VTime value = 1 \"+\" 2",
+            "VTime value = 1 \"==\" 1",
+            "VTime value = true \"and\" false",
+            "AVInt x = 1 VTime value = x \"=self=\"",
+            "List values = [1 \":\" ASV]",
+            "VTime value = secret \"input\"",
+        ];
+
+        for source in invalid_sources {
+            assert!(
+                parse_program(source).is_err(),
+                "Rust parser unexpectedly accepted `{source}`"
+            );
+        }
+    }
+
+    #[test]
     fn parses_variable_declarations_and_arithmetic() {
         let program = parse_program(
             r#"

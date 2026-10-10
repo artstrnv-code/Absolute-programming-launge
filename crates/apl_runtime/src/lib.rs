@@ -2673,7 +2673,7 @@ mod tests {
     fn source_runtime_uses_apl_vm_grouped_logical_conditions_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = join(["AVBool a = true AVBool b = false ASVBool secret = true if (a == true) and (b != true) { out ", char(34), "ok", char(34), " } if (secret == true) or (b == true) { out secret == true }"], "")
+            AVStr source = join(["AVBool a = true AVBool b = false ASVBool hidden = true if (a == true) and (b != true) { out ", char(34), "ok", char(34), " } if (hidden == true) or (b == true) { out hidden == true }"], "")
             VTime vm_output = vm.run_source(source)
 
             out len(vm_output)
@@ -2868,7 +2868,7 @@ mod tests {
     fn source_runtime_uses_apl_vm_input_placeholders_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = join(["AVStr public = input ASVStr secret = secret input AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " typ, level = info(public) out typ out level out public typ, level = info(secret) out typ out level out secret"], "")
+            AVStr source = join(["AVStr public = input ASVStr hidden = secret input AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " typ, level = info(public) out typ out level out public typ, level = info(hidden) out typ out level out hidden"], "")
             VTime vm_output = vm.run_source(source)
 
             out len(vm_output)
@@ -2889,7 +2889,7 @@ mod tests {
     fn source_runtime_uses_apl_vm_input_stream_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "AVStr public = input ASVStr secret = secret input AVStr missing = input out public out secret out missing"
+            AVStr source = "AVStr public = input ASVStr hidden = secret input AVStr missing = input out public out hidden out missing"
             VTime vm_output = vm.run_source_with_input(source, ["hello", "token"])
 
             out len(vm_output)
@@ -3059,6 +3059,48 @@ mod tests {
         assert_eq!(
             output,
             "FAIL\nexpected }\nFAIL\ngroup expects )\nFAIL\ncall expects )\nFAIL\nlist expects ]\nFAIL\ncall expects , or )\nFAIL\nlist expects , or ]\nFAIL\nexpected expression after ,\nFAIL\nindex expects ]\nFAIL\nunexpected }\nFAIL\nunknown statement\n"
+        );
+    }
+
+    #[test]
+    fn source_runtime_apl_frontend_enforces_token_roles_and_string_termination() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime quote = char(34)
+            List sources = [
+              join(["out ", quote, "hello"], ""),
+              join(["AVInt ", quote, "x", quote, " = 1"], ""),
+              join(["List ", quote, "items", quote, " = []"], ""),
+              join(["VTime ", quote, "temp", quote, " = 1"], ""),
+              join(["func ", quote, "f", quote, "() { return 1 }"], ""),
+              join(["func f(", quote, "x", quote, ") { return 1 }"], ""),
+              "func f(a b) { return a }",
+              "func f(a,) { return a }",
+              join(["pick([1]): ", quote, "item", quote, " { out 1 }"], ""),
+              join(["secretup(", quote, "value", quote, ")"], ""),
+              join(["type, ", quote, "level", quote, " = info(source)"], ""),
+              join(["type, level = info(", quote, "source", quote, ")"], ""),
+              join([quote, "if", quote, " true { out 1 }"], ""),
+              join(["VTime value = 1 ", quote, "+", quote, " 2"], ""),
+              join(["VTime value = 1 ", quote, "==", quote, " 1"], ""),
+              join(["VTime value = true ", quote, "and", quote, " false"], ""),
+              join(["AVInt x = 1 VTime value = x ", quote, "=self=", quote], ""),
+              join(["List values = [1 ", quote, ":", quote, " ASV]"], ""),
+              join(["VTime value = secret ", quote, "input", quote], "")
+            ]
+
+            pick(sources): source {
+              VTime report = bootstrap.compile_report(source)
+              out get(report, 0)
+              out get(report, 1)
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "FAIL\nunterminated string literal\nFAIL\ndeclaration expects identifier\nFAIL\nlist declaration expects identifier\nFAIL\nvtime declaration expects identifier\nFAIL\nfunc expects identifier\nFAIL\nfunc expects parameter identifier\nFAIL\nfunc expects , or )\nFAIL\nfunc expects parameter identifier\nFAIL\npick expects item identifier\nFAIL\nsecretup expects identifier\nFAIL\ninfo assignment expects identifier\nFAIL\ninfo assignment expects source identifier\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nlist expects , or ]\nFAIL\nunknown variable `secret`\n"
         );
     }
 

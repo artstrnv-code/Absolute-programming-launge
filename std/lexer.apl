@@ -8,6 +8,7 @@ AVStr lexer.TOKEN_INT = "Int"
 AVStr lexer.TOKEN_FLOAT = "Float"
 AVStr lexer.TOKEN_STR = "Str"
 AVStr lexer.TOKEN_SYM = "Symbol"
+AVStr lexer.TOKEN_ERROR = "Error"
 
 List lexer.KEYWORDS = ["if", "else", "while", "pick", "break", "continue",
     "func", "return", "true", "false", "and", "or", "not",
@@ -229,12 +230,15 @@ func lexer.tokenize(source) {
         index += 1
       }
 
+      if index >= len(source) {
+        add(tokens, lexer.make_token(lexer.TOKEN_ERROR, "unterminated string literal"))
+        return tokens
+      }
+
       VTime text = join(text_chars, "")
       add(tokens, lexer.make_token(lexer.TOKEN_STR, text))
 
-      if index < len(source) {
-        index += 1
-      }
+      index += 1
 
       continue
     }

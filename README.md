@@ -367,7 +367,9 @@ build\bat_test_bootstrap\target\debug\test_bootstrap_compiled.exe
 The standard prelude already contains the first APL-written lexer in
 `std/lexer.apl`. It scans source text in APL and returns token records as
 `[kind, value]` lists. It handles whitespace, line comments, quoted strings,
-`=self=`, and common two-character operators. A quick lexer smoke-test:
+`=self=`, and common two-character operators. An unterminated quoted string
+produces an explicit lexer error token instead of being accepted at EOF. A
+quick lexer smoke-test:
 
 ```powershell
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc
@@ -383,7 +385,10 @@ as value, so string literals such as `"("`, `"["`, `"]"`, `"input"`, and
 `"secret"` remain ordinary strings. Unmatched or unclosed blocks, groups,
 calls, lists, indexes, and slices become explicit parser errors. Calls and list
 literals require commas between values and reject trailing commas, so malformed
-source cannot be lowered as a partial program:
+source cannot be lowered as a partial program. Declaration names, function
+names and parameters, `pick` items, mutation targets, keywords, delimiters, and
+operators must also have their grammar-defined token kinds; quoted strings can
+no longer impersonate identifiers or syntax:
 
 ```powershell
 .\emit_aplc.bat examples\test_parser.apl build\test_parser.aplc
@@ -391,6 +396,7 @@ source cannot be lowered as a partial program:
 .\compile_apl.bat examples\test_parser.apl build\bat_test_parser
 build\bat_test_parser\target\debug\test_parser_compiled.exe
 cargo run -p apl -- run examples\test_parser_errors.apl
+cargo run -p apl -- run examples\test_parser_token_roles.apl
 ```
 
 `std/checker.apl` is the first APL-written semantic checker layer. It currently

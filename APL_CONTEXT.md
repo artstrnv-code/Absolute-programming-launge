@@ -538,6 +538,8 @@ APL-owned runtime code:
   whitespace, `#` line comments, quoted string literals, `=self=`,
   two-character operators such as `==`, `!=`, `>=`, `<=`, `+=`, and `**`,
   single-character symbols, integer/float literals, keywords, and identifiers.
+  Unterminated strings produce a `TOKEN_ERROR` carrying
+  `unterminated string literal`, which the parser propagates to compile reports.
   It is still a bootstrap lexer, not the final parser.
 - `examples/test_lexer.apl` is the current lexer smoke-test. It uses public
   `AVStr` input so the token list can be printed safely.
@@ -567,9 +569,14 @@ APL-owned runtime code:
   and lists/indexes/slices close with `]`. Calls and list literals require
   commas between values and reject trailing commas, matching
   the Rust parser's acceptance rules for these cases.
+  Identifier positions require `Ident` tokens, and keywords, delimiters, unary
+  and binary operators, `=self=`, tags, and `secret input` require their exact
+  token kinds. A quoted string with syntax-like contents therefore remains data
+  and cannot impersonate source grammar.
 - `examples/test_parser.apl` is the successful parser smoke-test;
   `examples/test_parser_errors.apl` exercises structural failures through
-  `bootstrap.compile_report`.
+  `bootstrap.compile_report`, and `examples/test_parser_token_roles.apl`
+  exercises lexer termination and token-role failures.
 - `std/checker.apl`: the first APL-written semantic checker layer. It validates
   duplicate declaration/function names before IR lowering, including names found
   in nested `if`, `while`, `pick`, and function bodies. It also rejects unknown
