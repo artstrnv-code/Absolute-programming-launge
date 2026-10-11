@@ -883,10 +883,8 @@ impl<'a> Runtime<'a> {
                     stack.push(RuntimeValue::from_ast(value.clone()));
                 }
                 ExpressionOp::PushNone => stack.push(RuntimeValue::none(ProtectionLevel::Av)),
-                ExpressionOp::ReadInput => stack.push(RuntimeValue::str(self.read_input())),
-                ExpressionOp::ReadSecretInput => stack.push(
-                    RuntimeValue::str(self.read_input()).with_protection(ProtectionLevel::Asv),
-                ),
+                ExpressionOp::ReadInput => stack.push(self.read_input(ProtectionLevel::Av)),
+                ExpressionOp::ReadSecretInput => stack.push(self.read_input(ProtectionLevel::Asv)),
                 ExpressionOp::LoadVariable(name) => stack.push(self.lookup(name)?),
                 ExpressionOp::Call {
                     name,
@@ -1557,8 +1555,12 @@ impl<'a> Runtime<'a> {
             .any(|scope| scope.contains_key(name))
     }
 
-    fn read_input(&mut self) -> String {
-        self.input.pop_front().unwrap_or_default()
+    fn read_input(&mut self, protection: ProtectionLevel) -> RuntimeValue {
+        self.input
+            .pop_front()
+            .map(RuntimeValue::str)
+            .unwrap_or_else(|| RuntimeValue::none(protection))
+            .with_protection(protection)
     }
 }
 
@@ -1867,6 +1869,13 @@ mod tests {
     }
 
     fn run_source_with_prelude(source: &str) -> Result<String, RuntimeError> {
+        run_source_with_prelude_and_input(source, vec![])
+    }
+
+    fn run_source_with_prelude_and_input(
+        source: &str,
+        input: Vec<String>,
+    ) -> Result<String, RuntimeError> {
         let prelude = concat!(
             include_str!("../../../std/runtime.apl"),
             "\n\n",
@@ -1891,7 +1900,107 @@ mod tests {
         let source = format!("{}\n\n{}\n", prelude.trim(), source.trim());
         let program = apl_parser::parse_program(&source).unwrap();
         validate_program(&program).unwrap();
-        run_program(&program, vec![]).map(|output| output.stdout)
+        run_program(&program, input).map(|output| output.stdout)
+    }
+
+    fn apl_compile_outcomes(sources: &[&str]) -> Vec<String> {
+        let mut input = Vec::with_capacity(sources.len() + 1);
+        input.push(sources.len().to_string());
+        input.extend(sources.iter().map(|source| (*source).to_owned()));
+
+        let output = run_source_with_prelude_and_input(
+            r#"
+            VTime apltest.remaining = int(input)
+            VTime apltest.index = 0
+
+            while (apltest.index < apltest.remaining) (-1) {
+              VTime apltest.report = bootstrap.compile_report(input)
+              out get(apltest.report, 0)
+              out char(0)
+              apltest.index += 1
+            }
+            "#,
+            input,
+        )
+        .unwrap();
+
+        output.split_terminator('\0').map(str::to_owned).collect()
+    }
+
+    fn apl_run_outcomes(sources: &[&str]) -> Vec<(String, String)> {
+        let mut input = Vec::with_capacity(sources.len() + 1);
+        input.push(sources.len().to_string());
+        input.extend(sources.iter().map(|source| (*source).to_owned()));
+
+        let output = run_source_with_prelude_and_input(
+            r#"
+            VTime apltest.remaining = int(input)
+            VTime apltest.index = 0
+
+            while (apltest.index < apltest.remaining) (-1) {
+              VTime apltest.report = bootstrap.run_report(input)
+              out get(apltest.report, 0)
+              out char(0)
+              out join(get(apltest.report, 1), "")
+              out char(0)
+              apltest.index += 1
+            }
+            "#,
+            input,
+        )
+        .unwrap();
+
+        let fields = output.split_terminator('\0').collect::<Vec<_>>();
+        assert_eq!(fields.len(), sources.len() * 2);
+        fields
+            .chunks_exact(2)
+            .map(|pair| (pair[0].to_owned(), pair[1].to_owned()))
+            .collect()
+    }
+
+    fn apl_run_outcomes_with_input(cases: &[(&str, &[&str])]) -> Vec<(String, String)> {
+        let mut input = Vec::new();
+        input.push(cases.len().to_string());
+        for (source, program_input) in cases {
+            input.push((*source).to_owned());
+            input.push(program_input.len().to_string());
+            input.extend(program_input.iter().map(|value| (*value).to_owned()));
+        }
+
+        let output = run_source_with_prelude_and_input(
+            r#"
+            VTime apltest.remaining = int(input)
+            VTime apltest.index = 0
+
+            while (apltest.index < apltest.remaining) (-1) {
+              VTime apltest.source = input
+              VTime apltest.input_remaining = int(input)
+              VTime apltest.inputs = []
+              VTime apltest.input_index = 0
+
+              while (apltest.input_index < apltest.input_remaining) (-1) {
+                add(apltest.inputs, input)
+                apltest.input_index += 1
+              }
+
+              VTime apltest.report = bootstrap.run_with_input_report(apltest.source, apltest.inputs)
+              out get(apltest.report, 0)
+              out char(0)
+              out join(get(apltest.report, 1), "")
+              out char(0)
+              apltest.index += 1
+            }
+            "#,
+            input,
+        )
+        .unwrap();
+
+        let fields = output.split_terminator('\0').collect::<Vec<_>>();
+        assert_eq!(fields.len(), cases.len() * 2);
+        fields
+            .chunks_exact(2)
+            .map(|pair| (pair[0].to_owned(), pair[1].to_owned()))
+            .collect()
     }
 
     fn checked_program(source: &str) -> Program {
@@ -1924,6 +2033,252 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "3");
+    }
+
+    #[test]
+    fn rust_and_apl_frontends_agree_on_core_source_acceptance() {
+        let cases = [
+            ("AVInt value = 1 out value", true),
+            ("func halt() { stop } out 1", true),
+            ("out 1 stop out 2", true),
+            ("VTime value = [1, 2][0] out value", true),
+            ("AVStr value = \"line\\nquote=\\\"\" out value", true),
+            ("AVInt value =", false),
+            ("AVFloat value = 1.", false),
+            ("func pair(left right) { return left }", false),
+            ("List values = [1 2]", false),
+            ("out \"bad\\q\"", false),
+            ("if true { out 1", false),
+            ("break", false),
+            ("return 1", false),
+            ("AVInt value = 1 out missing", false),
+            ("VTime value = 1 value = str(value) out value", true),
+            ("out len([1, 2, 3])", true),
+            ("out len(1)", false),
+            ("out pow(2)", false),
+            ("AVInt value = true", false),
+            ("ASVInt hidden = 1 out hidden", false),
+            ("while true (-2) { break }", false),
+            ("func same(value, value) { return value }", false),
+            ("out missing()", false),
+        ];
+        let sources = cases.iter().map(|(source, _)| *source).collect::<Vec<_>>();
+        let apl_outcomes = apl_compile_outcomes(&sources);
+
+        assert_eq!(apl_outcomes.len(), cases.len());
+        for ((source, expected), apl_status) in cases.iter().zip(apl_outcomes) {
+            let rust_accepts = apl_parser::parse_program(source)
+                .ok()
+                .and_then(|program| validate_program(&program).ok())
+                .is_some();
+            let apl_accepts = apl_status == "OK";
+
+            assert_eq!(
+                rust_accepts, *expected,
+                "unexpected Rust result for `{source}`"
+            );
+            assert_eq!(
+                apl_accepts, *expected,
+                "unexpected APL result for `{source}`"
+            );
+        }
+    }
+
+    #[test]
+    fn rust_and_apl_runtimes_agree_on_core_public_programs() {
+        let cases = [
+            ("arithmetic", "out (2 + 3) * 4", "OK", "20"),
+            ("float", "AVFloat value = -1.5 out value", "OK", "-1.5"),
+            (
+                "escapes",
+                r#"out "line\nquote=\" slash=\\ tab=\t""#,
+                "OK",
+                "line\nquote=\" slash=\\ tab=\t",
+            ),
+            (
+                "function",
+                "func double(value) { return value * 2 } out double(21)",
+                "OK",
+                "42",
+            ),
+            (
+                "while",
+                "AVInt value = 0 while (value < 4) (10) { value += 1 } out value",
+                "OK",
+                "4",
+            ),
+            ("pick", r#"pick("APL"): item { out item }"#, "OK", "APL"),
+            (
+                "nested index",
+                "List matrix = [[1, 2], [3, 4]] out matrix[1][0]",
+                "OK",
+                "3",
+            ),
+            (
+                "reverse slice",
+                r#"AVStr value = "APL" out value[::-1]"#,
+                "OK",
+                "LPA",
+            ),
+            (
+                "conversions",
+                r#"out int("42") out str(true) out bool(0)"#,
+                "OK",
+                "42trueNONE",
+            ),
+            ("logical", "out (3 < 4) and (4 != 5)", "OK", "true"),
+            (
+                "self",
+                "AVInt value = 1 out value =self= value += 1 out value =self=",
+                "OK",
+                "truefalse",
+            ),
+            ("none", "VTime value = NONE out value", "OK", "NONE"),
+            (
+                "list mutation",
+                "List values = [1, 2] add(values, 3) out pop(values) out len(values)",
+                "OK",
+                "32",
+            ),
+            (
+                "info",
+                r#"SASVStr key = "raw" AVStr typ = "" AVStr level = "" typ, level = info(key) out typ out level"#,
+                "OK",
+                "StrSASV",
+            ),
+            (
+                "bare stop",
+                r#"out "before" if true { stop } out "after""#,
+                "STOP",
+                "before",
+            ),
+            (
+                "if else-if",
+                "AVInt value = 2 if value == 1 { out 1 } else if value == 2 { out 2 } else { out 3 }",
+                "OK",
+                "2",
+            ),
+            (
+                "while limit",
+                "AVInt value = 0 while (true) (3) { value += 1 } out value",
+                "OK",
+                "3",
+            ),
+            (
+                "continue and break",
+                "AVInt value = 0 while (value < 10) (20) { value += 1 if value == 2 { continue } if value == 4 { break } out value } out value",
+                "OK",
+                "134",
+            ),
+            (
+                "builtins",
+                r#"out len("APL") out get([7], 0) out join(split("a,b", ","), "-") out contains("apl", "p") out ord("A") out char(66) out pow(2, 5)"#,
+                "OK",
+                "37a-btrue65B32",
+            ),
+            (
+                "slices",
+                r#"out "abcdef"[1:5:2] out [1, 2, 3][-1]"#,
+                "OK",
+                "bd3",
+            ),
+            (
+                "bytes and json",
+                r#"out bytes("AB") out json("42")"#,
+                "OK",
+                "[65, 66]42",
+            ),
+            (
+                "list rendering",
+                r#"out [1, "x", true, NONE]"#,
+                "OK",
+                "[1, x, true, NONE]",
+            ),
+            (
+                "nested functions",
+                "func add_one(value) { return value + 1 } func twice(value) { return add_one(add_one(value)) } out twice(40)",
+                "OK",
+                "42",
+            ),
+            (
+                "nested scope",
+                "AVInt value = 1 if true { VTime amount = 2 value += amount } out value",
+                "OK",
+                "3",
+            ),
+        ];
+        let sources = cases
+            .iter()
+            .map(|(_, source, _, _)| *source)
+            .collect::<Vec<_>>();
+        let apl_outcomes = apl_run_outcomes(&sources);
+        assert_eq!(apl_outcomes.len(), cases.len());
+        for ((name, source, expected_status, expected_output), (apl_status, apl_output)) in
+            cases.iter().zip(apl_outcomes)
+        {
+            let program = apl_parser::parse_program(source).unwrap();
+            validate_program(&program).unwrap();
+            let rust_output = run_program(&program, vec![]).unwrap().stdout;
+
+            assert_eq!(rust_output, *expected_output, "Rust output for {name}");
+            assert_eq!(apl_status, *expected_status, "APL status for {name}");
+            assert_eq!(apl_output, *expected_output, "APL output for {name}");
+        }
+    }
+
+    #[test]
+    fn rust_and_apl_runtimes_agree_on_input_programs() {
+        let cases: [(&str, &[&str], &str); 6] = [
+            ("VTime value = input out value", &["hello"], "hello"),
+            (
+                "AVInt whole = input AVFloat ratio = input AVBool flag = input AVStr text = input out whole out ratio out flag out text",
+                &["42", "2.5", "true", "abc"],
+                "422.5trueabc",
+            ),
+            (
+                "AVInt whole = input AVFloat ratio = input AVBool flag = input out whole out ratio out flag",
+                &["bad", "bad", "0"],
+                "NONENONENONE",
+            ),
+            (
+                r#"VTime first = input VTime second = input out first out "|" out second"#,
+                &["only"],
+                "only|NONE",
+            ),
+            (
+                r#"ASVStr hidden = secret input AVStr typ = "" AVStr level = "" typ, level = info(hidden) out typ out level"#,
+                &["hidden"],
+                "StrASV",
+            ),
+            (
+                "func read() { return input } out read() out input",
+                &["A", "B"],
+                "AB",
+            ),
+        ];
+        let apl_cases = cases
+            .iter()
+            .map(|(source, input, _)| (*source, *input))
+            .collect::<Vec<_>>();
+        let apl_outcomes = apl_run_outcomes_with_input(&apl_cases);
+
+        assert_eq!(apl_outcomes.len(), cases.len());
+        for ((source, input, expected_output), (apl_status, apl_output)) in
+            cases.iter().zip(apl_outcomes)
+        {
+            let program = apl_parser::parse_program(source).unwrap();
+            validate_program(&program).unwrap();
+            let rust_output = run_program(
+                &program,
+                input.iter().map(|value| (*value).to_owned()).collect(),
+            )
+            .unwrap()
+            .stdout;
+
+            assert_eq!(rust_output, *expected_output, "Rust output for `{source}`");
+            assert_eq!(apl_status, "OK", "APL status for `{source}`");
+            assert_eq!(apl_output, *expected_output, "APL output for `{source}`");
+        }
     }
 
     #[test]
@@ -2849,11 +3204,12 @@ mod tests {
             out get(vm_output, 2)
             out get(vm_output, 3)
             out get(vm_output, 4)
+            out get(vm_output, 1) == "NONE"
             "#,
         )
         .unwrap();
 
-        assert_eq!(output, "542NONEtrue42DENIED");
+        assert_eq!(output, "542NONEtrue42DENIEDtrue");
     }
 
     #[test]

@@ -323,6 +323,21 @@ compiler sources. An outer Rust bootstrap host still loads and runs the APL VM;
 this is compiler-in-VM bootstrap, not native code generation yet. Release mode
 is strongly recommended for both compiler construction and nested compilation.
 
+The Rust reference frontend/runtime and the APL-written bootstrap path share a
+differential regression corpus. It compares source acceptance, terminal status,
+and public output across core syntax, control flow, functions, collections,
+builtins, protection metadata, and explicit input streams:
+
+```powershell
+cargo test --workspace
+cargo test --release -p apl_compiler bootstrap_compiler_artifact_compiles_inside_apl_vm -- --ignored
+```
+
+The second command is the expensive compiler-in-VM gate: a reusable compiler
+artifact is executed inside the APL VM and must compile and run another APL
+program. `run_report` output is always a list of rendered strings, including
+the string `"NONE"` for `out NONE`; exhausted input is `NONE` in both runtimes.
+
 `.aplmod` now uses the `APLMOD3:` portable format. It stores unlinked IR plus a
 verified symbol table for functions, absolute variables, and `List`
 declarations. Function symbols carry arity; absolute symbols carry their full

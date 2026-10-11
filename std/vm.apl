@@ -1245,6 +1245,14 @@ func vm.coerce_state(value_state, value_type) {
   return [vm.coerce_value(get(value_state, 0), value_type), get(value_state, 1), get(value_state, 2), get(value_state, 3), get(value_state, 4)]
 }
 
+func vm.render_output(value) {
+  if value == NONE {
+    return "NONE"
+  }
+
+  return str(value)
+}
+
 func vm.add_public_reason(output, value_state, fallback) {
   VTime next_output = get(value_state, 2)
 
@@ -1422,7 +1430,7 @@ func vm.exec_instruction(instruction, env, output, functions) {
       return [vm.FLOW_OK, env, next_output]
     }
 
-    add(next_output, str(get(value_state, 0)))
+    add(next_output, vm.render_output(get(value_state, 0)))
     return [vm.FLOW_OK, env, next_output]
   }
 

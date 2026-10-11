@@ -506,8 +506,9 @@ Rust workspace:
   compiler bootstrap tests. It exposes a narrow host bridge that asks the
   APL-written bootstrap pipeline to compile source into portable `APLLINK2`
   artifacts and to load, verify, and run those artifacts. The bridge passes an
-  explicit input count because the outer Rust-hosted `input` uses an empty
-  string at exhaustion while the inner APL VM uses `NONE`. Linked compilation
+  explicit input count so an empty input line remains a real value instead of
+  becoming an end-of-stream marker. Both the Rust runtime and the APL VM return
+  `NONE` when that counted input stream is exhausted. Linked compilation
   composes `std/runtime.apl` and user source inside the APL bridge before
   checking and lowering. Runtime helpers and user functions therefore receive
   one function table and one `CALL_SLOT` namespace without copying compiler
@@ -712,7 +713,9 @@ APL-owned runtime code:
   `if/else if/else` blocks, bounded `while` blocks, loop flow with `break`/`continue`,
   `pick` iteration with scoped item cleanup, function tables, function calls,
   `return`, `secretup`, `out`, `stop`, and `fail`, and returns captured output
-  as a list of strings. Direct and derived `out` of `ASV`/`SASV` values is
+  as a list of strings. This contract includes `out NONE`, which contributes
+  the string `"NONE"` instead of placing a raw `NONE` value in the output list.
+  Direct and derived `out` of `ASV`/`SASV` values is
   denied by the APL
   VM bootstrap for variable loads, `VTime` copies, binary expressions, list
   literals, and `get` from secret-derived lists. The VM also rejects attempts
@@ -892,6 +895,21 @@ APL-owned runtime code:
   `examples/test_bootstrap_loaded_image.apl`, and
   `examples/test_bootstrap_linked_artifact.apl` are smoke-tests for the
   APL-level bootstrap facade.
+
+Bootstrap parity gates:
+
+- `apl_runtime` runs batches of source through both the Rust reference
+  parser/checker/runtime and the APL-written `bootstrap.compile_report` /
+  `bootstrap.run_report` path. The corpus covers accepted and rejected source,
+  arithmetic, control flow, functions, scopes, lists, indexing/slicing,
+  builtins, protection metadata, rendering, and explicit input streams.
+- The differential gate requires the same acceptance result, status, and
+  public output from both implementations. It also checks that invalid typed
+  and exhausted input become `NONE` on both paths.
+- `cargo test --workspace` runs the ordinary gate. The ignored release test
+  `bootstrap_compiler_artifact_compiles_inside_apl_vm` remains the final
+  compiler-in-VM regression gate because it executes the reusable compiler
+  artifact inside the APL VM and is intentionally expensive.
 
 Rust-hosted builtins that support the APL prelude:
 
