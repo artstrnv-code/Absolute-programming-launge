@@ -36,6 +36,9 @@ pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/bootstrap.apl")
 );
 
+const BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
+const BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildOutput {
     pub package_dir: PathBuf,
@@ -140,6 +143,38 @@ pub fn compile_module_artifact_sources(sources: &[&str]) -> Result<String, Compi
 
 pub fn emit_standard_module_artifact_file(output_path: &Path) -> Result<(), CompileError> {
     fs::write(output_path, compile_standard_module_artifact()?)?;
+    Ok(())
+}
+
+pub fn compile_bootstrap_compiler_artifact() -> Result<String, CompileError> {
+    let standard_module = compile_standard_module_artifact()?;
+    let runtime_module = compile_module_artifact(RUNTIME_PRELUDE)?;
+    let driver = render_bootstrap_compiler_driver(&runtime_module);
+    compile_linked_artifact_with_precompiled_module(&standard_module, &driver)
+}
+
+pub fn emit_bootstrap_compiler_artifact_file(output_path: &Path) -> Result<(), CompileError> {
+    fs::write(output_path, compile_bootstrap_compiler_artifact()?)?;
+    Ok(())
+}
+
+pub fn compile_linked_artifact_with_bootstrap_compiler(
+    compiler_artifact: &str,
+    source: &str,
+) -> Result<String, CompileError> {
+    let output = run_linked_artifact(compiler_artifact, vec![source.to_owned()])?;
+    parse_bootstrap_compiler_output(&output.stdout)
+}
+
+pub fn emit_linked_artifact_with_bootstrap_compiler_file(
+    compiler_path: &Path,
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let compiler = fs::read_to_string(compiler_path)?;
+    let source = fs::read_to_string(source_path)?;
+    let artifact = compile_linked_artifact_with_bootstrap_compiler(&compiler, &source)?;
+    fs::write(output_path, artifact)?;
     Ok(())
 }
 
@@ -341,6 +376,65 @@ fn bootstrap_stdout_artifact(
     } else {
         Ok(output.stdout)
     }
+}
+
+fn render_bootstrap_compiler_driver(runtime_module: &str) -> String {
+    let runtime_module = apl_string_literal(runtime_module);
+    format!(
+        r#"AVStr aplcompiler.runtime_module = {runtime_module}
+AVStr aplcompiler.source = input
+VTime aplcompiler.report = bootstrap.linked_artifact_with_module_report(aplcompiler.runtime_module, aplcompiler.source)
+
+if get(aplcompiler.report, 0) != vm.FLOW_OK {{
+  out "{BOOTSTRAP_COMPILER_ERROR}"
+  out get(aplcompiler.report, 1)
+  stop
+}}
+
+out "{BOOTSTRAP_COMPILER_OK}"
+out get(aplcompiler.report, 1)"#
+    )
+}
+
+fn apl_string_literal(value: &str) -> String {
+    let mut literal = String::with_capacity(value.len() + 2);
+    literal.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\n' => literal.push_str("\\n"),
+            '\r' => literal.push_str("\\r"),
+            '\t' => literal.push_str("\\t"),
+            '\0' => literal.push_str("\\0"),
+            '\\' => literal.push_str("\\\\"),
+            '"' => literal.push_str("\\\""),
+            _ => literal.push(ch),
+        }
+    }
+    literal.push('"');
+    literal
+}
+
+fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError> {
+    if let Some(artifact) = output.strip_prefix(BOOTSTRAP_COMPILER_OK) {
+        if artifact.starts_with("APLLINK2:") {
+            return Ok(artifact.to_owned());
+        }
+        return Err(CompileError::Bootstrap(
+            "APL bootstrap compiler returned an invalid linked artifact".to_owned(),
+        ));
+    }
+
+    if let Some(message) = output.strip_prefix(BOOTSTRAP_COMPILER_ERROR) {
+        return Err(CompileError::Bootstrap(if message.is_empty() {
+            "APL bootstrap compiler failed without a diagnostic".to_owned()
+        } else {
+            message.to_owned()
+        }));
+    }
+
+    Err(CompileError::Bootstrap(
+        "APL bootstrap compiler returned an invalid response".to_owned(),
+    ))
 }
 
 const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
@@ -720,6 +814,70 @@ mod tests {
                 .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "42");
+    }
+
+    #[test]
+    fn bootstrap_compiler_protocol_is_versioned_and_validated() {
+        assert_eq!(
+            parse_bootstrap_compiler_output("APLCOMP1:OAPLLINK2:payload").unwrap(),
+            "APLLINK2:payload"
+        );
+
+        let CompileError::Bootstrap(message) =
+            parse_bootstrap_compiler_output("APLCOMP1:Edeclaration expects =").unwrap_err()
+        else {
+            panic!("expected bootstrap protocol error");
+        };
+        assert_eq!(message, "declaration expects =");
+
+        assert!(matches!(
+            parse_bootstrap_compiler_output("APLCOMP1:Onot-an-artifact"),
+            Err(CompileError::Bootstrap(_))
+        ));
+        assert!(matches!(
+            parse_bootstrap_compiler_output("unknown"),
+            Err(CompileError::Bootstrap(_))
+        ));
+    }
+
+    #[test]
+    fn bootstrap_compiler_driver_embeds_runtime_module_safely() {
+        let encoded = "APLMOD3:line\nquote=\" slash=\\ tab=\t nul=\0";
+        let driver = render_bootstrap_compiler_driver(encoded);
+        let program = apl_parser::parse_program(&driver).unwrap();
+
+        let apl_core::Statement::VariableDecl(declaration) = &program.statements[0] else {
+            panic!("expected embedded runtime module declaration");
+        };
+        assert_eq!(
+            declaration.initial_value,
+            apl_core::Expression::Literal(apl_core::Value::Str(encoded.to_owned()))
+        );
+        assert!(driver.contains(BOOTSTRAP_COMPILER_OK));
+        assert!(driver.contains(BOOTSTRAP_COMPILER_ERROR));
+    }
+
+    #[test]
+    #[ignore = "expensive compiler-in-VM bootstrap gate"]
+    fn bootstrap_compiler_artifact_compiles_inside_apl_vm() {
+        let compiler = compile_bootstrap_compiler_artifact().unwrap();
+        assert!(compiler.starts_with("APLLINK2:"));
+
+        let artifact = compile_linked_artifact_with_bootstrap_compiler(
+            &compiler,
+            "func double(value) { return value * 2 } out double(21)",
+        )
+        .unwrap();
+        let output = run_linked_artifact(&artifact, vec![]).unwrap();
+        assert_eq!(output.stdout, "42");
+
+        let CompileError::Bootstrap(message) =
+            compile_linked_artifact_with_bootstrap_compiler(&compiler, "AVInt value 1")
+                .unwrap_err()
+        else {
+            panic!("expected nested compiler diagnostic");
+        };
+        assert_eq!(message, "declaration expects =");
     }
 
     #[test]

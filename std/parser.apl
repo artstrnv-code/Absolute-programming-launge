@@ -46,6 +46,7 @@ List parser.DECL_KEYWORDS = ["AVInt", "AVFloat", "AVBool", "AVStr", "AVBytes", "
 
 List parser.ASSIGN_OPS = ["=", "+=", "-=", "*=", "/="]
 List parser.BINARY_OPS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/"]
+List parser.STATEMENT_KEYWORDS = ["if", "func", "while", "pick", "break", "continue", "return", "secretup", "stop", "fail", "out", "VTime", "List"]
 
 func parser.node_kind(node) {
   return get(node, 0)
@@ -82,6 +83,36 @@ func parser.is_identifier_token(token) {
 func parser.is_decl_keyword(value) {
   pick(parser.DECL_KEYWORDS): keyword {
     if keyword == value {
+      return true
+    }
+  }
+
+  return false
+}
+
+func parser.next_starts_statement_or_block_end(tokens, index) {
+  if index >= len(tokens) {
+    return true
+  }
+
+  VTime token = get(tokens, index)
+
+  if parser.is_symbol_token(token, "}") {
+    return true
+  }
+
+  if lexer.token_kind(token) != lexer.TOKEN_KW {
+    return false
+  }
+
+  VTime value = lexer.token_value(token)
+
+  if parser.is_decl_keyword(value) {
+    return true
+  }
+
+  pick(parser.STATEMENT_KEYWORDS): keyword {
+    if value == keyword {
       return true
     }
   }
@@ -924,7 +955,7 @@ func parser.parse_statement(tokens, index) {
   }
 
   if parser.is_keyword_token(token, "stop") {
-    if index + 1 >= len(tokens) {
+    if parser.next_starts_statement_or_block_end(tokens, index + 1) {
       return [[parser.NODE_STOP, NONE], index + 1]
     }
 

@@ -2270,6 +2270,28 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_apl_parser_accepts_bare_stop_at_statement_boundaries() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr block_source = "func halt() { stop } out \"before\" VTime unused = halt() out \"after\""
+            AVStr statement_source = "out \"before\" stop out \"after\""
+            VTime block_report = bootstrap.run_report(block_source)
+            VTime statement_report = bootstrap.run_report(statement_source)
+
+            out get(block_report, 0)
+            out len(get(block_report, 1))
+            out get(get(block_report, 1), 0)
+            out get(statement_report, 0)
+            out len(get(statement_report, 1))
+            out get(get(statement_report, 1), 0)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "STOP1beforeSTOP1before");
+    }
+
+    #[test]
     fn source_runtime_uses_apl_ir_prelude() {
         let output = run_source_with_prelude(
             r#"

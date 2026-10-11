@@ -305,6 +305,24 @@ APL invocation. The combined IR and symbol table stay in memory and are encoded
 once. The current VM-in-VM smoke-test is computationally expensive, so release
 mode is recommended for that final command.
 
+Build a reusable compiler program, then use that `APLLINK2` program to compile
+new source from inside the APL VM:
+
+```powershell
+cargo run --release -p apl -- emit-bootstrap-compiler build\bootstrap_compiler.apllink
+cargo run --release -p apl -- emit-linked-bootstrap build\bootstrap_compiler.apllink examples\linked_hello.apl build\linked_hello_selfhost.apllink
+cargo run --release -p apl -- run-linked build\linked_hello_selfhost.apllink
+```
+
+The bootstrap compiler artifact contains the APL-written frontend, checker,
+linker, verifier, artifact codec, VM, and an embedded relocatable runtime
+module. It accepts source as input and returns either a new `APLLINK2` payload
+or a diagnostic through the versioned `APLCOMP1` response protocol. The
+compiler artifact can be reused without rebuilding or re-tokenizing its own
+compiler sources. An outer Rust bootstrap host still loads and runs the APL VM;
+this is compiler-in-VM bootstrap, not native code generation yet. Release mode
+is strongly recommended for both compiler construction and nested compilation.
+
 `.aplmod` now uses the `APLMOD3:` portable format. It stores unlinked IR plus a
 verified symbol table for functions, absolute variables, and `List`
 declarations. Function symbols carry arity; absolute symbols carry their full

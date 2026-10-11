@@ -519,13 +519,18 @@ Rust workspace:
   `compile_standard_module_artifact` uses that path for every `std/*.apl`
   compiler/runtime layer. Runtime strings cache Unicode characters and runtime
   lists use copy-on-write storage, avoiding whole-source and whole-AST copies
-  during bootstrap while preserving APL value semantics.
+  during bootstrap while preserving APL value semantics. It can also build a
+  reusable compiler `APLLINK2` containing the complete APL-written compiler and
+  an embedded runtime `APLMOD3`. Running that artifact compiles input source
+  inside the APL VM and returns a linked artifact or diagnostic through the
+  versioned `APLCOMP1` protocol.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`
   aliases), relocatable module `emit-module`/`extend-module`/
-  `emit-standard-module`/`emit-linked-module`, and legacy `.aplc` package
-  `build-host`/`compile-host` commands.
+  `emit-standard-module`/`emit-linked-module`, compiler-in-VM
+  `emit-bootstrap-compiler`/`emit-linked-bootstrap`, and legacy `.aplc`
+  package `build-host`/`compile-host` commands.
 - `apl_studio`: small Windows-only native Win32 editor for opening, saving,
   checking, and running `.apl` source without leaving the window. It calls the
   Rust reference parser/checker/runtime directly, keeps execution off the UI
@@ -591,7 +596,9 @@ APL-owned runtime code:
   Identifier positions require `Ident` tokens, and keywords, delimiters, unary
   and binary operators, `=self=`, tags, and `secret input` require their exact
   token kinds. A quoted string with syntax-like contents therefore remains data
-  and cannot impersonate source grammar.
+  and cannot impersonate source grammar. Bare `stop` is recognized before the
+  end of a block and before an unambiguous following statement, matching the
+  Rust parser instead of trying to parse `}` or the next keyword as a reason.
 - `examples/test_parser.apl` is the successful parser smoke-test;
   `examples/test_parser_errors.apl` exercises structural failures through
   `bootstrap.compile_report`, and `examples/test_parser_token_roles.apl`
@@ -850,6 +857,15 @@ APL-owned runtime code:
   so this is self-hosted portable compiler/VM bootstrap rather than the final
   native bootstrap. Use a release host for the VM-in-VM smoke-test; debug mode
   is currently impractically slow.
+  A second gate builds that complete compiler/runtime module into a reusable
+  compiler `APLLINK2`. `emit-linked-bootstrap` runs the compiler artifact
+  inside the APL VM with user source as input; the artifact invokes
+  `bootstrap.linked_artifact_with_module_report` against its embedded runtime
+  `APLMOD3` and returns a fresh user `APLLINK2`. The verified gate compiles and
+  runs a function-bearing program to produce `42`, then reuses the same
+  compiler instance to return the exact parser diagnostic for invalid source.
+  This removes repeated compiler-source parsing from user compilation, but the
+  outer artifact loader and VM are still executed by the Rust bootstrap host.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
   `examples/test_vm_while.apl`, and
@@ -954,10 +970,9 @@ Portable linked package path:
 - Legacy `build-host`/`compile-host` remains available for self-host examples
   that execute compiler modules from the complete standard prelude.
   `compile_apl.bat` intentionally uses `compile-host`, while
-  `compile_linked_apl.bat` uses the portable path. Compiling the entire compiler
-  source through the currently interpreted APL lexer/parser on every build is
-  not yet practical; a relocatable preloaded compiler module is the next
-  migration layer.
+  `compile_linked_apl.bat` uses the portable path. The reusable artifact emitted
+  by `emit-bootstrap-compiler` is the preloaded compiler migration layer: it
+  avoids rebuilding and parsing compiler source for each user compilation.
 - `if/else if/else` is compiled into `JumpIfFalse`, `ExecScopedBlock`, and
   `Jump` statement opcodes.
 - `while` is compiled into `LoopCheck`, `ExecLoopBody`, and `Jump` statement

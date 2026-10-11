@@ -150,6 +150,17 @@ fn main() {
                 Err(error) => exit_compile_error("emit-standard-module", error),
             }
         }
+        "emit-bootstrap-compiler" => {
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("build").join("bootstrap_compiler.apllink"));
+
+            match apl_compiler::emit_bootstrap_compiler_artifact_file(&output_path) {
+                Ok(()) => println!("emitted bootstrap compiler: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-bootstrap-compiler", error),
+            }
+        }
         "extend-module" => {
             let Some(module_path) = args.next() else {
                 eprintln!("missing module artifact path");
@@ -194,6 +205,32 @@ fn main() {
             ) {
                 Ok(()) => println!("emitted linked artifact: {}", output_path.display()),
                 Err(error) => exit_compile_error("emit-linked-module", error),
+            }
+        }
+        "emit-linked-bootstrap" => {
+            let Some(compiler_path) = args.next() else {
+                eprintln!("missing bootstrap compiler artifact path");
+                process::exit(2);
+            };
+            let Some(source_path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_linked_path(&source_path));
+
+            match apl_compiler::emit_linked_artifact_with_bootstrap_compiler_file(
+                Path::new(&compiler_path),
+                Path::new(&source_path),
+                &output_path,
+            ) {
+                Ok(()) => println!(
+                    "emitted linked artifact through bootstrap compiler: {}",
+                    output_path.display()
+                ),
+                Err(error) => exit_compile_error("emit-linked-bootstrap", error),
             }
         }
         "run-linked" => {
@@ -300,7 +337,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|extend-module|emit-linked|emit-linked-module|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
