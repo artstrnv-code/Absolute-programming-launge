@@ -14,7 +14,7 @@ The core idea is simple:
 - `Int / Int` stays `Int`;
 - strings are not concatenated with `+`;
 - `NONE` is an empty value state, not a type change;
-- `out` prints non-secret values;
+- `out` appends non-secret values without adding a newline;
 - `input` reads user input and becomes `NONE` when conversion fails;
 - `secret input` reads hidden input for `ASV` variables;
 - `info(x)` can expose a variable's type and protection level without exposing
@@ -158,6 +158,19 @@ out cell
 stop
 ```
 
+`out` writes exactly the rendered value. Consecutive statements therefore
+compose one output stream, and line endings are explicit:
+
+```apl
+out "age="
+out age
+out "\n"
+```
+
+String literals support `\n`, `\r`, `\t`, `\0`, `\\`, and `\"`. Unknown or
+unfinished escape sequences are syntax errors. A runnable demonstration lives
+in `examples/test_output.apl`.
+
 Containers, Docker execution, and binary `.aplb` bundles come after the language
 base is strict and testable.
 
@@ -178,7 +191,9 @@ parser, checker, runtime errors, and program output in the lower pane. Lexer
 and parser diagnostics include one-based source `line:column` coordinates. Use
 `Ctrl+O` and `Ctrl+S` for the standard file commands. A modified file that
 already has a path is saved before it runs; an untitled buffer can run without
-being written to disk. The `Input` pane supplies one value per line to
+being written to disk. Since Win32 text controls use NUL as a terminator, the
+output pane renders an embedded NUL visibly as `\0`; the runtime value itself
+remains unchanged. The `Input` pane supplies one value per line to
 successive `input` and `secret input` expressions. Empty lines are preserved.
 
 The first Studio version executes source through the Rust reference

@@ -226,7 +226,37 @@ func lexer.tokenize(source) {
       VTime text_chars = []
 
       while ((index < len(source)) and (lexer.is_quote(source[index]) == false)) (-1) {
-        add(text_chars, source[index])
+        if source[index] == char(92) {
+          index += 1
+
+          if index >= len(source) {
+            add(tokens, lexer.make_token(lexer.TOKEN_ERROR, "unterminated escape sequence"))
+            return tokens
+          }
+
+          VTime escape = source[index]
+
+          if escape == "n" {
+            add(text_chars, char(10))
+          } else if escape == "r" {
+            add(text_chars, char(13))
+          } else if escape == "t" {
+            add(text_chars, char(9))
+          } else if escape == "0" {
+            add(text_chars, char(0))
+          } else if escape == char(92) {
+            add(text_chars, char(92))
+          } else if lexer.is_quote(escape) {
+            add(text_chars, char(34))
+          } else {
+            VTime message = join(["invalid escape sequence `", char(92), escape, "`"], "")
+            add(tokens, lexer.make_token(lexer.TOKEN_ERROR, message))
+            return tokens
+          }
+        } else {
+          add(text_chars, source[index])
+        }
+
         index += 1
       }
 

@@ -377,9 +377,26 @@ Output:
 out value
 ```
 
+`out` appends exactly the rendered value and does not add a newline. Programs
+compose output explicitly:
+
+```apl
+out "value="
+out value
+out "\n"
+```
+
+String literals decode `\n`, `\r`, `\t`, `\0`, `\\`, and `\"`. Unknown
+escapes and a trailing backslash are syntax errors. The Rust reference parser
+and APL-written lexer use the same rules. Raw line breaks inside a string remain
+accepted for compatibility, although escaped line endings are preferred in
+source.
+
 `out` is an external channel and must not output secret values. This includes
 nested list values: if any element inside a list is `ASV` or `SASV`, rendering
-the whole list to `out` is denied.
+the whole list to `out` is denied. `stop reason` remains a separate termination
+channel and currently appends its reason followed by a newline in the Rust
+reference runtime.
 
 Input:
 
@@ -519,7 +536,9 @@ Rust workspace:
   standard Windows file dialogs. Lexer/parser failures are reported against the
   user buffer with one-based `line:column` coordinates rather than hidden
   standard-prelude offsets. Studio is intentionally not a full IDE or a
-  frontend for the portable self-host VM.
+  frontend for the portable self-host VM. Its Win32 output control renders an
+  embedded NUL visibly as `\0` so later output is not truncated; the runtime
+  and CLI retain the actual NUL character.
 - `apl_router`: placeholder for future router/container phase.
 
 APL-owned runtime code:

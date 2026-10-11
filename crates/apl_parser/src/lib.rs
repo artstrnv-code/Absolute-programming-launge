@@ -906,6 +906,39 @@ fn read_string(source: &str, start: usize) -> Result<(String, usize), ParseError
         if ch == '"' {
             return Ok((value, cursor + 1));
         }
+
+        if ch == '\\' {
+            let escape_start = cursor;
+            cursor += ch.len_utf8();
+            if cursor >= source.len() {
+                return Err(parse_error_at(
+                    source,
+                    escape_start,
+                    "unterminated escape sequence",
+                ));
+            }
+
+            let escaped = source[cursor..].chars().next().unwrap();
+            let decoded = match escaped {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '0' => '\0',
+                '\\' => '\\',
+                '"' => '"',
+                _ => {
+                    return Err(parse_error_at(
+                        source,
+                        escape_start,
+                        format!("invalid escape sequence `\\{escaped}`"),
+                    ))
+                }
+            };
+            value.push(decoded);
+            cursor += escaped.len_utf8();
+            continue;
+        }
+
         value.push(ch);
         cursor += ch.len_utf8();
     }
@@ -1177,6 +1210,31 @@ mod tests {
                 "Rust parser unexpectedly accepted `{source}`"
             );
         }
+    }
+
+    #[test]
+    fn decodes_supported_string_escapes() {
+        let tokenized = tokenize(r#""line\ncarriage\r tab\t nul\0 slash\\ quote\"""#).unwrap();
+
+        assert_eq!(
+            tokenized.tokens,
+            vec![Token::Str(
+                "line\ncarriage\r tab\t nul\0 slash\\ quote\"".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_and_unterminated_string_escapes() {
+        let invalid = parse_program(r#"out "bad\q""#).unwrap_err();
+        assert_eq!(invalid.message, "invalid escape sequence `\\q`");
+        assert_eq!(invalid.line, 1);
+        assert_eq!(invalid.column, 9);
+
+        let unterminated = parse_program(r#"out "tail\"#).unwrap_err();
+        assert_eq!(unterminated.message, "unterminated escape sequence");
+        assert_eq!(unterminated.line, 1);
+        assert_eq!(unterminated.column, 10);
     }
 
     #[test]

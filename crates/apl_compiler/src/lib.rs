@@ -334,12 +334,13 @@ fn bootstrap_stdout_artifact(
     output: apl_runtime::RunOutput,
     artifact_name: &str,
 ) -> Result<String, CompileError> {
-    output
-        .stdout
-        .strip_suffix('\n')
-        .map(str::to_owned)
-        .filter(|artifact| !artifact.is_empty())
-        .ok_or_else(|| CompileError::Bootstrap(format!("APL compiler returned no {artifact_name}")))
+    if output.stdout.is_empty() {
+        Err(CompileError::Bootstrap(format!(
+            "APL compiler returned no {artifact_name}"
+        )))
+    } else {
+        Ok(output.stdout)
+    }
 }
 
 const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
@@ -650,7 +651,7 @@ mod tests {
 
         assert!(artifact.starts_with("APLLINK2:"));
         let output = run_linked_artifact(&artifact, vec!["4".to_owned()]).unwrap();
-        assert_eq!(output.stdout, "5\n");
+        assert_eq!(output.stdout, "5");
     }
 
     #[test]
@@ -662,7 +663,7 @@ mod tests {
 
         let output =
             run_linked_artifact(&artifact, vec![String::new(), "kept".to_owned()]).unwrap();
-        assert_eq!(output.stdout, "0\nkept\n");
+        assert_eq!(output.stdout, "0kept");
     }
 
     #[test]
@@ -671,7 +672,7 @@ mod tests {
             compile_linked_artifact("AVInt value = apl.pow_int(3, 4) out value").unwrap();
 
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
-        assert_eq!(output.stdout, "81\n");
+        assert_eq!(output.stdout, "81");
     }
 
     #[test]
@@ -683,7 +684,7 @@ mod tests {
         .unwrap();
 
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
-        assert_eq!(output.stdout, "42\n");
+        assert_eq!(output.stdout, "42");
     }
 
     #[test]
@@ -698,7 +699,7 @@ mod tests {
             compile_linked_artifact_with_precompiled_module(&module, "out module.twice(40)")
                 .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
-        assert_eq!(output.stdout, "42\n");
+        assert_eq!(output.stdout, "42");
     }
 
     #[test]
@@ -718,7 +719,7 @@ mod tests {
             compile_linked_artifact_with_precompiled_module(&extended, "out module.total()")
                 .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
-        assert_eq!(output.stdout, "42\n");
+        assert_eq!(output.stdout, "42");
     }
 
     #[test]

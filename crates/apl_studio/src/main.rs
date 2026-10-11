@@ -467,7 +467,7 @@ mod windows_app {
                 if !state_ptr.is_null() && l_param != 0 {
                     let result = Box::from_raw(l_param as *mut String);
                     let state = &mut *state_ptr;
-                    set_text(state.output, &result);
+                    set_text(state.output, &display_output(&result));
                     state.running = false;
                     EnableWindow(state.run_button, 1);
                     set_text(state.output_label, "Output");
@@ -914,6 +914,10 @@ mod windows_app {
         }
     }
 
+    fn display_output(output: &str) -> String {
+        output.replace('\0', "\\0")
+    }
+
     fn parse_input(text: &str) -> Vec<String> {
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         if normalized.is_empty() {
@@ -995,13 +999,13 @@ mod windows_app {
 
     #[cfg(test)]
     mod tests {
-        use super::{execute_source, parse_input};
+        use super::{display_output, execute_source, parse_input};
 
         #[test]
         fn executes_source_from_editor_buffer() {
             assert_eq!(
                 execute_source("AVInt value = 6 * 7\nout value", Vec::new()),
-                "42\n"
+                "42"
             );
         }
 
@@ -1022,8 +1026,16 @@ mod windows_app {
                     "AVInt number = input\nAVStr word = input\nout number\nout word",
                     input,
                 ),
-                "41\nhello\n"
+                "41hello"
             );
+        }
+
+        #[test]
+        fn keeps_output_after_nul_visible() {
+            let output = execute_source(r#"out "left\0right""#, Vec::new());
+
+            assert_eq!(output, "left\0right");
+            assert_eq!(display_output(&output), "left\\0right");
         }
     }
 }

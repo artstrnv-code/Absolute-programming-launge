@@ -746,7 +746,6 @@ impl<'a> Runtime<'a> {
                     ));
                 }
                 self.stdout.push_str(&value.render());
-                self.stdout.push('\n');
                 Ok(Flow::None)
             }
             StatementOp::Stop(reason) => {
@@ -1924,7 +1923,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(output, "3\n");
+        assert_eq!(output, "3");
     }
 
     #[test]
@@ -2008,7 +2007,22 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "8\ntrue\nNONE\n");
+        assert_eq!(output, "8trueNONE");
+    }
+
+    #[test]
+    fn source_runtime_out_appends_and_strings_decode_escapes() {
+        let output = run_source(
+            r#"
+            out "value="
+            out 42
+            out "\n"
+            out "quote: \" slash: \\ tab:\t nul:\0"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "value=42\nquote: \" slash: \\ tab:\t nul:\0");
     }
 
     #[test]
@@ -2037,7 +2051,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(output, "3\n");
+        assert_eq!(output, "3");
     }
 
     #[test]
@@ -2073,7 +2087,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(output, "2\n");
+        assert_eq!(output, "2");
     }
 
     #[test]
@@ -2097,7 +2111,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "9\n");
+        assert_eq!(output, "9");
     }
 
     #[test]
@@ -2119,7 +2133,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\n1\nLPA\n0\n");
+        assert_eq!(output, "31LPA0");
     }
 
     #[test]
@@ -2142,7 +2156,39 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "6\nAVInt\nKeyword\n+=\nSymbol\nok\nStr\n");
+        assert_eq!(output, "6AVIntKeyword+=SymbolokStr");
+    }
+
+    #[test]
+    fn source_runtime_apl_lexer_decodes_and_validates_escapes() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = join([char(34), "line", char(92), "n", " tab", char(92), "t", " nul", char(92), "0", " slash", char(92), char(92), " quote", char(92), char(34), char(34)], "")
+            VTime token = get(lexer.tokenize(source), 0)
+
+            AVStr invalid_source = join([char(34), "bad", char(92), "q", char(34)], "")
+            VTime invalid = get(lexer.tokenize(invalid_source), 0)
+
+            AVStr unfinished_source = join([char(34), "bad", char(92)], "")
+            VTime unfinished = get(lexer.tokenize(unfinished_source), 0)
+
+            out lexer.token_value(token)
+            out "|"
+            out lexer.token_kind(invalid)
+            out ":"
+            out lexer.token_value(invalid)
+            out "|"
+            out lexer.token_kind(unfinished)
+            out ":"
+            out lexer.token_value(unfinished)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "line\n tab\t nul\0 slash\\ quote\"|Error:invalid escape sequence `\\q`|Error:unterminated escape sequence"
+        );
     }
 
     #[test]
@@ -2160,7 +2206,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "APL\n65\nA\n");
+        assert_eq!(output, "APL65A");
     }
 
     #[test]
@@ -2191,10 +2237,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            output,
-            "3\nDecl\nAVInt\nx\nInt\n42\nOut\nAssign\n+=\nWhile\n-1\n"
-        );
+        assert_eq!(output, "3DeclAVIntxInt42OutAssign+=While-1");
     }
 
     #[test]
@@ -2223,10 +2266,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            output,
-            "6\nStr\n(\nStr\n[\nStr\n]\nStr\ninput\nStr\nsecret\nStr\n-\nIndex\nStr\n:\n"
-        );
+        assert_eq!(output, "6Str(Str[Str]StrinputStrsecretStr-IndexStr:");
     }
 
     #[test]
@@ -2253,7 +2293,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\nDECL\nAVInt\nx\nLITERAL\n42\nOUT\nASSIGN\n+=\n");
+        assert_eq!(output, "3DECLAVIntxLITERAL42OUTASSIGN+=");
     }
 
     #[test]
@@ -2269,7 +2309,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\n42\n");
+        assert_eq!(output, "142");
     }
 
     #[test]
@@ -2285,7 +2325,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\n42\n");
+        assert_eq!(output, "142");
     }
 
     #[test]
@@ -2301,7 +2341,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\n42\n");
+        assert_eq!(output, "142");
     }
 
     #[test]
@@ -2317,7 +2357,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\n42\n");
+        assert_eq!(output, "142");
     }
 
     #[test]
@@ -2335,7 +2375,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\n1\n2\n3\n");
+        assert_eq!(output, "3123");
     }
 
     #[test]
@@ -2354,7 +2394,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\n1\n3\n4\n5\n");
+        assert_eq!(output, "41345");
     }
 
     #[test]
@@ -2370,7 +2410,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\n42\n");
+        assert_eq!(output, "142");
     }
 
     #[test]
@@ -2387,7 +2427,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "2\n42\n2\n");
+        assert_eq!(output, "2422");
     }
 
     #[test]
@@ -2405,7 +2445,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\n1\n3\n2\n");
+        assert_eq!(output, "3132");
     }
 
     #[test]
@@ -2424,7 +2464,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\n1\n2\n4\nLPA\n");
+        assert_eq!(output, "4124LPA");
     }
 
     #[test]
@@ -2441,7 +2481,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "2\n4\nNONE\n");
+        assert_eq!(output, "24NONE");
     }
 
     #[test]
@@ -2459,7 +2499,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\nStr\nSASV\nDENIED\n");
+        assert_eq!(output, "3StrSASVDENIED");
     }
 
     #[test]
@@ -2478,7 +2518,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\nDENIED\nDENIED\nDENIED\nDENIED\n");
+        assert_eq!(output, "4DENIEDDENIEDDENIEDDENIED");
     }
 
     #[test]
@@ -2495,7 +2535,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\nbefore\nNONE\n");
+        assert_eq!(output, "1beforeNONE");
     }
 
     #[test]
@@ -2516,7 +2556,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\n1\nNONE\n0\nNONE\n");
+        assert_eq!(output, "11NONE0NONE");
     }
 
     #[test]
@@ -2538,7 +2578,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\nbefore\nNONE\n1\nstart\nNONE\n");
+        assert_eq!(output, "1beforeNONE1startNONE");
     }
 
     #[test]
@@ -2562,7 +2602,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\n0\n0\n0\n");
+        assert_eq!(output, "3000");
     }
 
     #[test]
@@ -2588,7 +2628,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "Str\nSASV\n1\nbefore\n0\n0\n");
+        assert_eq!(output, "StrSASV1before00");
     }
 
     #[test]
@@ -2609,7 +2649,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "6\n2\n2\n1\nNONE\nNONE\nNONE\n");
+        assert_eq!(output, "6221NONENONENONE");
     }
 
     #[test]
@@ -2633,7 +2673,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "1\ndone\n1\nDENIED\n1\nbad\n");
+        assert_eq!(output, "1done1DENIED1bad");
     }
 
     #[test]
@@ -2663,10 +2703,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            output,
-            "STOP\n2\nbefore\ndone\nFAIL\n2\nbefore\nbad\nSTOP\n2\nbefore\ndeep\n"
-        );
+        assert_eq!(output, "STOP2beforedoneFAIL2beforebadSTOP2beforedeep");
     }
 
     #[test]
@@ -2683,7 +2720,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "2\nok\nDENIED\n");
+        assert_eq!(output, "2okDENIED");
     }
 
     #[test]
@@ -2701,7 +2738,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\n7\n9\ntrue\n");
+        assert_eq!(output, "379true");
     }
 
     #[test]
@@ -2718,7 +2755,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "2\n-1\ntrue\n");
+        assert_eq!(output, "2-1true");
     }
 
     #[test]
@@ -2737,7 +2774,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\n-4\n-1.5\ntrue\n-5\n");
+        assert_eq!(output, "4-4-1.5true-5");
     }
 
     #[test]
@@ -2756,7 +2793,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\n8\ntrue\nNONE\nDENIED\n");
+        assert_eq!(output, "48trueNONEDENIED");
     }
 
     #[test]
@@ -2774,7 +2811,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\ntrue\nfalse\nDENIED\n");
+        assert_eq!(output, "3truefalseDENIED");
     }
 
     #[test]
@@ -2794,7 +2831,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "5\n42\nNONE\ntrue\n42\nDENIED\n");
+        assert_eq!(output, "542NONEtrue42DENIED");
     }
 
     #[test]
@@ -2813,7 +2850,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\nASV\nDENIED\nSASV\nDENIED\n");
+        assert_eq!(output, "4ASVDENIEDSASVDENIED");
     }
 
     #[test]
@@ -2834,7 +2871,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "6\n3\nA-P-L\ntrue\n65\nZ\nDENIED\n");
+        assert_eq!(output, "63A-P-Ltrue65ZDENIED");
     }
 
     #[test]
@@ -2860,7 +2897,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "9\nList\nSASV\nDENIED\nDENIED\npublic\nDENIED\nDENIED\npublic\nDENIED\n"
+            "9ListSASVDENIEDDENIEDpublicDENIEDDENIEDpublicDENIED"
         );
     }
 
@@ -2882,7 +2919,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "6\nStr\nAV\nNONE\nStr\nASV\nDENIED\n");
+        assert_eq!(output, "6StrAVNONEStrASVDENIED");
     }
 
     #[test]
@@ -2900,7 +2937,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "3\nhello\nDENIED\nNONE\n");
+        assert_eq!(output, "3helloDENIEDNONE");
     }
 
     #[test]
@@ -2919,7 +2956,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "4\nhello\n42\n41\nNONE\n");
+        assert_eq!(output, "4hello4241NONE");
     }
 
     #[test]
@@ -2940,7 +2977,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "9\nDecl\nDECL\n5\n");
+        assert_eq!(output, "9DeclDECL5");
     }
 
     #[test]
@@ -2967,7 +3004,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "OK\n5\nSTOP\nbefore\ndone\nFAIL\nbefore\nbad\n");
+        assert_eq!(output, "OK5STOPbeforedoneFAILbeforebad");
     }
 
     #[test]
@@ -2993,7 +3030,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nDECL\nFAIL\ndeclaration expects =\nFAIL\ndeclaration expects =\n"
+            "OKDECLFAILdeclaration expects =FAILdeclaration expects ="
         );
     }
 
@@ -3025,7 +3062,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\n-9223372036854775808\nFAIL\ninteger literal out of range\nFAIL\ninteger literal out of range\nFAIL\ninvalid float literal\n"
+            "OK-9223372036854775808FAILinteger literal out of rangeFAILinteger literal out of rangeFAILinvalid float literal"
         );
     }
 
@@ -3058,7 +3095,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAIL\nexpected }\nFAIL\ngroup expects )\nFAIL\ncall expects )\nFAIL\nlist expects ]\nFAIL\ncall expects , or )\nFAIL\nlist expects , or ]\nFAIL\nexpected expression after ,\nFAIL\nindex expects ]\nFAIL\nunexpected }\nFAIL\nunknown statement\n"
+            "FAILexpected }FAILgroup expects )FAILcall expects )FAILlist expects ]FAILcall expects , or )FAILlist expects , or ]FAILexpected expression after ,FAILindex expects ]FAILunexpected }FAILunknown statement"
         );
     }
 
@@ -3100,7 +3137,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAIL\nunterminated string literal\nFAIL\ndeclaration expects identifier\nFAIL\nlist declaration expects identifier\nFAIL\nvtime declaration expects identifier\nFAIL\nfunc expects identifier\nFAIL\nfunc expects parameter identifier\nFAIL\nfunc expects , or )\nFAIL\nfunc expects parameter identifier\nFAIL\npick expects item identifier\nFAIL\nsecretup expects identifier\nFAIL\ninfo assignment expects identifier\nFAIL\ninfo assignment expects source identifier\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nunknown statement\nFAIL\nlist expects , or ]\nFAIL\nunknown variable `secret`\n"
+            "FAILunterminated string literalFAILdeclaration expects identifierFAILlist declaration expects identifierFAILvtime declaration expects identifierFAILfunc expects identifierFAILfunc expects parameter identifierFAILfunc expects , or )FAILfunc expects parameter identifierFAILpick expects item identifierFAILsecretup expects identifierFAILinfo assignment expects identifierFAILinfo assignment expects source identifierFAILunknown statementFAILunknown statementFAILunknown statementFAILunknown statementFAILunknown statementFAILlist expects , or ]FAILunknown variable `secret`"
         );
     }
 
@@ -3125,10 +3162,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            output,
-            "OK\nAPLIR1:\ntrue\ntrue\nFAIL\ndeclaration expects =\n"
-        );
+        assert_eq!(output, "OKAPLIR1:truetrueFAILdeclaration expects =");
     }
 
     #[test]
@@ -3155,10 +3189,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            output,
-            "OK\nAPLIR1\nFUNC\nOK\n5\nOK\n10\nFAIL\ninvalid artifact image\n"
-        );
+        assert_eq!(output, "OKAPLIR1FUNCOK5OK10FAILinvalid artifact image");
     }
 
     #[test]
@@ -3200,7 +3231,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLLOAD2\nDECL\n2\nCALL_SLOT\n0\nCALL_SLOT\n1\nOK\n5\nOK\n10\nOK\n15\nFAIL\ninvalid artifact image\nFAIL\ninvalid loaded image\n"
+            "OKAPLLOAD2DECL2CALL_SLOT0CALL_SLOT1OK5OK10OK15FAILinvalid artifact imageFAILinvalid loaded image"
         );
     }
 
@@ -3274,7 +3305,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLLINK2:\nOK\nAPLLOAD2\nCALL_SLOT\n0\nCALL_SLOT\n1\ntrue\nOK\n]x[,b:a\n5\n2.5\ntrue\nNONE\nFAIL\ninvalid linked artifact header\nFAIL\ntrailing linked artifact data\nFAIL\nFAIL\ninvalid linked artifact image\nFAIL\ninvalid loaded image\nFAIL\ninvalid linked artifact image\nFAIL\ninvalid linked artifact image\n"
+            "OKAPLLINK2:OKAPLLOAD2CALL_SLOT0CALL_SLOT1trueOK]x[,b:a52.5trueNONEFAILinvalid linked artifact headerFAILtrailing linked artifact dataFAILFAILinvalid linked artifact imageFAILinvalid loaded imageFAILinvalid linked artifact imageFAILinvalid linked artifact image"
         );
     }
 
@@ -3336,7 +3367,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nAPLMOD3:\nOK\nOK\nOK\n40\n2\n42\nFAIL\nunknown function `module.missing`\nFAIL\nduplicate name `module.answer`\nFAIL\ninvalid module artifact header\nFAIL\nmodule program is already linked\nFAIL\ninvalid module artifact image\nOK\nAPLMOD1\n"
+            "OKAPLMOD3:OKOKOK40242FAILunknown function `module.missing`FAILduplicate name `module.answer`FAILinvalid module artifact headerFAILmodule program is already linkedFAILinvalid module artifact imageOKAPLMOD1"
         );
     }
 
@@ -3392,7 +3423,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "APLMOD3:\nASV\nFAIL\nsecret expression denied `out`\nASV\nFAIL\nsecret expression denied `out`\nOK\nSASV\nFAIL\ninvalid module artifact image\n"
+            "APLMOD3:ASVFAILsecret expression denied `out`ASVFAILsecret expression denied `out`OKSASVFAILinvalid module artifact image"
         );
     }
 
@@ -3428,7 +3459,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nDECL\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\nFAIL\nduplicate name `x`\nFAIL\nduplicate name `go`\n"
+            "OKDECLFAILduplicate name `x`FAILduplicate name `go`FAILduplicate name `x`FAILduplicate name `go`"
         );
     }
 
@@ -3448,7 +3479,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "OK\nFAIL\nunknown variable `local`\n");
+        assert_eq!(output, "OKFAILunknown variable `local`");
     }
 
     #[test]
@@ -3507,7 +3538,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAIL\nunknown assignment target `missing`\nFAIL\ninvalid assignment target `items`\nFAIL\ninvalid assignment target `go`\nFAIL\ninvalid compound assignment target `hidden`\nFAIL\ninvalid compound assignment target `text`\nOK\n2\nFAIL\nunknown secretup target `missing`\nFAIL\ninvalid secretup target `items`\nFAIL\nunknown info target `typ`\nFAIL\ninvalid info target `typ`\nFAIL\nunknown info source `missing`\n"
+            "FAILunknown assignment target `missing`FAILinvalid assignment target `items`FAILinvalid assignment target `go`FAILinvalid compound assignment target `hidden`FAILinvalid compound assignment target `text`OK2FAILunknown secretup target `missing`FAILinvalid secretup target `items`FAILunknown info target `typ`FAILinvalid info target `typ`FAILunknown info source `missing`"
         );
     }
 
@@ -3555,7 +3586,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\n2\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\nunknown variable `missing`\nFAIL\ninvalid self target `temp`\nFAIL\nunknown variable `missing`\n"
+            "OK2FAILunknown variable `missing`FAILunknown variable `missing`FAILunknown variable `missing`FAILunknown variable `missing`FAILunknown variable `missing`FAILinvalid self target `temp`FAILunknown variable `missing`"
         );
     }
 
@@ -3607,7 +3638,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\n7\nOK\n2\nFAIL\nunknown function `missing`\nFAIL\ninvalid function `x`\nFAIL\nwrong argument count `go`\nFAIL\nunknown variable `missing`\nFAIL\nwrong argument count `len`\nFAIL\nwrong argument count `pow`\nFAIL\nwrong argument count `add`\n"
+            "OK7OK2FAILunknown function `missing`FAILinvalid function `x`FAILwrong argument count `go`FAILunknown variable `missing`FAILwrong argument count `len`FAILwrong argument count `pow`FAILwrong argument count `add`"
         );
     }
 
@@ -3645,7 +3676,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "true\n-1\n");
+        assert_eq!(output, "true-1");
     }
 
     #[test]
@@ -3693,7 +3724,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\nFAIL\nlen(value) requires Str, Bytes, List, or VTime\nFAIL\nget(list, index) requires List and Int\nFAIL\nsplit(value, separator) requires Str and Str\nFAIL\njoin(values, separator) requires List and Str\nFAIL\ncontains(value, needle) requires Str and Str\nFAIL\nord(value) requires Str\nFAIL\nchar(value) requires Int\nFAIL\npow(base, exponent) requires Int/Float and Int\nFAIL\npop(list) requires List\nFAIL\nadd(list, value) requires List\n"
+            "OKOKFAILlen(value) requires Str, Bytes, List, or VTimeFAILget(list, index) requires List and IntFAILsplit(value, separator) requires Str and StrFAILjoin(values, separator) requires List and StrFAILcontains(value, needle) requires Str and StrFAILord(value) requires StrFAILchar(value) requires IntFAILpow(base, exponent) requires Int/Float and IntFAILpop(list) requires ListFAILadd(list, value) requires List"
         );
     }
 
@@ -3728,7 +3759,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nFAIL\nadd(list, value) is only valid as a statement\nFAIL\nadd(list, value) requires a named List or VTime target\nFAIL\npop(list) requires a named List or VTime target\nFAIL\nsecret expression denied `out`\n"
+            "OKFAILadd(list, value) is only valid as a statementFAILadd(list, value) requires a named List or VTime targetFAILpop(list) requires a named List or VTime targetFAILsecret expression denied `out`"
         );
     }
 
@@ -3773,7 +3804,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\nFAIL\ntype mismatch `value`: expected Int, got Str\nFAIL\ntype mismatch `value`: expected Float, got Int\nFAIL\ntype mismatch `value`: expected Bool, got Int\nFAIL\ntype mismatch `value`: expected Str, got Int\nFAIL\ntype mismatch `value`: expected Bytes, got Str\nFAIL\ntype mismatch `value`: expected Json, got Str\nFAIL\ntype mismatch `value`: expected Int, got Str\nFAIL\ntype mismatch `value`: expected Int, got Float\n"
+            "OKOKFAILtype mismatch `value`: expected Int, got StrFAILtype mismatch `value`: expected Float, got IntFAILtype mismatch `value`: expected Bool, got IntFAILtype mismatch `value`: expected Str, got IntFAILtype mismatch `value`: expected Bytes, got StrFAILtype mismatch `value`: expected Json, got StrFAILtype mismatch `value`: expected Int, got StrFAILtype mismatch `value`: expected Int, got Float"
         );
     }
 
@@ -3830,7 +3861,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\nFAIL\ninvalid unary operation for Bool\nFAIL\ninvalid unary operation for Int\nFAIL\narithmetic requires matching Int or Float values, got Int and Float\nFAIL\narithmetic requires matching Int or Float values, got Bytes and Bytes\nFAIL\ncomparison requires matching types, got Int and Bytes\nFAIL\nordered comparison requires matching Int or Float values, got Int and Float\nFAIL\nlogical operation requires Bool values, got Bool and Int\nFAIL\ntype mismatch `condition`: expected Bool, got Int\nFAIL\ntype mismatch `condition`: expected Bool, got Bytes\nFAIL\npick requires Str, Bytes, List, or VTime, got Int\nFAIL\nindex access requires Str, Bytes, List, or VTime, got Int\nFAIL\nindex must be Int or VTime, got Bool\nFAIL\nslice requires Str, Bytes, List, or VTime, got Bool\nFAIL\nslice bounds must be Int or VTime, got Float\n"
+            "OKOKFAILinvalid unary operation for BoolFAILinvalid unary operation for IntFAILarithmetic requires matching Int or Float values, got Int and FloatFAILarithmetic requires matching Int or Float values, got Bytes and BytesFAILcomparison requires matching types, got Int and BytesFAILordered comparison requires matching Int or Float values, got Int and FloatFAILlogical operation requires Bool values, got Bool and IntFAILtype mismatch `condition`: expected Bool, got IntFAILtype mismatch `condition`: expected Bool, got BytesFAILpick requires Str, Bytes, List, or VTime, got IntFAILindex access requires Str, Bytes, List, or VTime, got IntFAILindex must be Int or VTime, got BoolFAILslice requires Str, Bytes, List, or VTime, got BoolFAILslice bounds must be Int or VTime, got Float"
         );
     }
 
@@ -3877,7 +3908,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\nOK\nFAIL\nreturn outside function\nFAIL\nreturn outside function\nFAIL\nbreak outside loop\nFAIL\ncontinue outside loop\nFAIL\nbreak outside loop\nFAIL\nbreak outside loop\nFAIL\ninvalid loop limit `-2`\nFAIL\nbreak outside loop\n"
+            "OKOKOKFAILreturn outside functionFAILreturn outside functionFAILbreak outside loopFAILcontinue outside loopFAILbreak outside loopFAILbreak outside loopFAILinvalid loop limit `-2`FAILbreak outside loop"
         );
     }
 
@@ -3935,7 +3966,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\n2\nglobal\nFAIL\ninvalid name `bad?name`\nFAIL\ninvalid name `.hidden`\nFAIL\ninvalid name `len`\nFAIL\ninvalid name `bad?name`\nFAIL\nduplicate parameter `value`\nFAIL\ninvalid name `bad?name`\nFAIL\nduplicate name `item`\nFAIL\ninvalid name `bad?name`\nFAIL\ninvalid secretup target `value`\nFAIL\ninvalid self target `value`\nFAIL\nunknown variable `go`\n"
+            "OKOK2globalFAILinvalid name `bad?name`FAILinvalid name `.hidden`FAILinvalid name `len`FAILinvalid name `bad?name`FAILduplicate parameter `value`FAILinvalid name `bad?name`FAILduplicate name `item`FAILinvalid name `bad?name`FAILinvalid secretup target `value`FAILinvalid self target `value`FAILunknown variable `go`"
         );
     }
 
@@ -4002,7 +4033,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK\nOK\nOK\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `public`\nFAIL\nsecret expression denied `vault`\nFAIL\nsecret expression denied `vault`\nFAIL\nprotection downgrade `list element`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nprotection downgrade `public`: source ASV, target AV\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `hidden`\nFAIL\nsecret expression denied `stop`\nFAIL\nsecret expression denied `fail`\nFAIL\nsecret expression denied `out`\nFAIL\ninvalid secretup target `value`\nFAIL\nsecret expression denied `out`\nFAIL\nsecret expression denied `out`\n"
+            "OKOKOKFAILprotection downgrade `public`: source ASV, target AVFAILprotection downgrade `public`: source ASV, target AVFAILsecret expression denied `public`FAILsecret expression denied `vault`FAILsecret expression denied `vault`FAILprotection downgrade `list element`: source ASV, target AVFAILsecret expression denied `out`FAILsecret expression denied `out`FAILprotection downgrade `public`: source ASV, target AVFAILsecret expression denied `out`FAILsecret expression denied `out`FAILsecret expression denied `hidden`FAILsecret expression denied `stop`FAILsecret expression denied `fail`FAILsecret expression denied `out`FAILinvalid secretup target `value`FAILsecret expression denied `out`FAILsecret expression denied `out`"
         );
     }
 
@@ -4024,7 +4055,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "6\n42\nNONE\n2.5\ntrue\nabc\n7\n");
+        assert_eq!(output, "642NONE2.5trueabc7");
     }
 
     #[test]
@@ -4067,7 +4098,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "8\n");
+        assert_eq!(output, "8");
     }
 
     #[test]
@@ -4262,7 +4293,7 @@ mod tests {
         let compiled = compile_ir_bytes(&ir).unwrap();
         let output = run_compiled_program(&compiled, vec![]).unwrap();
 
-        assert_eq!(output.stdout, "5\n");
+        assert_eq!(output.stdout, "5");
     }
 
     #[test]
@@ -4313,7 +4344,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "NONE\n");
+        assert_eq!(output, "NONE");
     }
 
     #[test]
