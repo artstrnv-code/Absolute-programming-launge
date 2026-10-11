@@ -38,6 +38,7 @@ pub const STANDARD_PRELUDE: &str = concat!(
 
 const BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
 const BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
+const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildOutput {
@@ -55,6 +56,19 @@ pub struct LinkedBuildOutput {
     pub artifact_path: PathBuf,
     pub manifest_path: PathBuf,
     pub source_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkedRunStatus {
+    Ok,
+    Stop,
+    Fail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedRunReport {
+    pub status: LinkedRunStatus,
+    pub output: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -245,11 +259,33 @@ pub fn run_linked_artifact(
     artifact: &str,
     input: Vec<String>,
 ) -> Result<apl_runtime::RunOutput, CompileError> {
+    let report = run_linked_artifact_report(artifact, input)?;
+    if report.status == LinkedRunStatus::Fail {
+        let reason = report
+            .output
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "linked artifact failed".to_owned());
+        return Err(CompileError::Runtime(apl_runtime::RuntimeError::Failed(
+            reason,
+        )));
+    }
+
+    Ok(apl_runtime::RunOutput {
+        stdout: report.output.concat(),
+    })
+}
+
+pub fn run_linked_artifact_report(
+    artifact: &str,
+    input: Vec<String>,
+) -> Result<LinkedRunReport, CompileError> {
     let mut bridge_input = Vec::with_capacity(input.len() + 2);
     bridge_input.push(artifact.to_owned());
     bridge_input.push(input.len().to_string());
     bridge_input.extend(input);
-    run_bootstrap_bridge(LINKED_RUN_BRIDGE, bridge_input)
+    let output = run_bootstrap_bridge(LINKED_RUN_BRIDGE, bridge_input)?;
+    parse_linked_run_report(&output.stdout)
 }
 
 pub fn build_executable_package(
@@ -437,6 +473,68 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
     ))
 }
 
+fn parse_linked_run_report(output: &str) -> Result<LinkedRunReport, CompileError> {
+    let Some(mut payload) = output.strip_prefix(LINKED_RUN_PROTOCOL) else {
+        return Err(invalid_linked_run_response());
+    };
+    let status = match take_protocol_field(&mut payload) {
+        Some("OK") => LinkedRunStatus::Ok,
+        Some("STOP") => LinkedRunStatus::Stop,
+        Some("FAIL") => LinkedRunStatus::Fail,
+        _ => return Err(invalid_linked_run_response()),
+    };
+    let Some(output_count) = take_protocol_usize(&mut payload) else {
+        return Err(invalid_linked_run_response());
+    };
+    let mut values = Vec::with_capacity(output_count);
+
+    for _ in 0..output_count {
+        let Some(char_count) = take_protocol_usize(&mut payload) else {
+            return Err(invalid_linked_run_response());
+        };
+        let Some(value) = take_protocol_chars(&mut payload, char_count) else {
+            return Err(invalid_linked_run_response());
+        };
+        values.push(value.to_owned());
+    }
+
+    if !payload.is_empty() {
+        return Err(invalid_linked_run_response());
+    }
+
+    Ok(LinkedRunReport {
+        status,
+        output: values,
+    })
+}
+
+fn take_protocol_field<'a>(payload: &mut &'a str) -> Option<&'a str> {
+    let end = payload.find(':')?;
+    let field = &payload[..end];
+    *payload = &payload[end + 1..];
+    Some(field)
+}
+
+fn take_protocol_usize(payload: &mut &str) -> Option<usize> {
+    take_protocol_field(payload)?.parse().ok()
+}
+
+fn take_protocol_chars<'a>(payload: &mut &'a str, count: usize) -> Option<&'a str> {
+    let mut byte_end = 0;
+    let mut chars = payload.char_indices();
+    for _ in 0..count {
+        let (offset, ch) = chars.next()?;
+        byte_end = offset + ch.len_utf8();
+    }
+    let value = &payload[..byte_end];
+    *payload = &payload[byte_end..];
+    Some(value)
+}
+
+fn invalid_linked_run_response() -> CompileError {
+    CompileError::Bootstrap("invalid APL linked run response".to_owned())
+}
+
 const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
 VTime aplhost.program_source = input
 VTime aplhost.source = join([aplhost.runtime_source, char(10), aplhost.program_source], "")
@@ -482,11 +580,27 @@ if get(aplhost.compile_report, 0) != vm.FLOW_OK {
 }
 out get(aplhost.compile_report, 1)"#;
 
-const LINKED_RUN_BRIDGE: &str = r#"VTime aplhost.encoded = input
+const LINKED_RUN_BRIDGE: &str = r#"func aplhost.emit_run_report(status, output) {
+  out "APLRUN1:"
+  out status
+  out ":"
+  out len(output)
+  out ":"
+
+  pick(output): aplhost.item {
+    out len(aplhost.item)
+    out ":"
+    out aplhost.item
+  }
+
+  stop
+}
+
+VTime aplhost.encoded = input
 VTime aplhost.loaded_report = bootstrap.load_linked_artifact_report(aplhost.encoded)
 
 if get(aplhost.loaded_report, 0) != vm.FLOW_OK {
-  fail get(aplhost.loaded_report, 1)
+  VTime aplhost.invalid_emitted = aplhost.emit_run_report(vm.FLOW_FAIL, [get(aplhost.loaded_report, 1)])
 }
 
 VTime aplhost.inputs = []
@@ -500,18 +614,7 @@ while (aplhost.input_index < aplhost.input_count) (-1) {
 
 VTime aplhost.run_report = bootstrap.run_loaded_image_with_input_report(get(aplhost.loaded_report, 1), aplhost.inputs)
 VTime aplhost.output = get(aplhost.run_report, 1)
-
-pick(aplhost.output): aplhost.line {
-  out aplhost.line
-}
-
-if get(aplhost.run_report, 0) == vm.FLOW_FAIL {
-  fail "linked artifact failed"
-}
-
-if get(aplhost.run_report, 0) == vm.FLOW_STOP {
-  stop
-}"#;
+VTime aplhost.report_emitted = aplhost.emit_run_report(get(aplhost.run_report, 0), aplhost.output)"#;
 
 fn compiled_package_name(source_stem: Option<&str>) -> String {
     let name = source_stem
@@ -758,6 +861,85 @@ mod tests {
         let output =
             run_linked_artifact(&artifact, vec![String::new(), "kept".to_owned()]).unwrap();
         assert_eq!(output.stdout, "0kept");
+    }
+
+    #[test]
+    fn linked_artifact_bridge_preserves_stop_and_fail_outcomes() {
+        let stopped = compile_linked_artifact(r#"out "before" stop "done" out "after""#).unwrap();
+        assert_eq!(
+            run_linked_artifact_report(&stopped, vec![]).unwrap(),
+            LinkedRunReport {
+                status: LinkedRunStatus::Stop,
+                output: vec!["before".to_owned(), "done".to_owned()],
+            }
+        );
+        let stopped_output = run_linked_artifact(&stopped, vec![]).unwrap();
+        assert_eq!(stopped_output.stdout, "beforedone");
+
+        let failed = compile_linked_artifact(r#"out "before" fail "bad" out "after""#).unwrap();
+        assert_eq!(
+            run_linked_artifact_report(&failed, vec![]).unwrap(),
+            LinkedRunReport {
+                status: LinkedRunStatus::Fail,
+                output: vec!["before".to_owned(), "bad".to_owned()],
+            }
+        );
+        let CompileError::Runtime(apl_runtime::RuntimeError::Failed(reason)) =
+            run_linked_artifact(&failed, vec![]).unwrap_err()
+        else {
+            panic!("expected linked APL failure");
+        };
+        assert_eq!(reason, "bad");
+    }
+
+    #[test]
+    fn linked_run_protocol_is_length_framed_and_validated() {
+        assert_eq!(
+            parse_linked_run_report("APLRUN1:STOP:3:0:6:Привет4:a\0:b").unwrap(),
+            LinkedRunReport {
+                status: LinkedRunStatus::Stop,
+                output: vec![String::new(), "Привет".to_owned(), "a\0:b".to_owned()],
+            }
+        );
+
+        for malformed in [
+            "unknown",
+            "APLRUN1:BAD:0:",
+            "APLRUN1:OK:x:",
+            "APLRUN1:OK:1:4:abc",
+            "APLRUN1:OK:0:trailing",
+        ] {
+            assert!(matches!(
+                parse_linked_run_report(malformed),
+                Err(CompileError::Bootstrap(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn linked_artifact_report_preserves_arbitrary_output_fragments() {
+        let artifact = compile_linked_artifact(r#"out "" out "Привет" out "a\0:b""#).unwrap();
+        let report = run_linked_artifact_report(&artifact, vec![]).unwrap();
+
+        assert_eq!(
+            report,
+            LinkedRunReport {
+                status: LinkedRunStatus::Ok,
+                output: vec![String::new(), "Привет".to_owned(), "a\0:b".to_owned()],
+            }
+        );
+        assert_eq!(
+            run_linked_artifact(&artifact, vec![]).unwrap().stdout,
+            "Приветa\0:b"
+        );
+
+        assert_eq!(
+            run_linked_artifact_report("BAD", vec![]).unwrap(),
+            LinkedRunReport {
+                status: LinkedRunStatus::Fail,
+                output: vec!["invalid linked artifact header".to_owned()],
+            }
+        );
     }
 
     #[test]

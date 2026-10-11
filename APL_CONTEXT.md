@@ -532,6 +532,13 @@ Rust workspace:
   `emit-standard-module`/`emit-linked-module`, compiler-in-VM
   `emit-bootstrap-compiler`/`emit-linked-bootstrap`, and legacy `.aplc`
   package `build-host`/`compile-host` commands.
+  Portable execution crosses the host boundary through the versioned
+  length-framed `APLRUN1` response. `run_linked_artifact_report` exposes the
+  exact `OK`/`STOP`/`FAIL` status and original output fragments, including
+  empty, Unicode, newline, colon, and NUL-containing strings. The older
+  `run_linked_artifact` shape remains as a compatibility wrapper: it
+  concatenates successful fragments and maps `FAIL` to
+  `RuntimeError::Failed` with the VM's actual reason.
 - `apl_studio`: small Windows-only native Win32 editor for opening, saving,
   checking, and running `.apl` source without leaving the window. It calls the
   Rust reference parser/checker/runtime directly, keeps execution off the UI
@@ -906,6 +913,9 @@ Bootstrap parity gates:
 - The differential gate requires the same acceptance result, status, and
   public output from both implementations. It also checks that invalid typed
   and exhausted input become `NONE` on both paths.
+- Linked-run boundary tests separately require status and output to survive the
+  APL-to-Rust bridge through `APLRUN1`; malformed or trailing protocol data is
+  rejected instead of being accepted as program output.
 - `cargo test --workspace` runs the ordinary gate. The ignored release test
   `bootstrap_compiler_artifact_compiles_inside_apl_vm` remains the final
   compiler-in-VM regression gate because it executes the reusable compiler

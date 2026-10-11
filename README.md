@@ -258,6 +258,15 @@ cargo run -p apl -- emit-linked examples\linked_hello.apl build\linked_hello.apl
 cargo run -p apl -- run-linked build\linked_hello.apllink
 ```
 
+The runner returns a versioned `APLRUN1:` response from the APL bridge.
+Terminal status and every output fragment are length-framed, so empty strings,
+Unicode, colons, newlines, and NUL characters survive without being mistaken
+for protocol delimiters. Library callers can use
+`run_linked_artifact_report` to receive `LinkedRunStatus::{Ok, Stop, Fail}` and
+the original output vector. The compatibility `run_linked_artifact` API still
+concatenates successful output into `RunOutput`; `FAIL` becomes
+`RuntimeError::Failed` with the actual APL failure reason.
+
 The linked compiler composes `std/runtime.apl` with the user source before the
 APL checker and linker run. Runtime helpers such as `apl.pow_int` therefore
 become ordinary functions in the artifact's single verified function table;
