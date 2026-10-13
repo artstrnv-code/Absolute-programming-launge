@@ -20,6 +20,8 @@ AVStr parser.NODE_CONTINUE = "Continue"
 AVStr parser.NODE_FUNC = "Func"
 AVStr parser.NODE_RETURN = "Return"
 AVStr parser.NODE_SECRETUP = "SecretUp"
+AVStr parser.NODE_INCLUDE = "Include"
+AVStr parser.NODE_EXCLUDE = "Exclude"
 AVStr parser.NODE_ERROR = "Error"
 
 AVStr parser.EXPR_INT = "Int"
@@ -46,7 +48,7 @@ List parser.DECL_KEYWORDS = ["AVInt", "AVFloat", "AVBool", "AVStr", "AVBytes", "
 
 List parser.ASSIGN_OPS = ["=", "+=", "-=", "*=", "/="]
 List parser.BINARY_OPS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/"]
-List parser.STATEMENT_KEYWORDS = ["if", "func", "while", "pick", "break", "continue", "return", "secretup", "stop", "fail", "out", "VTime", "List"]
+List parser.STATEMENT_KEYWORDS = ["include", "exclude", "if", "func", "while", "pick", "break", "continue", "return", "secretup", "stop", "fail", "out", "VTime", "List"]
 
 func parser.node_kind(node) {
   return get(node, 0)
@@ -694,6 +696,41 @@ func parser.parse_statement(tokens, index) {
 
   if kind == lexer.TOKEN_ERROR {
     return parser.error(value, index + 1)
+  }
+
+  if parser.is_keyword_token(token, "include") {
+    VTime arrow_token = get(tokens, index + 1)
+    VTime library_token = get(tokens, index + 2)
+
+    if parser.is_symbol_token(arrow_token, ">>") != true {
+      return parser.error("include expects >>", index + 1)
+    }
+
+    if parser.is_identifier_token(library_token) != true {
+      return parser.error("include expects library name", index + 2)
+    }
+
+    return [[parser.NODE_INCLUDE, lexer.token_value(library_token)], index + 3]
+  }
+
+  if parser.is_keyword_token(token, "exclude") {
+    VTime symbol_token = get(tokens, index + 1)
+    VTime arrow_token = get(tokens, index + 2)
+    VTime library_token = get(tokens, index + 3)
+
+    if lexer.token_kind(symbol_token) != lexer.TOKEN_STR {
+      return parser.error("exclude expects string literal", index + 1)
+    }
+
+    if parser.is_symbol_token(arrow_token, "<<") != true {
+      return parser.error("exclude expects <<", index + 2)
+    }
+
+    if parser.is_identifier_token(library_token) != true {
+      return parser.error("exclude expects library name", index + 3)
+    }
+
+    return [[parser.NODE_EXCLUDE, lexer.token_value(symbol_token), lexer.token_value(library_token)], index + 4]
   }
 
   if parser.is_keyword_token(token, "func") {

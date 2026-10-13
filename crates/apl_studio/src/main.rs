@@ -889,20 +889,22 @@ mod windows_app {
             );
         }
 
-        let source = apl_compiler::compose_program(apl_compiler::STANDARD_PRELUDE, source);
-        let program = match apl_parser::parse_program(&source) {
+        let program = match apl_compiler::checked_program_with_prelude(
+            apl_compiler::STANDARD_PRELUDE,
+            source,
+        ) {
             Ok(program) => program,
-            Err(error) => {
+            Err(apl_compiler::CompileError::Parse(error)) => {
                 return format!(
                     "Internal parse error at {}:{}:\r\n{}",
                     error.line, error.column, error.message
                 )
             }
+            Err(apl_compiler::CompileError::Check(error)) => {
+                return format!("Check error:\r\n{error:?}")
+            }
+            Err(error) => return format!("Compile error:\r\n{error:?}"),
         };
-
-        if let Err(error) = apl_core::validate_program(&program) {
-            return format!("Check error:\r\n{error:?}");
-        }
 
         match apl_runtime::run_program(&program, input) {
             Ok(output) if output.stdout.is_empty() => "Program finished with no output.".to_owned(),
@@ -1006,6 +1008,18 @@ mod windows_app {
             assert_eq!(
                 execute_source("AVInt value = 6 * 7\nout value", Vec::new()),
                 "42"
+            );
+        }
+
+        #[test]
+        fn applies_composition_only_to_editor_source() {
+            assert_eq!(
+                execute_source(r#"exclude "len" << base out 42"#, Vec::new()),
+                "42"
+            );
+            assert_eq!(
+                execute_source(r#"exclude "len" << base out len([1])"#, Vec::new()),
+                "Check error:\r\nExcludedSymbol { library: \"base\", symbol: \"len\" }"
             );
         }
 

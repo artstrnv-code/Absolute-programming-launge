@@ -83,7 +83,7 @@ object and executable output is the primary production goal.
 ## Library Composition
 
 APL programs must be able to control their complete library surface and final
-linked image. The planned source form is:
+linked image. The source form is:
 
 ```apl
 include >> math
@@ -102,12 +102,39 @@ Composition is resolved before semantic checking and reachability analysis so
 the checker, linker, and final image agree on the exact available surface. The
 irreducible compiler core should remain small. Facilities that can live in
 `base`, `std`, `system`, `build`, or `containers` should be removable library
-exports rather than permanently linked compiler features. A construct such as
-the current parser-level `pick` cannot satisfy `exclude "pick" << base` until
-it is represented by a removable library or compile-time extension contract.
+exports rather than permanently linked compiler features.
 
-This syntax and module model are accepted design direction but are not
-implemented by the current lexer, parser, checker, or linker yet.
+The first implemented composition layer covers the implicit `base` library in
+both the Rust reference frontend and the APL-written frontend:
+
+```apl
+include >> base
+exclude "len" << base
+exclude "pick" << base
+out 42
+```
+
+`base` is available implicitly; an explicit include is accepted but not
+required. Directives are compile-time-only top-level AST nodes and apply to the
+whole program regardless of their relative position. They are removed before
+runtime IR is emitted. Duplicate directives, nested directives, unknown
+libraries, and unknown exports are compile errors. A call to an excluded
+builtin is rejected before lowering; `exclude "pick" << base` similarly gates
+the parser-level `pick` construct before its opcode can be emitted. Current
+removable base exports are `pick`, `add`, `get`, `pop`, conversions, string/list
+helpers, `ord`, `char`, and `pow`.
+
+The portable `APLLINK2` result contains neither composition AST nodes nor
+unreachable user functions. Its base builtin implementations still live in the
+external bootstrap VM, so this stage proves surface removal, not native binary
+section removal. Once the native backend owns builtin code, the same checked
+surface and reachability result must control emitted sections.
+
+External-library resolution is the next composition layer. Until a resolver
+can map names such as `math` to verified `.aplmod` artifacts, `include >> math`
+fails as an unknown library instead of being accepted as a no-op. Filtering
+module exports and recording the resolved manifest in the final artifact remain
+future work.
 
 ## Tracked Memory Tables
 

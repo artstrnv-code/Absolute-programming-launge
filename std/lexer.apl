@@ -10,7 +10,7 @@ AVStr lexer.TOKEN_STR = "Str"
 AVStr lexer.TOKEN_SYM = "Symbol"
 AVStr lexer.TOKEN_ERROR = "Error"
 
-List lexer.KEYWORDS = ["if", "else", "while", "pick", "break", "continue",
+List lexer.KEYWORDS = ["include", "exclude", "if", "else", "while", "pick", "break", "continue",
     "func", "return", "true", "false", "and", "or", "not",
     "out", "input", "secret", "secretup", "info", "stop", "fail", "NONE",
     "VTime", "List", "AV", "ASV", "SASV",
@@ -20,7 +20,7 @@ List lexer.KEYWORDS = ["if", "else", "while", "pick", "break", "continue",
 
 List lexer.DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 List lexer.SINGLE_SYMBOLS = ["(", ")", "{", "}", "[", "]", ",", ":", "+", "-", "*", "/", "=", "!", ">", "<"]
-List lexer.DOUBLE_SYMBOLS = ["==", "!=", ">=", "<=", "+=", "-=", "*=", "/=", "**"]
+List lexer.DOUBLE_SYMBOLS = ["==", "!=", ">=", "<=", ">>", "<<", "+=", "-=", "*=", "/=", "**"]
 
 func lexer.is_space(value) {
   if value == " " {

@@ -249,6 +249,7 @@ impl StatementCompiler {
         base_pc: usize,
     ) -> Result<Vec<StatementOp>, RuntimeError> {
         let op = match statement {
+            Statement::Include(_) | Statement::Exclude { .. } => return Ok(Vec::new()),
             Statement::VariableDecl(decl) => StatementOp::VariableDecl(CompiledVariableDecl {
                 kind: decl.kind,
                 value_type: decl.value_type,
@@ -2061,6 +2062,21 @@ mod tests {
             ("while true (-2) { break }", false),
             ("func same(value, value) { return value }", false),
             ("out missing()", false),
+            ("include >> base out 1", true),
+            ("exclude \"len\" << base out 1", true),
+            ("exclude \"len\" << base out len([1])", false),
+            (
+                "exclude \"pick\" << base pick(\"A\"): item { out item }",
+                false,
+            ),
+            ("include >> math out 1", false),
+            ("exclude \"missing\" << base out 1", false),
+            ("include >> base include >> base out 1", false),
+            (
+                "exclude \"len\" << base exclude \"len\" << base out 1",
+                false,
+            ),
+            ("if true { include >> base }", false),
         ];
         let sources = cases.iter().map(|(source, _)| *source).collect::<Vec<_>>();
         let apl_outcomes = apl_compile_outcomes(&sources);
@@ -2082,6 +2098,39 @@ mod tests {
                 "unexpected APL result for `{source}`"
             );
         }
+    }
+
+    #[test]
+    fn source_runtime_apl_frontend_enforces_base_composition_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime quote = char(34)
+            VTime ok_source = join(["include >> base exclude ", quote, "pick", quote, " << base out 42"], "")
+            VTime excluded_source = join(["exclude ", quote, "len", quote, " << base out len([1])"], "")
+            VTime unknown_source = "include >> math out 1"
+            VTime nested_source = "if true { include >> base }"
+            VTime ok_report = bootstrap.compile_report(ok_source)
+            VTime excluded_report = bootstrap.compile_report(excluded_source)
+            VTime unknown_report = bootstrap.compile_report(unknown_source)
+            VTime nested_report = bootstrap.compile_report(nested_source)
+
+            out get(ok_report, 0)
+            out len(get(ok_report, 1))
+            out ir.opcode(get(get(ok_report, 1), 0))
+            out get(excluded_report, 0)
+            out get(excluded_report, 1)
+            out get(unknown_report, 0)
+            out get(unknown_report, 1)
+            out get(nested_report, 0)
+            out get(nested_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OK1OUTFAILexcluded symbol `len` from library `base`FAILunknown library `math`FAILcomposition directive must be top-level"
+        );
     }
 
     #[test]
@@ -2205,6 +2254,12 @@ mod tests {
                 "AVInt value = 1 if true { VTime amount = 2 value += amount } out value",
                 "OK",
                 "3",
+            ),
+            (
+                "base composition",
+                "include >> base exclude \"len\" << base out 42",
+                "OK",
+                "42",
             ),
         ];
         let sources = cases

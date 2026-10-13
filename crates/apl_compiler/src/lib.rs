@@ -295,9 +295,7 @@ pub fn build_executable_package(
     runtime_prelude: &str,
 ) -> Result<BuildOutput, CompileError> {
     let source = fs::read_to_string(source_path)?;
-    let program_source = compose_program(runtime_prelude, &source);
-    let program = apl_parser::parse_program(&program_source)?;
-    apl_core::validate_program(&program)?;
+    let program = checked_program_with_prelude(runtime_prelude, &source)?;
     let ir = apl_ir::encode_program(&program)?;
 
     let package_dir = output_dir.to_path_buf();
@@ -368,9 +366,7 @@ pub fn emit_ir_file(
     runtime_prelude: &str,
 ) -> Result<(), CompileError> {
     let source = fs::read_to_string(source_path)?;
-    let program_source = compose_program(runtime_prelude, &source);
-    let program = apl_parser::parse_program(&program_source)?;
-    apl_core::validate_program(&program)?;
+    let program = checked_program_with_prelude(runtime_prelude, &source)?;
     let ir = apl_ir::encode_program(&program)?;
     fs::write(output_path, ir)?;
     Ok(())
@@ -383,6 +379,19 @@ pub fn compose_program(runtime_prelude: &str, source: &str) -> String {
     combined.push_str(source.trim());
     combined.push('\n');
     combined
+}
+
+pub fn checked_program_with_prelude(
+    runtime_prelude: &str,
+    source: &str,
+) -> Result<apl_core::Program, CompileError> {
+    let prelude = apl_parser::parse_program(runtime_prelude)?;
+    let program = apl_parser::parse_program(source)?;
+    apl_core::validate_program_with_prelude(&prelude, &program)?;
+
+    let mut statements = prelude.statements;
+    statements.extend(program.statements);
+    Ok(apl_core::Program::new(statements))
 }
 
 fn run_bootstrap_bridge(
@@ -888,6 +897,26 @@ mod tests {
         assert!(artifact.starts_with("APLLINK2:"));
         let output = run_linked_artifact(&artifact, vec!["4".to_owned()]).unwrap();
         assert_eq!(output.stdout, "5");
+    }
+
+    #[test]
+    fn linked_artifact_honors_base_composition_directives() {
+        let artifact = compile_linked_artifact(
+            r#"include >> base exclude "pick" << base exclude "len" << base out 42"#,
+        )
+        .unwrap();
+
+        assert!(artifact.starts_with("APLLINK2:"));
+        assert!(!artifact.contains("Include"));
+        assert!(!artifact.contains("Exclude"));
+        assert_eq!(run_linked_artifact(&artifact, vec![]).unwrap().stdout, "42");
+
+        let CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)) =
+            compile_linked_artifact(r#"exclude "len" << base out len([1])"#).unwrap_err()
+        else {
+            panic!("expected excluded base symbol to fail before artifact emission");
+        };
+        assert_eq!(message, "excluded symbol `len` from library `base`");
     }
 
     #[test]

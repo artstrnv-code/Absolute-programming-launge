@@ -34,6 +34,18 @@ impl Parser<'_> {
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
+        if self.eat_keyword("include") {
+            self.expect_symbol(Symbol::RightShift)?;
+            return self.expect_ident().map(Statement::Include);
+        }
+
+        if self.eat_keyword("exclude") {
+            let symbol = self.expect_string()?;
+            self.expect_symbol(Symbol::LeftShift)?;
+            let library = self.expect_ident()?;
+            return Ok(Statement::Exclude { symbol, library });
+        }
+
         if self.check_keyword("if") {
             return self.parse_if().map(Statement::If);
         }
@@ -616,6 +628,14 @@ impl Parser<'_> {
         }
     }
 
+    fn expect_string(&mut self) -> Result<String, ParseError> {
+        match self.next() {
+            Some(Token::Str(value)) => Ok(value),
+            Some(_) => Err(self.error_at_previous("expected string literal")),
+            None => Err(self.error("expected string literal")),
+        }
+    }
+
     fn expect_int_literal(&mut self) -> Result<i64, ParseError> {
         if self.eat_symbol(Symbol::Minus) {
             return match self.next() {
@@ -679,7 +699,10 @@ impl Parser<'_> {
             Some(Token::Keyword(value)) => {
                 matches!(
                     value.as_str(),
-                    "if" | "func"
+                    "include"
+                        | "exclude"
+                        | "if"
+                        | "func"
                         | "while"
                         | "pick"
                         | "break"
@@ -786,6 +809,8 @@ enum Symbol {
     GreaterEqual,
     Less,
     LessEqual,
+    RightShift,
+    LeftShift,
     SelfCheck,
     Plus,
     Minus,
@@ -815,6 +840,8 @@ impl Symbol {
             Self::GreaterEqual => ">=",
             Self::Less => "<",
             Self::LessEqual => "<=",
+            Self::RightShift => ">>",
+            Self::LeftShift => "<<",
             Self::SelfCheck => "=self=",
             Self::Plus => "+",
             Self::Minus => "-",
@@ -998,6 +1025,8 @@ fn read_symbol(source: &str, cursor: usize) -> Result<(Symbol, usize), ParseErro
         ("!=", Symbol::NotEqual),
         (">=", Symbol::GreaterEqual),
         ("<=", Symbol::LessEqual),
+        (">>", Symbol::RightShift),
+        ("<<", Symbol::LeftShift),
     ];
 
     for (raw, symbol) in pairs {
@@ -1056,6 +1085,8 @@ fn is_keyword(value: &str) -> bool {
     matches!(
         value,
         "if" | "else"
+            | "include"
+            | "exclude"
             | "while"
             | "pick"
             | "break"
@@ -1452,5 +1483,34 @@ mod tests {
         .unwrap();
 
         assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn parses_library_composition_directives() {
+        let program = parse_program(
+            r#"
+            include >> base
+            exclude "len" << base
+            out 1
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            program.statements,
+            vec![
+                Statement::Include("base".to_owned()),
+                Statement::Exclude {
+                    symbol: "len".to_owned(),
+                    library: "base".to_owned(),
+                },
+                Statement::Out(Expression::Literal(Value::Int(1))),
+            ]
+        );
+        assert_eq!(validate_program(&program), Ok(()));
+
+        assert!(parse_program("include > base").is_err());
+        assert!(parse_program("exclude len << base").is_err());
+        assert!(parse_program("exclude \"len\" < base").is_err());
     }
 }

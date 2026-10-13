@@ -14,6 +14,11 @@ impl Program {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
+    Include(String),
+    Exclude {
+        symbol: String,
+        library: String,
+    },
     VariableDecl(VariableDecl),
     ListDecl(ListDecl),
     VTimeDecl(VTimeDecl),
@@ -357,6 +362,21 @@ impl fmt::Display for ExpressionInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckError {
+    CompositionDirectiveNotTopLevel,
+    DuplicateInclude(String),
+    DuplicateExclude {
+        library: String,
+        symbol: String,
+    },
+    UnknownLibrary(String),
+    UnknownLibrarySymbol {
+        library: String,
+        symbol: String,
+    },
+    ExcludedSymbol {
+        library: String,
+        symbol: String,
+    },
     DuplicateVariable(String),
     DuplicateFunction(String),
     InvalidName(String),
@@ -388,8 +408,22 @@ pub enum CheckError {
 
 pub fn validate_program(program: &Program) -> Result<(), CheckError> {
     let mut checker = Checker::default();
-    checker.collect_functions(&program.statements)?;
-    checker.check_statements(&program.statements)
+    let statements = checker.collect_composition(&program.statements)?;
+    checker.collect_functions(&statements)?;
+    checker.check_statements(&statements)
+}
+
+pub fn validate_program_with_prelude(
+    prelude: &Program,
+    program: &Program,
+) -> Result<(), CheckError> {
+    let mut checker = Checker::default();
+    checker.collect_functions(&prelude.statements)?;
+    checker.check_statements(&prelude.statements)?;
+
+    let statements = checker.collect_composition(&program.statements)?;
+    checker.collect_functions(&statements)?;
+    checker.check_statements(&statements)
 }
 
 #[derive(Default)]
@@ -399,6 +433,8 @@ struct Checker {
     vtime_scopes: Vec<HashMap<String, ProtectionLevel>>,
     loop_depth: usize,
     function_depth: usize,
+    included_libraries: HashSet<String>,
+    excluded_base_symbols: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -413,6 +449,64 @@ enum Symbol {
 }
 
 impl Checker {
+    fn collect_composition(
+        &mut self,
+        statements: &[Statement],
+    ) -> Result<Vec<Statement>, CheckError> {
+        for statement in statements {
+            if let Statement::Include(library) = statement {
+                validate_composition_name(library)?;
+                if library != "base" {
+                    return Err(CheckError::UnknownLibrary(library.clone()));
+                }
+                if !self.included_libraries.insert(library.clone()) {
+                    return Err(CheckError::DuplicateInclude(library.clone()));
+                }
+            }
+        }
+
+        for statement in statements {
+            if let Statement::Exclude { symbol, library } = statement {
+                validate_composition_name(library)?;
+                validate_composition_name(symbol)?;
+                if library != "base" {
+                    return Err(CheckError::UnknownLibrary(library.clone()));
+                }
+                if !is_base_export(symbol) {
+                    return Err(CheckError::UnknownLibrarySymbol {
+                        library: library.clone(),
+                        symbol: symbol.clone(),
+                    });
+                }
+                if !self.excluded_base_symbols.insert(symbol.clone()) {
+                    return Err(CheckError::DuplicateExclude {
+                        library: library.clone(),
+                        symbol: symbol.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(statements
+            .iter()
+            .filter(|statement| {
+                !matches!(statement, Statement::Include(_) | Statement::Exclude { .. })
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn require_base_export(&self, symbol: &str) -> Result<(), CheckError> {
+        if self.excluded_base_symbols.contains(symbol) {
+            Err(CheckError::ExcludedSymbol {
+                library: "base".to_owned(),
+                symbol: symbol.to_owned(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     fn collect_functions(&mut self, statements: &[Statement]) -> Result<(), CheckError> {
         for statement in statements {
             if let Statement::FunctionDecl(function) = statement {
@@ -436,6 +530,9 @@ impl Checker {
 
     fn check_statement(&mut self, statement: &Statement) -> Result<(), CheckError> {
         match statement {
+            Statement::Include(_) | Statement::Exclude { .. } => {
+                Err(CheckError::CompositionDirectiveNotTopLevel)
+            }
             Statement::VariableDecl(decl) => self.check_variable_decl(decl),
             Statement::ListDecl(decl) => self.check_list_decl(decl),
             Statement::VTimeDecl(decl) => self.check_vtime_decl(decl),
@@ -443,6 +540,7 @@ impl Checker {
             Statement::Assignment(assignment) => self.check_assignment(assignment),
             Statement::InfoAssignment(assignment) => self.check_info_assignment(assignment),
             Statement::AddToList { list_name, element } => {
+                self.require_base_export("add")?;
                 self.check_add_to_list(list_name, element)
             }
             Statement::SecretUp(name) => self.check_secretup(name),
@@ -731,6 +829,7 @@ impl Checker {
     }
 
     fn check_pick(&mut self, pick_statement: &PickStatement) -> Result<(), CheckError> {
+        self.require_base_export("pick")?;
         validate_variable_name(&pick_statement.item_name)?;
         if self.name_exists(&pick_statement.item_name)
             || self.functions.contains_key(&pick_statement.item_name)
@@ -871,6 +970,10 @@ impl Checker {
         name: &str,
         args: &[Expression],
     ) -> Result<ExpressionInfo, CheckError> {
+        if is_base_export(name) {
+            self.require_base_export(name)?;
+        }
+
         match name {
             "add" => {
                 return Err(CheckError::InvalidOperation(
@@ -1438,6 +1541,47 @@ pub fn validate_variable_name(name: &str) -> Result<(), CheckError> {
     Ok(())
 }
 
+fn validate_composition_name(name: &str) -> Result<(), CheckError> {
+    if name.is_empty() || name.starts_with('.') || name.ends_with('.') || name.contains("..") {
+        return Err(CheckError::InvalidName(name.to_owned()));
+    }
+
+    for part in name.split('.') {
+        let mut chars = part.chars();
+        let Some(first) = chars.next() else {
+            return Err(CheckError::InvalidName(name.to_owned()));
+        };
+        if !is_ident_start(first) || !chars.all(is_ident_continue) {
+            return Err(CheckError::InvalidName(name.to_owned()));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_base_export(name: &str) -> bool {
+    matches!(
+        name,
+        "pick"
+            | "add"
+            | "get"
+            | "pop"
+            | "int"
+            | "float"
+            | "bool"
+            | "str"
+            | "bytes"
+            | "json"
+            | "split"
+            | "join"
+            | "len"
+            | "contains"
+            | "ord"
+            | "char"
+            | "pow"
+    )
+}
+
 fn is_ident_start(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphabetic()
 }
@@ -1468,6 +1612,8 @@ fn is_reserved_word(name: &str) -> bool {
             | "info"
             | "stop"
             | "fail"
+            | "include"
+            | "exclude"
             | "NONE"
             | "VTime"
             | "List"
@@ -2057,5 +2203,120 @@ mod tests {
             ),
         ]);
         assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn enforces_base_library_exclusions() {
+        let excluded_len = Program::new(vec![
+            Statement::Exclude {
+                symbol: "len".to_owned(),
+                library: "base".to_owned(),
+            },
+            Statement::Out(Expression::Call {
+                name: "len".to_owned(),
+                args: vec![Expression::Literal(Value::Str("APL".to_owned()))],
+            }),
+        ]);
+        assert_eq!(
+            validate_program(&excluded_len),
+            Err(CheckError::ExcludedSymbol {
+                library: "base".to_owned(),
+                symbol: "len".to_owned(),
+            })
+        );
+
+        let excluded_pick = Program::new(vec![
+            Statement::Exclude {
+                symbol: "pick".to_owned(),
+                library: "base".to_owned(),
+            },
+            Statement::Pick(PickStatement {
+                value: Expression::Literal(Value::Str("A".to_owned())),
+                item_name: "item".to_owned(),
+                body: vec![],
+            }),
+        ]);
+        assert_eq!(
+            validate_program(&excluded_pick),
+            Err(CheckError::ExcludedSymbol {
+                library: "base".to_owned(),
+                symbol: "pick".to_owned(),
+            })
+        );
+
+        let nested = Program::new(vec![Statement::If(IfStatement {
+            condition: Expression::Literal(Value::Bool(true)),
+            body: vec![Statement::Include("base".to_owned())],
+            else_if_branches: vec![],
+            else_body: None,
+        })]);
+        assert_eq!(
+            validate_program(&nested),
+            Err(CheckError::CompositionDirectiveNotTopLevel)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_library_composition() {
+        assert_eq!(
+            validate_program(&Program::new(vec![Statement::Include("math".to_owned())])),
+            Err(CheckError::UnknownLibrary("math".to_owned()))
+        );
+        assert_eq!(
+            validate_program(&Program::new(vec![Statement::Exclude {
+                symbol: "missing".to_owned(),
+                library: "base".to_owned(),
+            }])),
+            Err(CheckError::UnknownLibrarySymbol {
+                library: "base".to_owned(),
+                symbol: "missing".to_owned(),
+            })
+        );
+        assert_eq!(
+            validate_program(&Program::new(vec![
+                Statement::Include("base".to_owned()),
+                Statement::Include("base".to_owned()),
+            ])),
+            Err(CheckError::DuplicateInclude("base".to_owned()))
+        );
+    }
+
+    #[test]
+    fn composition_does_not_remove_prelude_dependencies() {
+        let prelude = Program::new(vec![Statement::FunctionDecl(FunctionDecl {
+            name: "base.helper".to_owned(),
+            params: vec!["value".to_owned()],
+            body: vec![Statement::Return(Expression::Call {
+                name: "len".to_owned(),
+                args: vec![Expression::Variable("value".to_owned())],
+            })],
+        })]);
+        let program = Program::new(vec![
+            Statement::Exclude {
+                symbol: "len".to_owned(),
+                library: "base".to_owned(),
+            },
+            Statement::Out(Expression::Literal(Value::Int(1))),
+        ]);
+
+        assert_eq!(validate_program_with_prelude(&prelude, &program), Ok(()));
+
+        let program = Program::new(vec![
+            Statement::Exclude {
+                symbol: "len".to_owned(),
+                library: "base".to_owned(),
+            },
+            Statement::Out(Expression::Call {
+                name: "len".to_owned(),
+                args: vec![Expression::Literal(Value::Str("APL".to_owned()))],
+            }),
+        ]);
+        assert_eq!(
+            validate_program_with_prelude(&prelude, &program),
+            Err(CheckError::ExcludedSymbol {
+                library: "base".to_owned(),
+                symbol: "len".to_owned(),
+            })
+        );
     }
 }

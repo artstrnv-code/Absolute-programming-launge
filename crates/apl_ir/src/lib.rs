@@ -82,6 +82,15 @@ impl Writer {
 
     fn statement(&mut self, statement: &Statement) -> Result<(), IrError> {
         match statement {
+            Statement::Include(library) => {
+                self.u8(17);
+                self.string(library)
+            }
+            Statement::Exclude { symbol, library } => {
+                self.u8(18);
+                self.string(symbol)?;
+                self.string(library)
+            }
             Statement::VariableDecl(decl) => {
                 self.u8(0);
                 self.variable_decl(decl)
@@ -527,6 +536,11 @@ impl<'a> Reader<'a> {
             })),
             15 => Ok(Statement::Break),
             16 => Ok(Statement::Continue),
+            17 => Ok(Statement::Include(self.string()?)),
+            18 => Ok(Statement::Exclude {
+                symbol: self.string()?,
+                library: self.string()?,
+            }),
             tag => Err(IrError::InvalidTag {
                 kind: "Statement",
                 tag,
@@ -780,6 +794,11 @@ mod tests {
     #[test]
     fn round_trips_program() {
         let program = Program::new(vec![
+            Statement::Include("base".to_owned()),
+            Statement::Exclude {
+                symbol: "pick".to_owned(),
+                library: "base".to_owned(),
+            },
             Statement::FunctionDecl(FunctionDecl {
                 name: "apl.id".to_owned(),
                 params: vec!["value".to_owned()],

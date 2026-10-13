@@ -175,6 +175,32 @@ String literals support `\n`, `\r`, `\t`, `\0`, `\\`, and `\"`. Unknown or
 unfinished escape sequences are syntax errors. A runnable demonstration lives
 in `examples/test_output.apl`.
 
+### Library Composition
+
+The first composition layer controls the implicit `base` library:
+
+```apl
+include >> base
+exclude "len" << base
+exclude "pick" << base
+out 42
+```
+
+Directives are top-level and apply to the complete program. They disappear
+before runtime IR is emitted. Calling an excluded builtin or using excluded
+`pick` is a compile error. Both the Rust reference checker and APL-written
+checker enforce the same contract. Duplicate directives and unknown exports
+are rejected.
+
+Only `base` is resolvable in this first implementation. External names such as
+`include >> math` fail explicitly until named `.aplmod` resolution and manifest
+encoding are implemented. Final `APLLINK2` images already prune unreachable APL
+functions; removal of native builtin sections depends on the future native
+backend.
+
+A runnable base-composition example is in
+`examples/test_composition.apl`.
+
 Containers, Docker execution, and binary `.aplb` bundles come after the language
 base is strict and testable.
 

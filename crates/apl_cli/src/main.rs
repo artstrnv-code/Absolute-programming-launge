@@ -32,22 +32,24 @@ fn main() {
                 process::exit(1);
             }
 
-            let source = apl_compiler::compose_program(apl_compiler::STANDARD_PRELUDE, &source);
-            let program = match apl_parser::parse_program(&source) {
+            let program = match apl_compiler::checked_program_with_prelude(
+                apl_compiler::STANDARD_PRELUDE,
+                &source,
+            ) {
                 Ok(program) => program,
-                Err(error) => {
+                Err(apl_compiler::CompileError::Parse(error)) => {
                     eprintln!(
                         "internal parse error at {}:{}: {}",
                         error.line, error.column, error.message
                     );
                     process::exit(1);
                 }
+                Err(apl_compiler::CompileError::Check(error)) => {
+                    eprintln!("check error: {error:?}");
+                    process::exit(1);
+                }
+                Err(error) => exit_compile_error(&command, error),
             };
-
-            if let Err(error) = apl_core::validate_program(&program) {
-                eprintln!("check error: {error:?}");
-                process::exit(1);
-            }
 
             if command == "check" {
                 println!("ok: {} statement(s)", program.statements.len());

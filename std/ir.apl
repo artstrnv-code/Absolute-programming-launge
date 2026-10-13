@@ -126,6 +126,10 @@ func ir.compile_optional_expr(expression) {
 func ir.compile_node(node) {
   VTime kind = parser.node_kind(node)
 
+  if (kind == parser.NODE_INCLUDE) or (kind == parser.NODE_EXCLUDE) {
+    return NONE
+  }
+
   if kind == parser.NODE_DECL {
     return [ir.OP_DECL, get(node, 1), get(node, 2), ir.compile_expr(get(node, 3))]
   }
@@ -206,10 +210,15 @@ func ir.compile_ast(statements) {
 
   pick(statements): statement {
     VTime instruction = ir.compile_node(statement)
-    add(instructions, instruction)
 
-    if ir.opcode(instruction) == ir.OP_ERROR {
-      return instructions
+    if instruction != NONE {
+      add(instructions, instruction)
+    }
+
+    if instruction != NONE {
+      if ir.opcode(instruction) == ir.OP_ERROR {
+        return instructions
+      }
     }
   }
 

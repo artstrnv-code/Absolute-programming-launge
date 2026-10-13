@@ -63,8 +63,10 @@ func checker.max_protection(left, right) {
 
 func checker.name_exists(names, name) {
   pick(names): existing {
-    if checker.entry_name(existing) == name {
-      return true
+    if checker.entry_role(existing) != "Excluded" {
+      if checker.entry_name(existing) == name {
+        return true
+      }
     }
   }
 
@@ -77,8 +79,10 @@ func checker.find_name(names, name) {
   while (index >= 0) (-1) {
     VTime existing = get(names, index)
 
-    if checker.entry_name(existing) == name {
-      return existing
+    if checker.entry_role(existing) != "Excluded" {
+      if checker.entry_name(existing) == name {
+        return existing
+      }
     }
 
     index -= 1
@@ -183,6 +187,107 @@ func checker.name_is_valid(name) {
   }
 
   return true
+}
+
+func checker.composition_name_is_valid(name) {
+  if len(name) == 0 {
+    return false
+  }
+
+  if name[0] == "." {
+    return false
+  }
+
+  if name[len(name) - 1] == "." {
+    return false
+  }
+
+  if contains(name, "..") {
+    return false
+  }
+
+  pick(split(name, ".")): part {
+    if checker.name_part_is_valid(part) != true {
+      return false
+    }
+  }
+
+  return true
+}
+
+func checker.exclusion_exists(exclusions, library, symbol) {
+  pick(exclusions): exclusion {
+    if (get(exclusion, 0) == library) and (get(exclusion, 1) == symbol) {
+      return true
+    }
+  }
+
+  return false
+}
+
+func checker.collect_composition(statements) {
+  VTime includes = []
+  VTime exclusions = []
+  VTime checked_statements = []
+
+  pick(statements): statement {
+    if parser.node_kind(statement) == parser.NODE_INCLUDE {
+      VTime library = get(statement, 1)
+
+      if checker.composition_name_is_valid(library) != true {
+        return checker.fail([], join(["invalid name `", library, "`"], ""))
+      }
+
+      if library != "base" {
+        return checker.fail([], join(["unknown library `", library, "`"], ""))
+      }
+
+      if checker.value_exists(includes, library) {
+        return checker.fail([], join(["duplicate include `", library, "`"], ""))
+      }
+
+      add(includes, library)
+    }
+  }
+
+  pick(statements): statement {
+    if parser.node_kind(statement) == parser.NODE_EXCLUDE {
+      VTime symbol = get(statement, 1)
+      VTime library = get(statement, 2)
+
+      if checker.composition_name_is_valid(library) != true {
+        return checker.fail([], join(["invalid name `", library, "`"], ""))
+      }
+
+      if checker.composition_name_is_valid(symbol) != true {
+        return checker.fail([], join(["invalid name `", symbol, "`"], ""))
+      }
+
+      if library != "base" {
+        return checker.fail([], join(["unknown library `", library, "`"], ""))
+      }
+
+      if checker.base_export_is_known(symbol) != true {
+        return checker.fail([], join(["unknown symbol `", symbol, "` in library `base`"], ""))
+      }
+
+      if checker.exclusion_exists(exclusions, library, symbol) {
+        return checker.fail([], join(["duplicate exclude `", symbol, "` from library `", library, "`"], ""))
+      }
+
+      add(exclusions, [library, symbol])
+    }
+  }
+
+  pick(statements): statement {
+    VTime kind = parser.node_kind(statement)
+
+    if (kind != parser.NODE_INCLUDE) and (kind != parser.NODE_EXCLUDE) {
+      add(checked_statements, statement)
+    }
+  }
+
+  return [checker.STATUS_OK, checked_statements, includes, exclusions]
 }
 
 func checker.validate_name(names, name) {
@@ -511,6 +616,36 @@ func checker.builtin_arity(name) {
 
 func checker.is_builtin_call(name) {
   return checker.builtin_arity(name) >= 0
+}
+
+func checker.base_export_is_known(name) {
+  if name == "pick" {
+    return true
+  }
+
+  return checker.is_builtin_call(name)
+}
+
+func checker.base_symbol_is_excluded(names, symbol) {
+  pick(names): entry {
+    if checker.entry_role(entry) == "Excluded" {
+      if checker.entry_type(entry) == "base" {
+        if checker.entry_name(entry) == symbol {
+          return true
+        }
+      }
+    }
+  }
+
+  return false
+}
+
+func checker.require_base_symbol(names, symbol) {
+  if checker.base_symbol_is_excluded(names, symbol) {
+    return checker.fail(names, join(["excluded symbol `", symbol, "` from library `base`"], ""))
+  }
+
+  return checker.ok(names)
 }
 
 func checker.decl_value_type(typ) {
@@ -1394,6 +1529,12 @@ func checker.validate_builtin_argument_types(expression, names) {
 func checker.validate_call_target(expression, names) {
   VTime name = get(expression, 1)
   VTime args = get(expression, 2)
+  VTime availability = checker.require_base_symbol(names, name)
+
+  if get(availability, 0) != checker.STATUS_OK {
+    return availability
+  }
+
   VTime builtin_arity = checker.builtin_arity(name)
 
   if builtin_arity >= 0 {
@@ -1779,6 +1920,10 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
     return checker.fail(names, get(node, 1))
   }
 
+  if (kind == parser.NODE_INCLUDE) or (kind == parser.NODE_EXCLUDE) {
+    return checker.fail(names, "composition directive must be top-level")
+  }
+
   VTime collision_state = checker.validate_decl_collision(node, names, allow_predeclared_func)
 
   if get(collision_state, 0) != checker.STATUS_OK {
@@ -2033,6 +2178,12 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
   }
 
   if kind == parser.NODE_PICK {
+    VTime availability = checker.require_base_symbol(names, "pick")
+
+    if get(availability, 0) != checker.STATUS_OK {
+      return availability
+    }
+
     VTime value_state = checker.validate_expr(get(node, 1), names)
 
     if get(value_state, 0) != checker.STATUS_OK {
@@ -2131,7 +2282,9 @@ func checker.export_symbols(names) {
 
   pick(names): entry {
     if checker.entry_role(entry) != "VTime" {
-      add(symbols, [checker.entry_name(entry), checker.entry_role(entry), checker.entry_type(entry), checker.entry_protection(entry)])
+      if checker.entry_role(entry) != "Excluded" {
+        add(symbols, [checker.entry_name(entry), checker.entry_role(entry), checker.entry_type(entry), checker.entry_protection(entry)])
+      }
     }
   }
 
@@ -2139,25 +2292,38 @@ func checker.export_symbols(names) {
 }
 
 func checker.validate_report_with_symbols(statements, symbols) {
-  VTime external_state = checker.add_external_symbols([], symbols)
+  VTime composition = checker.collect_composition(statements)
+
+  if get(composition, 0) != checker.STATUS_OK {
+    return [get(composition, 0), get(composition, 2)]
+  }
+
+  VTime checked_statements = get(composition, 1)
+  VTime names = []
+
+  pick(get(composition, 3)): exclusion {
+    names = checker.add_name(names, get(exclusion, 1), "Excluded", get(exclusion, 0))
+  }
+
+  VTime external_state = checker.add_external_symbols(names, symbols)
 
   if get(external_state, 0) != checker.STATUS_OK {
     return [get(external_state, 0), get(external_state, 2)]
   }
 
-  VTime collect_state = checker.collect_function_names(statements, get(external_state, 1))
+  VTime collect_state = checker.collect_function_names(checked_statements, get(external_state, 1))
 
   if get(collect_state, 0) != checker.STATUS_OK {
     return [get(collect_state, 0), get(collect_state, 2)]
   }
 
-  VTime state = checker.validate_block(statements, get(collect_state, 1), true, false, 0)
+  VTime state = checker.validate_block(checked_statements, get(collect_state, 1), true, false, 0)
 
   if get(state, 0) != checker.STATUS_OK {
     return [get(state, 0), get(state, 2)]
   }
 
-  return [checker.STATUS_OK, statements, checker.export_symbols(get(state, 1))]
+  return [checker.STATUS_OK, checked_statements, checker.export_symbols(get(state, 1))]
 }
 
 func checker.validate_report_with_functions(statements, function_names, arities) {
