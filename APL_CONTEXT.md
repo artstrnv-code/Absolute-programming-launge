@@ -768,9 +768,19 @@ APL-owned runtime code:
   their type through linked-artifact serialization.
 - `examples/test_ir.apl` is the current IR smoke-test.
 - `std/linker.apl`: the APL-written link stage. It recursively walks entry code,
-  nested blocks, expression trees, and function bodies. User-function `CALL`
-  expressions are resolved once to numeric `CALL_SLOT` expressions; builtin
-  calls remain named. It emits versioned `APLLOAD2` images.
+  nested blocks, expression trees, and transitively reachable function bodies.
+  Unreachable function records are removed while source order among retained
+  functions stays stable. The reduced table receives a fresh slot namespace,
+  so calls remain valid even when an earlier function was removed. Recursive
+  and mutually recursive functions are handled by a finite worklist.
+  User-function `CALL` expressions are then resolved once to numeric
+  `CALL_SLOT` expressions; builtin calls remain named. It emits versioned
+  `APLLOAD2` images. This reachability pass is the current linker foundation
+  for future `include`/`exclude`; builtin/native-section elimination requires
+  the future native backend. Relocatable-module validation deliberately uses
+  `linker.link_complete_image` through `vm.load_module_ir_report`: every export
+  is checked and retained for future consumers. Only final loaded images use
+  reachability pruning.
 - `std/verifier.apl`: the APL-written loaded-image verifier. It recursively
   validates expression and instruction opcodes/arity, operators, literal types,
   nested blocks, builtin arity, function-table consistency, unique function and
@@ -861,8 +871,9 @@ APL-owned runtime code:
   `vm.load_ir_report(program)` prepares a linked image
   `["APLLOAD2", entry, functions]` by collecting the VM function table once,
   removing top-level `FUNC` instructions from the executable entry program, and
-  asking the APL linker to resolve user calls to numeric function slots in both
-  entry code and function bodies. `vm.run_loaded*` executes that image repeatedly
+  asking the APL linker to retain the transitive entry-call closure and resolve
+  its user calls to numeric function slots in both entry code and function
+  bodies. `vm.run_loaded*` executes that image repeatedly
   without re-collecting functions, searching user functions by name, or stepping
   over function declarations as no-op runtime instructions. The legacy
   `vm.run_ir*` facade also loads and links before execution. Every loaded image,
@@ -918,7 +929,8 @@ APL-owned runtime code:
   re-checking the original source text.
   Loaded image reports return `[OK, ["APLLOAD2", entry, functions]]` or
   `[FAIL, output]`. They also precompute the APL VM function table and store an
-  entry program without top-level `FUNC` declarations. The APL linker rewrites
+  entry program without top-level `FUNC` declarations. The APL linker removes
+  functions outside the transitive entry-call closure and rewrites retained
   user calls in the complete image to `CALL_SLOT`, so repeated
   `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check,
   re-collect or look up functions from the original source, or execute function

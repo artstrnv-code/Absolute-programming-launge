@@ -866,7 +866,7 @@ func artifact.module_v1_image_is_valid(image) {
     return false
   }
 
-  VTime loaded_report = vm.load_ir_report(program)
+  VTime loaded_report = vm.load_module_ir_report(program)
 
   if get(loaded_report, 0) != vm.FLOW_OK {
     return false
@@ -916,7 +916,7 @@ func artifact.module_image_is_valid(image) {
       return false
     }
 
-    VTime loaded_report = vm.load_ir_report(program)
+    VTime loaded_report = vm.load_module_ir_report(program)
 
     if get(loaded_report, 0) != vm.FLOW_OK {
       return false
@@ -940,7 +940,7 @@ func artifact.module_image_is_valid(image) {
     return false
   }
 
-  VTime loaded_report = vm.load_ir_report(program)
+  VTime loaded_report = vm.load_module_ir_report(program)
 
   if get(loaded_report, 0) != vm.FLOW_OK {
     return false
@@ -982,7 +982,7 @@ func artifact.module_symbols(image) {
 }
 
 func artifact.encode_module_with_symbols_report(program, symbols) {
-  VTime loaded_report = vm.load_ir_report(program)
+  VTime loaded_report = vm.load_module_ir_report(program)
 
   if get(loaded_report, 0) != vm.FLOW_OK {
     return [vm.FLOW_FAIL, "invalid module program"]

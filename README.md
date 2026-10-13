@@ -562,10 +562,19 @@ build\bat_test_ir\target\debug\test_ir_compiled.exe
 ```
 
 `std/linker.apl` is the APL-written link stage. When an IR program is loaded,
-it recursively walks entry code and function bodies, resolves user-function
-names to stable numeric slots, and emits `CALL_SLOT` expressions. Builtin calls
-remain named. The resulting `APLLOAD2` image therefore avoids repeated string
-lookup for user functions during execution.
+it discovers user functions reachable from entry code, follows transitive and
+recursive calls, and removes unreachable function names, parameters, and
+bodies. It preserves source order among retained functions, then resolves their
+names to newly assigned numeric slots and emits `CALL_SLOT` expressions.
+Builtin calls remain named. The resulting `APLLOAD2` image therefore avoids
+repeated string lookup and does not carry unused APL function code. This is the
+reachability foundation for future `include`/`exclude` composition; native
+builtin elimination still belongs to the future native linker.
+
+Relocatable `.aplmod` validation uses a separate complete-link pass. It checks
+every exported function without deleting exports that are unused until a later
+program links the module. Reachability pruning happens only when producing the
+final loaded image or `APLLINK2` artifact.
 
 `std/verifier.apl` validates an entire loaded image before the VM accepts it.
 It checks instruction and expression opcodes and arities, operators, literal

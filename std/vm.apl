@@ -1638,6 +1638,16 @@ func vm.load_ir_report(program) {
   return [vm.FLOW_OK, linker.link_image(vm.collect_entry(program), functions)]
 }
 
+func vm.load_module_ir_report(program) {
+  VTime functions = vm.collect_functions(program)
+
+  if vm.functions_ok(functions) != true {
+    return [vm.FLOW_FAIL, ["duplicate function"]]
+  }
+
+  return [vm.FLOW_OK, linker.link_complete_image(vm.collect_entry(program), functions)]
+}
+
 func vm.loaded_image_is_valid(loaded) {
   return verifier.loaded_image_is_valid(loaded)
 }

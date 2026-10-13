@@ -3614,6 +3614,38 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_apl_linker_retains_only_reachable_functions_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func dead(x) { return x + 100 } func even(x) { if x == 0 { return true } return odd(x - 1) } func unused_middle() { return dead(1) } func odd(x) { if x == 0 { return false } return even(x - 1) } func recurse(x) { if x == 0 { return 0 } return recurse(x - 1) } out even(4) out recurse(3)"
+            VTime encoded_report = bootstrap.linked_artifact_report(source)
+            VTime encoded = get(encoded_report, 1)
+            VTime loaded_report = bootstrap.load_linked_artifact_report(encoded)
+            VTime loaded = get(loaded_report, 1)
+            VTime entry = vm.loaded_program(loaded)
+            VTime functions = vm.loaded_functions(loaded)
+            VTime first_call = get(get(entry, 0), 1)
+            VTime second_call = get(get(entry, 1), 1)
+            VTime run_report = bootstrap.run_loaded_image_report(loaded)
+
+            out get(encoded_report, 0)
+            out get(loaded_report, 0)
+            out join(vm.func_names(functions), ",")
+            out len(vm.func_names(functions))
+            out get(first_call, 1)
+            out get(second_call, 1)
+            out contains(encoded, "dead")
+            out contains(encoded, "unused_middle")
+            out get(run_report, 0)
+            out join(get(run_report, 1), "")
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "OKOKeven,odd,recurse302falsefalseOKtrue0");
+    }
+
+    #[test]
     fn source_runtime_round_trips_linked_apl_artifacts_prelude() {
         let output = run_source_with_prelude(
             r#"
@@ -3691,12 +3723,14 @@ mod tests {
     fn source_runtime_links_relocatable_apl_modules_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr module_source = "AVInt module.answer = 40 List module.values = [2] func module.add_one(value) { return value + 1 } func module.total() { return module.add_one(module.answer) + get(module.values, 0) - 1 }"
+            AVStr module_source = "AVInt module.answer = 40 List module.values = [2] func module.add_one(value) { return value + 1 } func module.total() { return module.add_one(module.answer) + get(module.values, 0) - 1 } func module.later(value) { return value + 100 }"
             VTime module_report = bootstrap.module_report(module_source)
             VTime encoded_module = get(module_report, 1)
             VTime loaded_module = bootstrap.load_module_report(encoded_module)
             VTime linked_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.answer out get(module.values, 0) out module.total()")
             VTime run_report = bootstrap.run_linked_artifact_report(get(linked_report, 1))
+            VTime later_linked_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.later(1)")
+            VTime later_run_report = bootstrap.run_linked_artifact_report(get(later_linked_report, 1))
             VTime unknown_report = bootstrap.linked_artifact_with_module_report(encoded_module, "out module.missing(1)")
             VTime duplicate_report = bootstrap.linked_artifact_with_module_report(encoded_module, "AVInt module.answer = 1")
             VTime bad_header = bootstrap.load_module_report("BAD")
@@ -3713,8 +3747,8 @@ mod tests {
             VTime legacy_image = artifact.node_list([
               artifact.node_str("APLMOD1"),
               artifact.wrap_program(artifact.module_program(module_image)),
-              artifact.wrap_str_list(["module.add_one", "module.total"]),
-              artifact.wrap_int_list([1, 0])
+              artifact.wrap_str_list(["module.add_one", "module.total", "module.later"]),
+              artifact.wrap_int_list([1, 0, 1])
             ])
             VTime legacy_text = join([artifact.MODULE_HEADER_V1, artifact.encode_node(legacy_image)], "")
             VTime legacy_load = bootstrap.load_module_report(legacy_text)
@@ -3727,6 +3761,9 @@ mod tests {
             out get(get(run_report, 1), 0)
             out get(get(run_report, 1), 1)
             out get(get(run_report, 1), 2)
+            out get(later_linked_report, 0)
+            out get(later_run_report, 0)
+            out get(get(later_run_report, 1), 0)
             out get(unknown_report, 0)
             out get(unknown_report, 1)
             out get(duplicate_report, 0)
@@ -3745,7 +3782,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKAPLMOD3:OKOKOK40242FAILunknown function `module.missing`FAILduplicate name `module.answer`FAILinvalid module artifact headerFAILmodule program is already linkedFAILinvalid module artifact imageOKAPLMOD1"
+            "OKAPLMOD3:OKOKOK40242OKOK101FAILunknown function `module.missing`FAILduplicate name `module.answer`FAILinvalid module artifact headerFAILmodule program is already linkedFAILinvalid module artifact imageOKAPLMOD1"
         );
     }
 
