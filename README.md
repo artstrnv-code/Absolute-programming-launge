@@ -1,7 +1,9 @@
 # APL
 
-APL, Absoluta Programming Language, is a small strict base language for
-contract-based communication between isolated language containers.
+APL, Absoluta Programming Language, is a strict standalone language for native
+applications, architecture, and systems programming. Contract-based
+communication between isolated foreign-language containers is a first-party
+library capability, not the limit of the language itself.
 
 The core idea is simple:
 
@@ -71,9 +73,11 @@ APL's production target is AOT native compilation. The intended backend lowers
 APL into a low-level native IR, can emit readable assembly or platform object
 files, and uses the platform linker to produce PE `.exe`, ELF, and Mach-O
 executables. AppImage packaging sits on top of the Linux ELF result. A future
-freestanding profile must work without the Rust host so APL can participate in
-OS-level development while unsafe memory and hardware operations remain behind
-explicit C/C++/Rust/ASM component contracts.
+freestanding profile must work without the Rust host so APL can implement
+OS-level code directly. Raw memory and hardware access will live in explicit,
+capability-controlled system libraries, allowing ordinary builds to exclude
+them completely. The same library model is intended to cover APL-owned ISO and
+disk-image construction.
 
 Two bootstrap execution paths exist today. The Rust-hosted path serializes a
 checked `Program` into binary `.aplc`, then lowers it on load to an in-memory
@@ -326,8 +330,12 @@ cargo run --release -p apl -- run-linked build\linked_hello_selfhost.apllink
 The bootstrap compiler artifact contains the APL-written frontend, checker,
 linker, verifier, artifact codec, VM, and an embedded relocatable runtime
 module. It accepts source as input and returns either a new `APLLINK2` payload
-or a diagnostic through the versioned `APLCOMP1` response protocol. The
-compiler artifact can be reused without rebuilding or re-tokenizing its own
+or a diagnostic through the versioned, length-framed `APLCOMP2` response
+protocol. Payload lengths count Unicode characters, so truncation, trailing
+data, colons, newlines, and NUL characters are handled unambiguously. The host
+still accepts `APLCOMP1` responses from compiler artifacts created by earlier
+versions. The compiler artifact can be reused without rebuilding or
+re-tokenizing its own
 compiler sources. An outer Rust bootstrap host still loads and runs the APL VM;
 this is compiler-in-VM bootstrap, not native code generation yet. Release mode
 is strongly recommended for both compiler construction and nested compilation.

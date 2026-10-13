@@ -7,11 +7,17 @@ updated when the language changes.
 
 APL means Absoluta Programming Language.
 
-APL is a middle-level architecture language: it is meant to control everything,
-not implement everything directly. High-level work should be delegated to
-languages like Python/JS. Low-level work should be delegated to C/Rust/ASM.
-APL owns orchestration, contracts, routing, security boundaries, typed shared
-state, and future container/component composition.
+APL is a standalone general-purpose native language for application,
+architecture, and systems programming. It must be able to express and execute
+computation directly instead of depending on another language for ordinary
+high-level or low-level work. Orchestration, contracts, routing, security
+boundaries, and typed shared state remain defining strengths.
+
+Foreign-language containers are a first-party library ecosystem built on
+generic contracts, ABI, and security capabilities. Python, JavaScript, C,
+C++, Rust, and other adapters must not become compiler-special-cased language
+constructs. A program that does not include the container libraries must not
+carry their runtime or dependencies.
 
 Long-term target: APL must become an AOT native compiled language, not
 permanently a language hosted by a Rust runtime or bytecode VM. The current
@@ -23,18 +29,19 @@ target around a Linux executable, not a separate code-generation format. A
 freestanding native runtime path must eventually support kernel and OS-level
 development without depending on the Rust host or a managed runtime.
 
-Native APL does not imply exposing raw addresses, pointers, or manual allocation
-as ordinary language features. Those mechanisms belong in low-level C/C++/Rust
-or ASM components. APL should be able to produce and run native orchestration
-code without a foreign managed runtime while keeping unsafe hardware and memory
-operations behind explicit component contracts.
+Native APL may expose raw memory and hardware control through explicit,
+separately includable system libraries. These operations are not implicit
+ordinary-language behavior: their use must be visible, capability-controlled,
+and removable from builds that do not need them. APL must not require a foreign
+language or managed runtime to implement its own allocator, ISO builder,
+bootloader tooling, or OS components.
 
 Core phrase:
 
 ```text
-APL controls.
-Components compute.
-Contracts protect.
+APL computes and controls.
+Libraries extend.
+Contracts protect boundaries.
 ```
 
 ## Roadmap
@@ -49,8 +56,13 @@ Current high-level plan:
 5. Add an APL-owned native lowering/backend that can emit assembly, object
    files, and linked platform executables.
 6. Add a freestanding runtime profile suitable for future OS work.
-7. Add containers/components behind strict contracts.
-8. Polish tooling, diagnostics, and platform packaging.
+7. Add explicit system libraries, including controlled raw-memory and hardware
+   access for freestanding programs.
+8. Add first-party foreign-language container libraries behind strict generic
+   contracts.
+9. Build APL-owned packaging libraries for executables, AppImage, ISO, disk
+   images, and other deployment formats.
+10. Polish tooling, diagnostics, and platform packaging.
 
 Current implementation has parser, checker, CLI, GUI shell, runtime v0.1
 interpreter coverage for the current base language, an in-memory Rust-hosted
@@ -67,6 +79,80 @@ runtime bytecode format. The APL-written self-host path emits `APLMOD3` and
 That portable IR is a bootstrap and semantic-reference format, not the final
 native backend. Bytecode may remain useful as a VM/debugging target, but native
 object and executable output is the primary production goal.
+
+## Library Composition
+
+APL programs must be able to control their complete library surface and final
+linked image. The planned source form is:
+
+```apl
+include >> math
+exclude "sqrt" << math
+exclude "pick" << base
+```
+
+`include` makes a library's permitted exports available. `exclude` removes a
+specific export from the program environment, including exports of the
+automatically supplied `base` library. Exclusion is not merely a namespace
+alias or an optimizer hint: referring to an excluded symbol must be a compile
+error, and its implementation and otherwise unreachable dependencies must not
+be linked into the result.
+
+Composition is resolved before semantic checking and reachability analysis so
+the checker, linker, and final image agree on the exact available surface. The
+irreducible compiler core should remain small. Facilities that can live in
+`base`, `std`, `system`, `build`, or `containers` should be removable library
+exports rather than permanently linked compiler features. A construct such as
+the current parser-level `pick` cannot satisfy `exclude "pick" << base` until
+it is represented by a removable library or compile-time extension contract.
+
+This syntax and module model are accepted design direction but are not
+implemented by the current lexer, parser, checker, or linker yet.
+
+## Tracked Memory Tables
+
+The planned manual-memory library uses stable allocation identity rather than
+exposing `malloc` as an untracked raw-address operation. Every successful
+allocation creates a table record containing at least an address and a unique
+allocation ID. The ID is the default result:
+
+```apl
+include >> unsafe.memory
+
+VTime block = malloc(4096)
+free(block)
+```
+
+Allocation IDs are never reused. `free(id)` releases the live storage but does
+not erase or recycle the identity record. A stale ID therefore cannot silently
+start referring to a later allocation at the same address. Dereference through
+an ID must validate that its record is still live; this gives the runtime a
+defined place to diagnose use-after-free and double-free operations. A moving
+allocator may update a record's current address without changing its ID.
+
+`where(source, field)` queries the table. Its planned selectors are:
+
+```text
+0 -> address
+1 -> allocation ID
+2 -> variable name
+3 -> value
+```
+
+`source` may be an address, allocation ID, variable, or value. In particular,
+`where(x, 1)` obtains the allocation ID associated with `x`. A variable-name
+query cannot be implemented as an ordinary eager function call, because
+evaluating `x` would discard the name before `where` receives it. The compiler
+therefore must preserve source identity in a descriptor passed to the memory
+library, while allocation and table policy remain outside the language core.
+
+Several details deliberately remain open until the memory model is designed:
+equal values may match several records, one allocation may have several alias
+names, and a freed record has a historical address/value but no live storage.
+The final contract must define ambiguity, aliasing, query behavior after
+`free`, table-history lifetime, concurrency, and protection checks before this
+API is implemented. Raw addresses and values derived from `ASV` or `SASV`
+records must not become a route around APL's existing information-flow rules.
 
 ## Variable Families
 
@@ -524,7 +610,9 @@ Rust workspace:
   reusable compiler `APLLINK2` containing the complete APL-written compiler and
   an embedded runtime `APLMOD3`. Running that artifact compiles input source
   inside the APL VM and returns a linked artifact or diagnostic through the
-  versioned `APLCOMP1` protocol.
+  versioned, Unicode-character-length-framed `APLCOMP2` protocol. The host
+  rejects truncated and trailing payloads and remains able to consume legacy
+  `APLCOMP1` responses from already emitted compiler artifacts.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`

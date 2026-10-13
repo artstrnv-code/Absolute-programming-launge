@@ -36,8 +36,9 @@ pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/bootstrap.apl")
 );
 
-const BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
-const BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
+const BOOTSTRAP_COMPILER_PROTOCOL: &str = "APLCOMP2:";
+const LEGACY_BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
+const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,18 +418,25 @@ fn bootstrap_stdout_artifact(
 fn render_bootstrap_compiler_driver(runtime_module: &str) -> String {
     let runtime_module = apl_string_literal(runtime_module);
     format!(
-        r#"AVStr aplcompiler.runtime_module = {runtime_module}
+        r#"func aplcompiler.emit_report(status, payload) {{
+  out "{BOOTSTRAP_COMPILER_PROTOCOL}"
+  out status
+  out ":"
+  out len(payload)
+  out ":"
+  out payload
+  stop
+}}
+
+AVStr aplcompiler.runtime_module = {runtime_module}
 AVStr aplcompiler.source = input
 VTime aplcompiler.report = bootstrap.linked_artifact_with_module_report(aplcompiler.runtime_module, aplcompiler.source)
 
 if get(aplcompiler.report, 0) != vm.FLOW_OK {{
-  out "{BOOTSTRAP_COMPILER_ERROR}"
-  out get(aplcompiler.report, 1)
-  stop
+  VTime aplcompiler.error_emitted = aplcompiler.emit_report(vm.FLOW_FAIL, get(aplcompiler.report, 1))
 }}
 
-out "{BOOTSTRAP_COMPILER_OK}"
-out get(aplcompiler.report, 1)"#
+VTime aplcompiler.artifact_emitted = aplcompiler.emit_report(vm.FLOW_OK, get(aplcompiler.report, 1))"#
     )
 }
 
@@ -451,7 +459,36 @@ fn apl_string_literal(value: &str) -> String {
 }
 
 fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError> {
-    if let Some(artifact) = output.strip_prefix(BOOTSTRAP_COMPILER_OK) {
+    if let Some(mut response) = output.strip_prefix(BOOTSTRAP_COMPILER_PROTOCOL) {
+        let Some(status) = take_protocol_field(&mut response) else {
+            return Err(invalid_bootstrap_compiler_response());
+        };
+        let Some(char_count) = take_protocol_usize(&mut response) else {
+            return Err(invalid_bootstrap_compiler_response());
+        };
+        let Some(payload) = take_protocol_chars(&mut response, char_count) else {
+            return Err(invalid_bootstrap_compiler_response());
+        };
+
+        if !response.is_empty() {
+            return Err(invalid_bootstrap_compiler_response());
+        }
+
+        return match status {
+            "OK" if payload.starts_with("APLLINK2:") => Ok(payload.to_owned()),
+            "OK" => Err(CompileError::Bootstrap(
+                "APL bootstrap compiler returned an invalid linked artifact".to_owned(),
+            )),
+            "FAIL" => Err(CompileError::Bootstrap(if payload.is_empty() {
+                "APL bootstrap compiler failed without a diagnostic".to_owned()
+            } else {
+                payload.to_owned()
+            })),
+            _ => Err(invalid_bootstrap_compiler_response()),
+        };
+    }
+
+    if let Some(artifact) = output.strip_prefix(LEGACY_BOOTSTRAP_COMPILER_OK) {
         if artifact.starts_with("APLLINK2:") {
             return Ok(artifact.to_owned());
         }
@@ -460,7 +497,7 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
         ));
     }
 
-    if let Some(message) = output.strip_prefix(BOOTSTRAP_COMPILER_ERROR) {
+    if let Some(message) = output.strip_prefix(LEGACY_BOOTSTRAP_COMPILER_ERROR) {
         return Err(CompileError::Bootstrap(if message.is_empty() {
             "APL bootstrap compiler failed without a diagnostic".to_owned()
         } else {
@@ -468,9 +505,11 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
         }));
     }
 
-    Err(CompileError::Bootstrap(
-        "APL bootstrap compiler returned an invalid response".to_owned(),
-    ))
+    Err(invalid_bootstrap_compiler_response())
+}
+
+fn invalid_bootstrap_compiler_response() -> CompileError {
+    CompileError::Bootstrap("APL bootstrap compiler returned an invalid response".to_owned())
 }
 
 fn parse_linked_run_report(output: &str) -> Result<LinkedRunReport, CompileError> {
@@ -1000,20 +1039,44 @@ mod tests {
 
     #[test]
     fn bootstrap_compiler_protocol_is_versioned_and_validated() {
-        assert_eq!(
-            parse_bootstrap_compiler_output("APLCOMP1:OAPLLINK2:payload").unwrap(),
-            "APLLINK2:payload"
+        let artifact = "APLLINK2:payload:Привет\0";
+        let encoded = format!(
+            "{BOOTSTRAP_COMPILER_PROTOCOL}OK:{}:{artifact}",
+            artifact.chars().count()
         );
+        assert_eq!(parse_bootstrap_compiler_output(&encoded).unwrap(), artifact);
 
+        let diagnostic = "declaration:\nожидалось =\0";
+        let encoded = format!(
+            "{BOOTSTRAP_COMPILER_PROTOCOL}FAIL:{}:{diagnostic}",
+            diagnostic.chars().count()
+        );
         let CompileError::Bootstrap(message) =
-            parse_bootstrap_compiler_output("APLCOMP1:Edeclaration expects =").unwrap_err()
+            parse_bootstrap_compiler_output(&encoded).unwrap_err()
         else {
             panic!("expected bootstrap protocol error");
         };
-        assert_eq!(message, "declaration expects =");
+        assert_eq!(message, diagnostic);
+
+        assert_eq!(
+            parse_bootstrap_compiler_output("APLCOMP1:OAPLLINK2:legacy").unwrap(),
+            "APLLINK2:legacy"
+        );
 
         assert!(matches!(
             parse_bootstrap_compiler_output("APLCOMP1:Onot-an-artifact"),
+            Err(CompileError::Bootstrap(_))
+        ));
+        assert!(matches!(
+            parse_bootstrap_compiler_output("APLCOMP2:OK:20:APLLINK2:short"),
+            Err(CompileError::Bootstrap(_))
+        ));
+        assert!(matches!(
+            parse_bootstrap_compiler_output("APLCOMP2:OK:14:APLLINK2:shortx"),
+            Err(CompileError::Bootstrap(_))
+        ));
+        assert!(matches!(
+            parse_bootstrap_compiler_output("APLCOMP2:MAYBE:0:"),
             Err(CompileError::Bootstrap(_))
         ));
         assert!(matches!(
@@ -1028,15 +1091,21 @@ mod tests {
         let driver = render_bootstrap_compiler_driver(encoded);
         let program = apl_parser::parse_program(&driver).unwrap();
 
-        let apl_core::Statement::VariableDecl(declaration) = &program.statements[0] else {
+        let Some(declaration) = program.statements.iter().find_map(|statement| {
+            let apl_core::Statement::VariableDecl(declaration) = statement else {
+                return None;
+            };
+            (declaration.name == "aplcompiler.runtime_module").then_some(declaration)
+        }) else {
             panic!("expected embedded runtime module declaration");
         };
         assert_eq!(
             declaration.initial_value,
             apl_core::Expression::Literal(apl_core::Value::Str(encoded.to_owned()))
         );
-        assert!(driver.contains(BOOTSTRAP_COMPILER_OK));
-        assert!(driver.contains(BOOTSTRAP_COMPILER_ERROR));
+        assert!(driver.contains(BOOTSTRAP_COMPILER_PROTOCOL));
+        assert!(!driver.contains(LEGACY_BOOTSTRAP_COMPILER_OK));
+        assert!(!driver.contains(LEGACY_BOOTSTRAP_COMPILER_ERROR));
     }
 
     #[test]
