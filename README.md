@@ -202,10 +202,13 @@ are unavailable to user code, and final `APLLINK2` reachability removes unused
 APL functions.
 
 The source-relative resolver is used by `check`, `run`, `emit-linked`, linked
-package builds, and APL Studio when the buffer has a saved path. Legacy host
-`.aplc` output and reusable `emit-linked-bootstrap` compiler artifacts do not
-yet accept named-library catalogs. Final artifact manifest recording and
-removal of native builtin/data sections remain future linker work.
+package builds, `emit-linked-bootstrap`, and APL Studio when the buffer has a
+saved path. A reusable bootstrap compiler accepts the resolved catalog through
+its framed input stream and links it over its precompiled base `APLMOD3`, so it
+does not recompile the runtime module for each user program. Legacy host
+`.aplc` output does not carry a named-library catalog. Final artifact manifest
+recording and removal of native builtin/data sections remain future linker
+work.
 
 A runnable base-composition example is in
 `examples/test_composition.apl`.
@@ -372,6 +375,10 @@ new source from inside the APL VM:
 cargo run --release -p apl -- emit-bootstrap-compiler build\bootstrap_compiler.apllink
 cargo run --release -p apl -- emit-linked-bootstrap build\bootstrap_compiler.apllink examples\linked_hello.apl build\linked_hello_selfhost.apllink
 cargo run --release -p apl -- run-linked build\linked_hello_selfhost.apllink
+
+# The same compiler artifact resolves examples\libraries\math.aplmod.
+cargo run --release -p apl -- emit-linked-bootstrap build\bootstrap_compiler.apllink examples\with_math.apl build\with_math_selfhost.apllink
+cargo run --release -p apl -- run-linked build\with_math_selfhost.apllink
 ```
 
 The bootstrap compiler artifact contains the APL-written frontend, checker,
@@ -381,9 +388,11 @@ or a diagnostic through the versioned, length-framed `APLCOMP2` response
 protocol. Payload lengths count Unicode characters, so truncation, trailing
 data, colons, newlines, and NUL characters are handled unambiguously. The host
 still accepts `APLCOMP1` responses from compiler artifacts created by earlier
-versions. The compiler artifact can be reused without rebuilding or
-re-tokenizing its own
-compiler sources. An outer Rust bootstrap host still loads and runs the APL VM;
+versions. For named libraries, the host sends an `APLCREQ1:` request followed
+by the catalog count, `name`/`APLMOD3` pairs, and source as distinct VM input
+values. The compiler validates the modules and includes only libraries selected
+by source directives. The compiler artifact can be reused without rebuilding
+or re-tokenizing its own compiler sources. An outer Rust bootstrap host still loads and runs the APL VM;
 this is compiler-in-VM bootstrap, not native code generation yet. Release mode
 is strongly recommended for both compiler construction and nested compilation.
 

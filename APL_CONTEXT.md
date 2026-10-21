@@ -147,11 +147,14 @@ saved-file execution in APL Studio use this resolver. Missing files and invalid
 module payloads fail compilation. Unsaved Studio buffers must be saved before
 using external libraries so resolution has an unambiguous root.
 
-Legacy host `.aplc` generation and the reusable `APLCOMP2` compiler artifact do
-not yet carry a named-library catalog. The final `APLLINK2` also does not yet
-record the resolved library manifest. Those are the next composition protocol
-steps; native builtin and data-section elimination remains the responsibility
-of the future native linker.
+Legacy host `.aplc` generation does not carry a named-library catalog. The
+reusable compiler artifact does: an `APLCREQ1:` request sends the catalog count,
+`name`/`APLMOD3` pairs, and source through distinct VM input values, while its
+`APLCOMP2` response stays backward compatible. The compiler links libraries
+over its precompiled base module rather than recompiling the runtime source.
+The final `APLLINK2` does not yet record the resolved library manifest. That is
+the next composition protocol step; native builtin and data-section elimination
+remains the responsibility of the future native linker.
 
 Standalone calls such as `record(42)` are expression statements. The
 APL-written frontend already represented them as `NODE_EXPR`/`OP_EXPR`; the
@@ -675,7 +678,11 @@ Rust workspace:
   `compile_linked_artifact_with_libraries` passes named modules into the APL
   bootstrap as explicit catalog entries. `resolve_named_libraries` implements
   the source-relative `libraries/<name>.aplmod` convention without teaching
-  the Rust host to decode the portable module format.
+  the Rust host to decode the portable module format. The reusable compiler
+  path uses the same resolver. When libraries are present, the host frames an
+  `APLCREQ1:` request as separate input values; the APL compiler validates the
+  catalog and links selected modules over its embedded precompiled base module.
+  Source-only requests retain the original one-input shape for compatibility.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`
@@ -1039,13 +1046,16 @@ APL-owned runtime code:
   is currently impractically slow.
   A second gate builds that complete compiler/runtime module into a reusable
   compiler `APLLINK2`. `emit-linked-bootstrap` runs the compiler artifact
-  inside the APL VM with user source as input; the artifact invokes
-  `bootstrap.linked_artifact_with_module_report` against its embedded runtime
-  `APLMOD3` and returns a fresh user `APLLINK2`. The verified gate compiles and
-  runs a function-bearing program to produce `42`, then reuses the same
-  compiler instance to return the exact parser diagnostic for invalid source.
-  This removes repeated compiler-source parsing from user compilation, but the
-  outer artifact loader and VM are still executed by the Rust bootstrap host.
+  inside the APL VM with user source and an optional named-library catalog as
+  input. The artifact invokes `bootstrap.linked_artifact_with_module_report` or
+  `bootstrap.linked_artifact_with_module_and_libraries_report` against its
+  embedded runtime `APLMOD3` and returns a fresh user `APLLINK2`. The verified
+  gate compiles and runs both a function-bearing source-only program and a
+  program using an included/excluded library surface to produce `42`, then
+  reuses the same compiler instance to return the exact parser diagnostic for
+  invalid source. This removes repeated compiler-source parsing and base-module
+  compilation from user compilation, but the outer artifact loader and VM are
+  still executed by the Rust bootstrap host.
 - `examples/test_vm.apl`, `examples/test_vm_if.apl`,
   `examples/test_vm_else_if.apl`, and `examples/test_vm_else.apl`,
   `examples/test_vm_while.apl`, and

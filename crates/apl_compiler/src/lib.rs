@@ -38,6 +38,7 @@ pub const STANDARD_PRELUDE: &str = concat!(
 );
 
 const BOOTSTRAP_COMPILER_PROTOCOL: &str = "APLCOMP2:";
+const BOOTSTRAP_COMPILER_LIBRARY_REQUEST: &str = "APLCREQ1:";
 const LEGACY_BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
 const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
@@ -187,7 +188,18 @@ pub fn compile_linked_artifact_with_bootstrap_compiler(
     compiler_artifact: &str,
     source: &str,
 ) -> Result<String, CompileError> {
-    let output = run_linked_artifact(compiler_artifact, vec![source.to_owned()])?;
+    compile_linked_artifact_with_bootstrap_compiler_and_libraries(compiler_artifact, source, &[])
+}
+
+pub fn compile_linked_artifact_with_bootstrap_compiler_and_libraries(
+    compiler_artifact: &str,
+    source: &str,
+    libraries: &[NamedLibrary],
+) -> Result<String, CompileError> {
+    let output = run_linked_artifact(
+        compiler_artifact,
+        bootstrap_compiler_input(source, libraries),
+    )?;
     parse_bootstrap_compiler_output(&output.stdout)
 }
 
@@ -198,7 +210,10 @@ pub fn emit_linked_artifact_with_bootstrap_compiler_file(
 ) -> Result<(), CompileError> {
     let compiler = fs::read_to_string(compiler_path)?;
     let source = fs::read_to_string(source_path)?;
-    let artifact = compile_linked_artifact_with_bootstrap_compiler(&compiler, &source)?;
+    let libraries = resolve_named_libraries(source_path, &source)?;
+    let artifact = compile_linked_artifact_with_bootstrap_compiler_and_libraries(
+        &compiler, &source, &libraries,
+    )?;
     fs::write(output_path, artifact)?;
     Ok(())
 }
@@ -516,8 +531,26 @@ fn render_bootstrap_compiler_driver(runtime_module: &str) -> String {
 }}
 
 AVStr aplcompiler.runtime_module = {runtime_module}
-AVStr aplcompiler.source = input
-VTime aplcompiler.report = bootstrap.linked_artifact_with_module_report(aplcompiler.runtime_module, aplcompiler.source)
+AVStr aplcompiler.first_input = input
+VTime aplcompiler.report = NONE
+
+if aplcompiler.first_input == "{BOOTSTRAP_COMPILER_LIBRARY_REQUEST}" {{
+  VTime aplcompiler.library_count = int(input)
+  VTime aplcompiler.libraries = []
+  VTime aplcompiler.library_index = 0
+
+  while (aplcompiler.library_index < aplcompiler.library_count) (-1) {{
+    VTime aplcompiler.library_name = input
+    VTime aplcompiler.library_artifact = input
+    add(aplcompiler.libraries, [aplcompiler.library_name, aplcompiler.library_artifact])
+    aplcompiler.library_index += 1
+  }}
+
+  VTime aplcompiler.source = input
+  aplcompiler.report = bootstrap.linked_artifact_with_module_and_libraries_report(aplcompiler.runtime_module, aplcompiler.libraries, aplcompiler.source)
+}} else {{
+  aplcompiler.report = bootstrap.linked_artifact_with_module_report(aplcompiler.runtime_module, aplcompiler.first_input)
+}}
 
 if get(aplcompiler.report, 0) != vm.FLOW_OK {{
   VTime aplcompiler.error_emitted = aplcompiler.emit_report(vm.FLOW_FAIL, get(aplcompiler.report, 1))
@@ -525,6 +558,22 @@ if get(aplcompiler.report, 0) != vm.FLOW_OK {{
 
 VTime aplcompiler.artifact_emitted = aplcompiler.emit_report(vm.FLOW_OK, get(aplcompiler.report, 1))"#
     )
+}
+
+fn bootstrap_compiler_input(source: &str, libraries: &[NamedLibrary]) -> Vec<String> {
+    if libraries.is_empty() {
+        return vec![source.to_owned()];
+    }
+
+    let mut input = Vec::with_capacity(libraries.len() * 2 + 3);
+    input.push(BOOTSTRAP_COMPILER_LIBRARY_REQUEST.to_owned());
+    input.push(libraries.len().to_string());
+    for library in libraries {
+        input.push(library.name.clone());
+        input.push(library.artifact.clone());
+    }
+    input.push(source.to_owned());
+    input
 }
 
 fn apl_string_literal(value: &str) -> String {
@@ -931,6 +980,37 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_compiler_request_frames_named_libraries() {
+        assert_eq!(
+            bootstrap_compiler_input("out 1", &[]),
+            vec!["out 1".to_owned()]
+        );
+
+        let libraries = vec![
+            NamedLibrary {
+                name: "math".to_owned(),
+                artifact: "APLMOD3:math".to_owned(),
+            },
+            NamedLibrary {
+                name: "unsafe.memory".to_owned(),
+                artifact: "APLMOD3:memory\n\0".to_owned(),
+            },
+        ];
+        assert_eq!(
+            bootstrap_compiler_input("include >> math out math.answer()", &libraries),
+            vec![
+                BOOTSTRAP_COMPILER_LIBRARY_REQUEST.to_owned(),
+                "2".to_owned(),
+                "math".to_owned(),
+                "APLMOD3:math".to_owned(),
+                "unsafe.memory".to_owned(),
+                "APLMOD3:memory\n\0".to_owned(),
+                "include >> math out math.answer()".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
     fn source_library_resolution_is_local_and_preserves_dotted_names() {
         let source = "include >> unsafe.memory include >> base include >> unsafe.memory out 1";
         assert_eq!(
@@ -977,6 +1057,8 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func bootstrap.module_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.load_module_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_with_module_report"));
+        assert!(STANDARD_PRELUDE
+            .contains("func bootstrap.linked_artifact_with_module_and_libraries_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_linked_artifact_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_loaded_image_with_input_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_with_input"));
@@ -1286,6 +1368,8 @@ mod tests {
             apl_core::Expression::Literal(apl_core::Value::Str(encoded.to_owned()))
         );
         assert!(driver.contains(BOOTSTRAP_COMPILER_PROTOCOL));
+        assert!(driver.contains(BOOTSTRAP_COMPILER_LIBRARY_REQUEST));
+        assert!(driver.contains("bootstrap.linked_artifact_with_module_and_libraries_report"));
         assert!(!driver.contains(LEGACY_BOOTSTRAP_COMPILER_OK));
         assert!(!driver.contains(LEGACY_BOOTSTRAP_COMPILER_ERROR));
     }
@@ -1299,6 +1383,23 @@ mod tests {
         let artifact = compile_linked_artifact_with_bootstrap_compiler(
             &compiler,
             "func double(value) { return value * 2 } out double(21)",
+        )
+        .unwrap();
+        let output = run_linked_artifact(&artifact, vec![]).unwrap();
+        assert_eq!(output.stdout, "42");
+
+        let math = compile_module_artifact(
+            "func math.hidden(value) { return value + 1 } func math.answer() { return math.hidden(41) }",
+        )
+        .unwrap();
+        let libraries = vec![NamedLibrary {
+            name: "math".to_owned(),
+            artifact: math,
+        }];
+        let artifact = compile_linked_artifact_with_bootstrap_compiler_and_libraries(
+            &compiler,
+            r#"include >> math exclude "math.hidden" << math out math.answer()"#,
+            &libraries,
         )
         .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();

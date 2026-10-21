@@ -244,22 +244,9 @@ func bootstrap.decode_named_libraries_report(encoded_libraries) {
   return [vm.FLOW_OK, libraries, catalog]
 }
 
-func bootstrap.linked_artifact_with_libraries_report(base_source, encoded_libraries, source) {
-  VTime base = bootstrap.compile_with_symbols_report(base_source)
-
-  if get(base, 0) != vm.FLOW_OK {
-    return base
-  }
-
-  VTime decoded = bootstrap.decode_named_libraries_report(encoded_libraries)
-
-  if get(decoded, 0) != vm.FLOW_OK {
-    return decoded
-  }
-
-  VTime libraries = get(decoded, 1)
+func bootstrap.linked_artifact_from_library_catalog_report(base_program, base_symbols, libraries, catalog, source) {
   VTime ast = bootstrap.ast(source)
-  VTime checked = checker.validate_report_with_library_symbols(ast, get(base, 2), get(decoded, 2))
+  VTime checked = checker.validate_report_with_library_symbols(ast, base_symbols, catalog)
 
   if get(checked, 0) != checker.STATUS_OK {
     return [vm.FLOW_FAIL, get(checked, 1)]
@@ -271,7 +258,7 @@ func bootstrap.linked_artifact_with_libraries_report(base_source, encoded_librar
     return [vm.FLOW_FAIL, bootstrap.ir_error(user_program)]
   }
 
-  VTime combined = get(base, 1)[:]
+  VTime combined = base_program[:]
 
   pick(get(checked, 3)): library_name {
     if library_name != "base" {
@@ -296,8 +283,45 @@ func bootstrap.linked_artifact_with_libraries_report(base_source, encoded_librar
   return artifact.encode_loaded_report(get(loaded, 1))
 }
 
+func bootstrap.linked_artifact_with_libraries_report(base_source, encoded_libraries, source) {
+  VTime base = bootstrap.compile_with_symbols_report(base_source)
+
+  if get(base, 0) != vm.FLOW_OK {
+    return base
+  }
+
+  VTime decoded = bootstrap.decode_named_libraries_report(encoded_libraries)
+
+  if get(decoded, 0) != vm.FLOW_OK {
+    return decoded
+  }
+
+  return bootstrap.linked_artifact_from_library_catalog_report(get(base, 1), get(base, 2), get(decoded, 1), get(decoded, 2), source)
+}
+
 func bootstrap.linked_artifact_with_libraries(base_source, encoded_libraries, source) {
   return get(bootstrap.linked_artifact_with_libraries_report(base_source, encoded_libraries, source), 1)
+}
+
+func bootstrap.linked_artifact_with_module_and_libraries_report(encoded_base_module, encoded_libraries, source) {
+  VTime base_report = bootstrap.load_module_report(encoded_base_module)
+
+  if get(base_report, 0) != vm.FLOW_OK {
+    return base_report
+  }
+
+  VTime decoded = bootstrap.decode_named_libraries_report(encoded_libraries)
+
+  if get(decoded, 0) != vm.FLOW_OK {
+    return decoded
+  }
+
+  VTime base = get(base_report, 1)
+  return bootstrap.linked_artifact_from_library_catalog_report(artifact.module_program(base), artifact.module_symbols(base), get(decoded, 1), get(decoded, 2), source)
+}
+
+func bootstrap.linked_artifact_with_module_and_libraries(encoded_base_module, encoded_libraries, source) {
+  return get(bootstrap.linked_artifact_with_module_and_libraries_report(encoded_base_module, encoded_libraries, source), 1)
 }
 
 func bootstrap.artifact_report(source) {

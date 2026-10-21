@@ -3879,6 +3879,36 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_links_named_libraries_over_precompiled_base_module_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime base_report = bootstrap.module_report("func base.one() { return 1 }")
+            VTime math_report = bootstrap.module_report("func math.hidden(value) { return value + 1 } func math.answer() { return math.hidden(40) }")
+            VTime libraries = [["math", get(math_report, 1)]]
+            VTime linked = bootstrap.linked_artifact_with_module_and_libraries_report(get(base_report, 1), libraries, "include >> math exclude \"math.hidden\" << math out base.one() out math.answer()")
+            VTime run = bootstrap.run_linked_artifact_report(get(linked, 1))
+            VTime excluded = bootstrap.linked_artifact_with_module_and_libraries_report(get(base_report, 1), libraries, "include >> math exclude \"math.hidden\" << math out math.hidden(1)")
+            VTime missing_include = bootstrap.linked_artifact_with_module_and_libraries_report(get(base_report, 1), libraries, "out math.answer()")
+
+            out get(linked, 0)
+            out get(run, 0)
+            out get(get(run, 1), 0)
+            out get(get(run, 1), 1)
+            out get(excluded, 0)
+            out get(excluded, 1)
+            out get(missing_include, 0)
+            out get(missing_include, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKOK141FAILexcluded symbol `math.hidden` from library `math`FAILunknown function `math.answer`"
+        );
+    }
+
+    #[test]
     fn source_runtime_preserves_protection_across_apl_modules_prelude() {
         let output = run_source_with_prelude(
             r#"
