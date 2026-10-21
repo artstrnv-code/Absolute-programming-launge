@@ -60,6 +60,7 @@ enum StatementOp {
         list_name: String,
         element: CompiledListElement,
     },
+    Expression(CompiledExpression),
     SecretUp(String),
     Out(CompiledExpression),
     Stop(Option<CompiledExpression>),
@@ -277,6 +278,9 @@ impl StatementCompiler {
                 list_name: list_name.clone(),
                 element: compile_list_element(element),
             },
+            Statement::Expression(expression) => {
+                StatementOp::Expression(compile_expression(expression))
+            }
             Statement::SecretUp(name) => StatementOp::SecretUp(name.clone()),
             Statement::Out(expression) => StatementOp::Out(compile_expression(expression)),
             Statement::Stop(reason) => StatementOp::Stop(reason.as_ref().map(compile_expression)),
@@ -721,6 +725,10 @@ impl<'a> Runtime<'a> {
                 self.add_to_list(list_name, value)?;
                 Ok(Flow::None)
             }
+            StatementOp::Expression(expression) => {
+                self.eval_expression(expression)?;
+                Ok(Flow::None)
+            }
             StatementOp::SecretUp(name) => {
                 let Some(slot) = self.absolute.get_mut(name) else {
                     return Err(RuntimeError::Message(format!(
@@ -928,7 +936,7 @@ impl<'a> Runtime<'a> {
                     };
                     stack.push(RuntimeValue::new(
                         RuntimeData::Bool(slot.current.data == slot.initial.data),
-                        ProtectionLevel::Av,
+                        variable_kind_protection(slot.kind),
                     ));
                 }
                 ExpressionOp::BuildList(protections) => {
@@ -964,6 +972,11 @@ impl<'a> Runtime<'a> {
         protection: ProtectionLevel,
     ) -> Result<RuntimeValue, RuntimeError> {
         let value = self.eval_expression(expression)?;
+        if value.effective_protection() > protection {
+            return Err(RuntimeError::Message(
+                "refusing to downgrade declaration protection".to_owned(),
+            ));
+        }
         if matches!(value.data, RuntimeData::None) {
             return Ok(value.with_protection(protection));
         }
@@ -1954,7 +1967,9 @@ mod tests {
         let fields = output.split_terminator('\0').collect::<Vec<_>>();
         assert_eq!(fields.len(), sources.len() * 2);
         fields
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (pair[0].to_owned(), pair[1].to_owned()))
             .collect()
     }
@@ -1999,7 +2014,9 @@ mod tests {
         let fields = output.split_terminator('\0').collect::<Vec<_>>();
         assert_eq!(fields.len(), cases.len() * 2);
         fields
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (pair[0].to_owned(), pair[1].to_owned()))
             .collect()
     }
@@ -2062,6 +2079,7 @@ mod tests {
             ("while true (-2) { break }", false),
             ("func same(value, value) { return value }", false),
             ("out missing()", false),
+            ("func touch(value) { return value } touch(42) out 1", true),
             ("include >> base out 1", true),
             ("exclude \"len\" << base out 1", true),
             ("exclude \"len\" << base out len([1])", false),
@@ -3244,6 +3262,25 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "3truefalseDENIED");
+    }
+
+    #[test]
+    fn source_runtime_executes_standalone_function_calls() {
+        let output = run_source(
+            r#"
+            AVInt total = 0
+            func add_to_total(value) {
+              total += value
+              return total
+            }
+            add_to_total(40)
+            add_to_total(2)
+            out total
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "42");
     }
 
     #[test]
@@ -4504,6 +4541,47 @@ mod tests {
         assert_eq!(
             output,
             "OKOKOKFAILprotection downgrade `public`: source ASV, target AVFAILprotection downgrade `public`: source ASV, target AVFAILsecret expression denied `public`FAILsecret expression denied `vault`FAILsecret expression denied `vault`FAILprotection downgrade `list element`: source ASV, target AVFAILsecret expression denied `out`FAILsecret expression denied `out`FAILprotection downgrade `public`: source ASV, target AVFAILsecret expression denied `out`FAILsecret expression denied `out`FAILsecret expression denied `hidden`FAILsecret expression denied `stop`FAILsecret expression denied `fail`FAILsecret expression denied `out`FAILinvalid secretup target `value`FAILsecret expression denied `out`FAILsecret expression denied `out`"
+        );
+    }
+
+    #[test]
+    fn source_runtime_checker_blocks_compound_vtime_laundering_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "List values = [4:SASV] pick(values): item { item += 1 VTime temporary = str(item) AVStr stolen = temporary } out stolen"
+            VTime report = bootstrap.compile_report(source)
+            out get(report, 0)
+            out get(report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "FAILprotection downgrade `stolen`: source SASV, target AV"
+        );
+    }
+
+    #[test]
+    fn runtime_refuses_compound_vtime_laundering_without_checker() {
+        let program = apl_parser::parse_program(
+            r#"
+            List values = [4:SASV]
+            pick(values): item {
+              item += 1
+              VTime temporary = str(item)
+              AVStr stolen = temporary
+            }
+            out stolen
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            run_program(&program, vec![]),
+            Err(RuntimeError::Message(
+                "refusing to downgrade declaration protection".to_owned()
+            ))
         );
     }
 

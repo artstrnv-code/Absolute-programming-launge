@@ -137,7 +137,24 @@ impl Parser<'_> {
             return self.parse_info_assignment().map(Statement::InfoAssignment);
         }
 
+        if self.looks_like_call_statement() {
+            return self.parse_expression().map(Statement::Expression);
+        }
+
         self.parse_assignment().map(Statement::Assignment)
+    }
+
+    fn looks_like_call_statement(&self) -> bool {
+        matches!(
+            (
+                self.tokens.get(self.cursor),
+                self.tokens.get(self.cursor + 1)
+            ),
+            (
+                Some(Token::Ident(_)),
+                Some(Token::Symbol(Symbol::LeftParen))
+            )
+        )
     }
 
     fn parse_function(&mut self) -> Result<FunctionDecl, ParseError> {
@@ -1512,5 +1529,17 @@ mod tests {
         assert!(parse_program("include > base").is_err());
         assert!(parse_program("exclude len << base").is_err());
         assert!(parse_program("exclude \"len\" < base").is_err());
+    }
+
+    #[test]
+    fn parses_function_call_as_a_statement() {
+        let program = parse_program("func touch(value) { return value } touch(42)").unwrap();
+
+        assert!(matches!(
+            &program.statements[1],
+            Statement::Expression(Expression::Call { name, args })
+                if name == "touch" && args == &vec![Expression::Literal(Value::Int(42))]
+        ));
+        assert_eq!(validate_program(&program), Ok(()));
     }
 }

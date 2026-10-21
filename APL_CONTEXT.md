@@ -130,11 +130,41 @@ external bootstrap VM, so this stage proves surface removal, not native binary
 section removal. Once the native backend owns builtin code, the same checked
 surface and reachability result must control emitted sections.
 
-External-library resolution is the next composition layer. Until a resolver
-can map names such as `math` to verified `.aplmod` artifacts, `include >> math`
-fails as an unknown library instead of being accepted as a no-op. Filtering
-module exports and recording the resolved manifest in the final artifact remain
-future work.
+The second composition layer resolves named external libraries to verified
+`APLMOD3` artifacts. `bootstrap.linked_artifact_with_libraries_report` accepts
+an explicit base source, a list of `[name, encoded_module]` pairs, and user
+source. It decodes and validates every module, rejects duplicate or invalid
+names and attempts to replace `base`, exposes only libraries selected by the
+user's top-level `include` directives, and filters excluded exports before
+checking user code. Module internals keep access to their own excluded exports;
+the final reachability pass drops a function when neither public entry code nor
+another retained function needs it.
+
+The host resolver maps `project/program.apl` plus `include >> math` to
+`project/libraries/math.aplmod`. Dotted library names are preserved as dotted
+file names. CLI `check`, `run`, `emit-linked`, linked package construction, and
+saved-file execution in APL Studio use this resolver. Missing files and invalid
+module payloads fail compilation. Unsaved Studio buffers must be saved before
+using external libraries so resolution has an unambiguous root.
+
+Legacy host `.aplc` generation and the reusable `APLCOMP2` compiler artifact do
+not yet carry a named-library catalog. The final `APLLINK2` also does not yet
+record the resolved library manifest. Those are the next composition protocol
+steps; native builtin and data-section elimination remains the responsibility
+of the future native linker.
+
+Standalone calls such as `record(42)` are expression statements. The
+APL-written frontend already represented them as `NODE_EXPR`/`OP_EXPR`; the
+Rust AST, parser, binary `.aplc` codec, checker, and runtime now implement the
+same behavior instead of misdiagnosing the call as a missing assignment.
+
+Secret `=self=` remains deliberately unavailable. It would reveal whether a
+protected value changed, and the current checker cannot track implicit flow
+through a branch. Password verification should use an explicit future
+`secure_eq(candidate, secret)` capability from a security/crypto library. Its
+contract may intentionally declassify one Boolean result and must use a
+constant-time native implementation; general secret declassification is not
+introduced into the core language.
 
 ## Tracked Memory Tables
 
@@ -237,6 +267,8 @@ Rules:
 - can change its held value type;
 - does not have its own protection level;
 - can hold a value that carries a protection label;
+- compound assignment keeps the maximum protection of the old value and the
+  right-hand side;
 - cannot be used with `info()`;
 - cannot be passed to `secretup()`.
 
@@ -640,6 +672,10 @@ Rust workspace:
   versioned, Unicode-character-length-framed `APLCOMP2` protocol. The host
   rejects truncated and trailing payloads and remains able to consume legacy
   `APLCOMP1` responses from already emitted compiler artifacts.
+  `compile_linked_artifact_with_libraries` passes named modules into the APL
+  bootstrap as explicit catalog entries. `resolve_named_libraries` implements
+  the source-relative `libraries/<name>.aplmod` convention without teaching
+  the Rust host to decode the portable module format.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`
@@ -653,7 +689,9 @@ Rust workspace:
   empty, Unicode, newline, colon, and NUL-containing strings. The older
   `run_linked_artifact` shape remains as a compatibility wrapper: it
   concatenates successful fragments and maps `FAIL` to
-  `RuntimeError::Failed` with the VM's actual reason.
+  `RuntimeError::Failed` with the VM's actual reason. Source `check` and `run`
+  switch to the portable linked path when external includes are present;
+  `emit-linked` and linked package commands resolve the same catalog.
 - `apl_studio`: small Windows-only native Win32 editor for opening, saving,
   checking, and running `.apl` source without leaving the window. It calls the
   Rust reference parser/checker/runtime directly, keeps execution off the UI
@@ -663,8 +701,10 @@ Rust workspace:
   is only intended for testing. `F5` runs, while `Ctrl+O` and `Ctrl+S` use
   standard Windows file dialogs. Lexer/parser failures are reported against the
   user buffer with one-based `line:column` coordinates rather than hidden
-  standard-prelude offsets. Studio is intentionally not a full IDE or a
-  frontend for the portable self-host VM. Its Win32 output control renders an
+  standard-prelude offsets. Studio is intentionally not a full IDE. Ordinary
+  buffers use the Rust reference runtime, while a saved source containing
+  external includes switches to the same named-library portable compile/run
+  path as the CLI. Its Win32 output control renders an
   embedded NUL visibly as `\0` so later output is not truncated; the runtime
   and CLI retain the actual NUL character.
 - `apl_router`: placeholder for future router/container phase.
@@ -761,8 +801,11 @@ APL-owned runtime code:
   through expressions, dynamic `VTime` values, lists, tags, mutation calls,
   `secretup`, calls, and block merges. It rejects static protection downgrades,
   secret public-channel expressions, secret self-checks, and invalid
-  input/protection combinations. Runtime checks remain authoritative for
-  genuinely dynamic values.
+  input/protection combinations. A compound `VTime` assignment cannot lower
+  the protection already carried by the temporary. Runtime declarations and
+  assignments independently reject protection downgrades even if the checker
+  is bypassed; runtime checks also remain authoritative for genuinely dynamic
+  values.
   `VTime` declarations and function parameters remain local to their function
   or block during validation. Leaving a function, `if`, `while`, or `pick`
   merges only newly discovered absolute, list, and function names into the

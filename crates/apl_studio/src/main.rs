@@ -12,7 +12,7 @@ mod windows_app {
         fs,
         mem::{size_of, zeroed},
         os::windows::ffi::OsStrExt,
-        path::PathBuf,
+        path::{Path, PathBuf},
         ptr::{null, null_mut},
         thread,
     };
@@ -777,11 +777,10 @@ mod windows_app {
                 save_file(hwnd, state, true);
             }
             ID_RUN => run_source(hwnd, state),
-            ID_EXIT => {
-                if confirm_discard(hwnd, state) {
-                    DestroyWindow(hwnd);
-                }
+            ID_EXIT if confirm_discard(hwnd, state) => {
+                DestroyWindow(hwnd);
             }
+            ID_EXIT => {}
             _ => {}
         }
     }
@@ -863,6 +862,7 @@ mod windows_app {
 
         let source = get_text(state.editor);
         let input = parse_input(&get_text(state.input));
+        let source_path = state.current_path.clone();
         state.running = true;
         EnableWindow(state.run_button, 0);
         set_text(state.output_label, "Running...");
@@ -870,7 +870,7 @@ mod windows_app {
         let window = hwnd as isize;
 
         thread::spawn(move || {
-            let result = execute_source(&source, input);
+            let result = execute_source_at_path(&source, input, source_path.as_deref());
             let result_ptr = Box::into_raw(Box::new(result));
             let posted = unsafe {
                 PostMessageW(window as Hwnd, WM_APP_RUN_COMPLETE, 0, result_ptr as Lparam)
@@ -881,12 +881,59 @@ mod windows_app {
         });
     }
 
+    #[cfg(test)]
     fn execute_source(source: &str, input: Vec<String>) -> String {
+        execute_source_at_path(source, input, None)
+    }
+
+    fn execute_source_at_path(
+        source: &str,
+        input: Vec<String>,
+        source_path: Option<&Path>,
+    ) -> String {
         if let Err(error) = apl_parser::parse_program(source) {
             return format!(
                 "Parse error at {}:{}:\r\n{}",
                 error.line, error.column, error.message
             );
+        }
+
+        let external_libraries = match apl_compiler::requested_external_libraries(source) {
+            Ok(libraries) => libraries,
+            Err(error) => return format!("Compile error:\r\n{error:?}"),
+        };
+
+        if !external_libraries.is_empty() {
+            let Some(source_path) = source_path else {
+                return "Library error:\r\nSave the APL source before using external libraries."
+                    .to_owned();
+            };
+            let libraries = match apl_compiler::resolve_named_libraries(source_path, source) {
+                Ok(libraries) => libraries,
+                Err(apl_compiler::CompileError::LibraryNotFound { name, path }) => {
+                    return format!(
+                        "Library error:\r\n`{name}` was not found at `{}`.",
+                        path.display()
+                    )
+                }
+                Err(error) => return format!("Compile error:\r\n{error:?}"),
+            };
+            let artifact =
+                match apl_compiler::compile_linked_artifact_with_libraries(source, &libraries) {
+                    Ok(artifact) => artifact,
+                    Err(error) => return format!("Compile error:\r\n{error:?}"),
+                };
+
+            return match apl_compiler::run_linked_artifact(&artifact, input) {
+                Ok(output) if output.stdout.is_empty() => {
+                    "Program finished with no output.".to_owned()
+                }
+                Ok(output) => output.stdout,
+                Err(apl_compiler::CompileError::Runtime(apl_runtime::RuntimeError::Failed(
+                    message,
+                ))) => format!("APL fail:\r\n{message}"),
+                Err(error) => format!("Runtime error:\r\n{error:?}"),
+            };
         }
 
         let program = match apl_compiler::checked_program_with_prelude(
@@ -1001,13 +1048,21 @@ mod windows_app {
 
     #[cfg(test)]
     mod tests {
-        use super::{display_output, execute_source, parse_input};
+        use super::{display_output, execute_source, execute_source_at_path, parse_input};
+        use std::{fs, time::SystemTime};
 
         #[test]
         fn executes_source_from_editor_buffer() {
             assert_eq!(
                 execute_source("AVInt value = 6 * 7\nout value", Vec::new()),
                 "42"
+            );
+            assert_eq!(
+                execute_source(
+                    "AVInt total = 0 func add_one() { total += 1 return total } add_one() out total",
+                    Vec::new()
+                ),
+                "1"
             );
         }
 
@@ -1021,6 +1076,34 @@ mod windows_app {
                 execute_source(r#"exclude "len" << base out len([1])"#, Vec::new()),
                 "Check error:\r\nExcludedSymbol { library: \"base\", symbol: \"len\" }"
             );
+            assert_eq!(
+                execute_source("include >> math out math.answer()", Vec::new()),
+                "Library error:\r\nSave the APL source before using external libraries."
+            );
+        }
+
+        #[test]
+        fn resolves_named_library_for_saved_source() {
+            let unique = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "apl_studio_library_{}_{}",
+                std::process::id(),
+                unique
+            ));
+            let libraries = root.join("libraries");
+            fs::create_dir_all(&libraries).unwrap();
+            let module =
+                apl_compiler::compile_module_artifact("func math.answer() { return 42 }").unwrap();
+            fs::write(libraries.join("math.aplmod"), module).unwrap();
+
+            let source = "include >> math out math.answer()";
+            let output = execute_source_at_path(source, Vec::new(), Some(&root.join("main.apl")));
+            assert_eq!(output, "42");
+
+            fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -1028,6 +1111,27 @@ mod windows_app {
             assert_eq!(
                 execute_source("AVInt = 4", Vec::new()),
                 "Parse error at 1:7:\r\nexpected identifier"
+            );
+        }
+
+        #[test]
+        fn blocks_compound_vtime_secret_laundering() {
+            let source = r#"
+List m = [4:SASV]
+pick (m): curr {
+  curr += 1
+  VTime x = curr
+  x = str(curr)
+  AVStr z = x
+}
+AVInt steal = int(z)
+steal -= 1
+out steal
+"#;
+
+            assert_eq!(
+                execute_source(source, Vec::new()),
+                "Check error:\r\nProtectionDowngrade { name: \"z\", source: Sasv, target: Av }"
             );
         }
 

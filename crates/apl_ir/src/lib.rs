@@ -131,6 +131,10 @@ impl Writer {
                 self.string(list_name)?;
                 self.list_element(element)
             }
+            Statement::Expression(expression) => {
+                self.u8(19);
+                self.expression(expression)
+            }
             Statement::SecretUp(name) => {
                 self.u8(7);
                 self.string(name)
@@ -541,6 +545,7 @@ impl<'a> Reader<'a> {
                 symbol: self.string()?,
                 library: self.string()?,
             }),
+            19 => Ok(Statement::Expression(self.expression()?)),
             tag => Err(IrError::InvalidTag {
                 kind: "Statement",
                 tag,
@@ -803,6 +808,10 @@ mod tests {
                 name: "apl.id".to_owned(),
                 params: vec!["value".to_owned()],
                 body: vec![Statement::Return(Expression::Variable("value".to_owned()))],
+            }),
+            Statement::Expression(Expression::Call {
+                name: "apl.id".to_owned(),
+                args: vec![Expression::Literal(Value::Int(7))],
             }),
             Statement::VariableDecl(VariableDecl {
                 kind: VariableKind::Av,

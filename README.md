@@ -192,14 +192,30 @@ before runtime IR is emitted. Calling an excluded builtin or using excluded
 checker enforce the same contract. Duplicate directives and unknown exports
 are rejected.
 
-Only `base` is resolvable in this first implementation. External names such as
-`include >> math` fail explicitly until named `.aplmod` resolution and manifest
-encoding are implemented. Final `APLLINK2` images already prune unreachable APL
-functions; removal of native builtin sections depends on the future native
-backend.
+Named external libraries are resolved to verified `APLMOD3` artifacts. For a
+source file `project/program.apl`, `include >> math` loads
+`project/libraries/math.aplmod`. Dotted names stay intact, so
+`include >> unsafe.memory` resolves `unsafe.memory.aplmod`. The APL-written
+bootstrap decoder validates the complete module before its exports are made
+visible. Only explicitly included module IR enters the link, excluded exports
+are unavailable to user code, and final `APLLINK2` reachability removes unused
+APL functions.
+
+The source-relative resolver is used by `check`, `run`, `emit-linked`, linked
+package builds, and APL Studio when the buffer has a saved path. Legacy host
+`.aplc` output and reusable `emit-linked-bootstrap` compiler artifacts do not
+yet accept named-library catalogs. Final artifact manifest recording and
+removal of native builtin/data sections remain future linker work.
 
 A runnable base-composition example is in
 `examples/test_composition.apl`.
+
+Build and run the external-library example:
+
+```powershell
+cargo run -p apl -- emit-module examples\libraries\math.apl examples\libraries\math.aplmod
+cargo run -p apl -- run examples\with_math.apl
+```
 
 Containers, Docker execution, and binary `.aplb` bundles come after the language
 base is strict and testable.
@@ -319,6 +335,11 @@ cargo run -p apl -- emit-module std\runtime.apl build\runtime.aplmod
 cargo run -p apl -- emit-linked-module build\runtime.aplmod examples\compiled_runtime.apl build\compiled_runtime.apllink
 cargo run -p apl -- run-linked build\compiled_runtime.apllink
 ```
+
+The same verified module can be selected by source-level composition when it is
+placed in the source file's `libraries` directory. Module export names remain
+their declared names, so the example library exposes `math.square` and
+`math.answer` after `include >> math`.
 
 Modules can be extended incrementally. The new source is checked against the
 verified exports already stored in the module, then its unlinked IR and exports
@@ -528,7 +549,27 @@ before IR lowering. Successful checks export protection-aware symbols for
 `APLMOD3` modules. `add(list, value)` is a statement-only mutation, while both
 `add` and `pop` require a named `List` or `VTime` target. Adding a protected
 value to a `VTime` list raises the dynamic list protection, so later public
-output or assignment cannot lose the element's protection.
+output or assignment cannot lose the element's protection. Compound assignment
+to `VTime` keeps the maximum protection of its previous value and the right-hand
+side; arithmetic on a secret temporary therefore cannot launder it back to
+`AV`. The runtime independently refuses declaration and assignment downgrades,
+so this invariant still holds if static checking is bypassed.
+
+Function calls may also stand alone when their result is intentionally ignored:
+
+```apl
+func record(value) {
+  return value
+}
+
+record(42)
+```
+
+Secret `=self=` checks remain rejected because exposing whether a `SASV` value
+changed leaks information about that value. Password verification needs a
+future explicit `secure_eq(candidate, secret)` security-library primitive that
+declassifies exactly its Boolean result and can become constant-time in the
+native backend.
 
 ```powershell
 .\emit_aplc.bat examples\test_checker.apl build\test_checker.aplc

@@ -29,6 +29,7 @@ pub enum Statement {
         list_name: String,
         element: ListElement,
     },
+    Expression(Expression),
     SecretUp(String),
     Out(Expression),
     Stop(Option<Expression>),
@@ -137,10 +138,8 @@ impl ValueType {
             (VariableKind::Sasv, value_type)
         } else if let Some(value_type) = input.strip_prefix("ASV") {
             (VariableKind::Asv, value_type)
-        } else if let Some(value_type) = input.strip_prefix("AV") {
-            (VariableKind::Av, value_type)
         } else {
-            return None;
+            (VariableKind::Av, input.strip_prefix("AV")?)
         };
 
         let value_type = match value_type {
@@ -543,6 +542,10 @@ impl Checker {
                 self.require_base_export("add")?;
                 self.check_add_to_list(list_name, element)
             }
+            Statement::Expression(expression) => {
+                self.check_expression(expression)?;
+                Ok(())
+            }
             Statement::SecretUp(name) => self.check_secretup(name),
             Statement::Out(expression) => self.check_out(expression),
             Statement::Stop(reason) => {
@@ -679,7 +682,14 @@ impl Checker {
     fn check_assignment(&mut self, assignment: &Assignment) -> Result<(), CheckError> {
         if self.is_vtime(&assignment.name) {
             let info = self.check_expression(&assignment.value)?;
-            self.update_vtime(&assignment.name, info.protection);
+            let protection = if assignment.operator == AssignmentOperator::Assign {
+                info.protection
+            } else {
+                self.vtime_protection(&assignment.name)
+                    .unwrap()
+                    .max(info.protection)
+            };
+            self.update_vtime(&assignment.name, protection);
             return Ok(());
         }
 
@@ -2176,6 +2186,41 @@ mod tests {
             validate_program(&program),
             Err(CheckError::ProtectionDowngrade {
                 name: "public".to_owned(),
+                source: ProtectionLevel::Asv,
+                target: ProtectionLevel::Av,
+            })
+        );
+    }
+
+    #[test]
+    fn compound_assignment_preserves_vtime_protection() {
+        let program = Program::new(vec![
+            decl(
+                "hidden",
+                VariableKind::Asv,
+                ValueType::Int,
+                Expression::Literal(Value::Int(4)),
+            ),
+            Statement::VTimeDecl(VTimeDecl {
+                name: "temporary".to_owned(),
+                initial_value: Expression::Variable("hidden".to_owned()),
+            }),
+            Statement::Assignment(Assignment {
+                name: "temporary".to_owned(),
+                operator: AssignmentOperator::AddAssign,
+                value: Expression::Literal(Value::Int(1)),
+            }),
+            av_decl(
+                "stolen",
+                ValueType::Int,
+                Expression::Variable("temporary".to_owned()),
+            ),
+        ]);
+
+        assert_eq!(
+            validate_program(&program),
+            Err(CheckError::ProtectionDowngrade {
+                name: "stolen".to_owned(),
                 source: ProtectionLevel::Asv,
                 target: ProtectionLevel::Av,
             })

@@ -32,6 +32,26 @@ fn main() {
                 process::exit(1);
             }
 
+            let libraries = apl_compiler::resolve_named_libraries(Path::new(&path), &source)
+                .unwrap_or_else(|error| exit_compile_error(&command, error));
+
+            if !libraries.is_empty() {
+                let artifact =
+                    apl_compiler::compile_linked_artifact_with_libraries(&source, &libraries)
+                        .unwrap_or_else(|error| exit_compile_error(&command, error));
+
+                if command == "check" {
+                    println!("ok: linked program with {} library(s)", libraries.len());
+                } else {
+                    let input = read_input();
+                    match apl_compiler::run_linked_artifact(&artifact, input) {
+                        Ok(output) => print!("{}", output.stdout),
+                        Err(error) => exit_compile_error(&command, error),
+                    }
+                }
+                return;
+            }
+
             let program = match apl_compiler::checked_program_with_prelude(
                 apl_compiler::STANDARD_PRELUDE,
                 &source,
@@ -394,6 +414,9 @@ fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {
         }
         apl_compiler::CompileError::Bootstrap(message) => {
             eprintln!("{verb} bootstrap error: {message}")
+        }
+        apl_compiler::CompileError::LibraryNotFound { name, path } => {
+            eprintln!("{verb} library `{name}` not found at `{}`", path.display())
         }
     }
     process::exit(1);

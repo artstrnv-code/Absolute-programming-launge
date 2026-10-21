@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     thread,
@@ -40,6 +41,8 @@ const BOOTSTRAP_COMPILER_PROTOCOL: &str = "APLCOMP2:";
 const LEGACY_BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
 const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
+const LIBRARY_DIRECTORY: &str = "libraries";
+const LIBRARY_EXTENSION: &str = "aplmod";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildOutput {
@@ -72,6 +75,12 @@ pub struct LinkedRunReport {
     pub output: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedLibrary {
+    pub name: String,
+    pub artifact: String,
+}
+
 #[derive(Debug)]
 pub enum CompileError {
     Io(std::io::Error),
@@ -80,6 +89,7 @@ pub enum CompileError {
     Check(apl_core::CheckError),
     Runtime(apl_runtime::RuntimeError),
     Bootstrap(String),
+    LibraryNotFound { name: String, path: PathBuf },
 }
 
 impl From<std::io::Error> for CompileError {
@@ -234,6 +244,74 @@ pub fn compile_linked_artifact_with_precompiled_module(
     bootstrap_stdout_artifact(output, "linked artifact")
 }
 
+pub fn compile_linked_artifact_with_libraries(
+    source: &str,
+    libraries: &[NamedLibrary],
+) -> Result<String, CompileError> {
+    let mut input = Vec::with_capacity(libraries.len() * 2 + 3);
+    input.push(RUNTIME_PRELUDE.to_owned());
+    input.push(libraries.len().to_string());
+    for library in libraries {
+        input.push(library.name.clone());
+        input.push(library.artifact.clone());
+    }
+    input.push(source.to_owned());
+
+    let output = run_bootstrap_bridge(LINKED_LIBRARIES_COMPILE_BRIDGE, input)?;
+    bootstrap_stdout_artifact(output, "linked artifact")
+}
+
+pub fn requested_external_libraries(source: &str) -> Result<Vec<String>, CompileError> {
+    let program = apl_parser::parse_program(source)?;
+    let mut seen = HashSet::new();
+    let mut names = Vec::new();
+
+    for statement in program.statements {
+        if let apl_core::Statement::Include(name) = statement {
+            if name != "base" && seen.insert(name.clone()) {
+                names.push(name);
+            }
+        }
+    }
+
+    Ok(names)
+}
+
+pub fn resolve_named_libraries(
+    source_path: &Path,
+    source: &str,
+) -> Result<Vec<NamedLibrary>, CompileError> {
+    let source_directory = source_path.parent().unwrap_or_else(|| Path::new("."));
+    let library_directory = source_directory.join(LIBRARY_DIRECTORY);
+    let mut libraries = Vec::new();
+
+    for name in requested_external_libraries(source)? {
+        let path = library_directory.join(format!("{name}.{LIBRARY_EXTENSION}"));
+        let artifact = match fs::read_to_string(&path) {
+            Ok(artifact) => artifact,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(CompileError::LibraryNotFound { name, path });
+            }
+            Err(error) => return Err(CompileError::Io(error)),
+        };
+        libraries.push(NamedLibrary { name, artifact });
+    }
+
+    Ok(libraries)
+}
+
+pub fn compile_linked_artifact_for_source(
+    source_path: &Path,
+    source: &str,
+) -> Result<String, CompileError> {
+    let libraries = resolve_named_libraries(source_path, source)?;
+    if libraries.is_empty() {
+        compile_linked_artifact(source)
+    } else {
+        compile_linked_artifact_with_libraries(source, &libraries)
+    }
+}
+
 pub fn emit_linked_artifact_with_module_file(
     module_path: &Path,
     source_path: &Path,
@@ -251,7 +329,7 @@ pub fn emit_linked_artifact_file(
     output_path: &Path,
 ) -> Result<(), CompileError> {
     let source = fs::read_to_string(source_path)?;
-    let artifact = compile_linked_artifact(&source)?;
+    let artifact = compile_linked_artifact_for_source(source_path, &source)?;
     fs::write(output_path, artifact)?;
     Ok(())
 }
@@ -331,7 +409,7 @@ pub fn build_linked_executable_package(
     output_dir: &Path,
 ) -> Result<LinkedBuildOutput, CompileError> {
     let source = fs::read_to_string(source_path)?;
-    let artifact = compile_linked_artifact(&source)?;
+    let artifact = compile_linked_artifact_for_source(source_path, &source)?;
 
     let package_dir = output_dir.to_path_buf();
     let src_dir = package_dir.join("src");
@@ -628,6 +706,23 @@ if get(aplhost.compile_report, 0) != vm.FLOW_OK {
 }
 out get(aplhost.compile_report, 1)"#;
 
+const LINKED_LIBRARIES_COMPILE_BRIDGE: &str = r#"VTime aplhost.base_source = input
+VTime aplhost.library_count = int(input)
+VTime aplhost.libraries = []
+VTime aplhost.library_index = 0
+while (aplhost.library_index < aplhost.library_count) (-1) {
+  VTime aplhost.library_name = input
+  VTime aplhost.library_artifact = input
+  add(aplhost.libraries, [aplhost.library_name, aplhost.library_artifact])
+  aplhost.library_index += 1
+}
+VTime aplhost.source = input
+VTime aplhost.compile_report = bootstrap.linked_artifact_with_libraries_report(aplhost.base_source, aplhost.libraries, aplhost.source)
+if get(aplhost.compile_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.compile_report, 1)
+}
+out get(aplhost.compile_report, 1)"#;
+
 const LINKED_RUN_BRIDGE: &str = r#"func aplhost.emit_run_report(status, output) {
   out "APLRUN1:"
   out status
@@ -833,6 +928,26 @@ mod tests {
         let combined = compose_program("func apl.ok() { return true }", "out apl.ok()");
         assert!(combined.starts_with("func apl.ok()"));
         assert!(combined.contains("out apl.ok()"));
+    }
+
+    #[test]
+    fn source_library_resolution_is_local_and_preserves_dotted_names() {
+        let source = "include >> unsafe.memory include >> base include >> unsafe.memory out 1";
+        assert_eq!(
+            requested_external_libraries(source).unwrap(),
+            vec!["unsafe.memory"]
+        );
+
+        let source_path = Path::new("missing_project").join("program.apl");
+        let error = resolve_named_libraries(&source_path, source).unwrap_err();
+        assert!(matches!(
+            error,
+            CompileError::LibraryNotFound { name, path }
+                if name == "unsafe.memory"
+                    && path == Path::new("missing_project")
+                        .join("libraries")
+                        .join("unsafe.memory.aplmod")
+        ));
     }
 
     #[test]
@@ -1044,6 +1159,44 @@ mod tests {
                 .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "42");
+    }
+
+    #[test]
+    fn named_library_include_and_exclude_control_exports() {
+        let math = compile_module_artifact(
+            "func math.internal(value) { return value + 1 } func math.answer() { return math.internal(41) }",
+        )
+        .unwrap();
+        let libraries = vec![NamedLibrary {
+            name: "math".to_owned(),
+            artifact: math,
+        }];
+
+        let artifact = compile_linked_artifact_with_libraries(
+            r#"include >> math exclude "math.internal" << math out math.answer()"#,
+            &libraries,
+        )
+        .unwrap();
+        assert_eq!(run_linked_artifact(&artifact, vec![]).unwrap().stdout, "42");
+
+        let excluded = compile_linked_artifact_with_libraries(
+            r#"include >> math exclude "math.internal" << math out math.internal(1)"#,
+            &libraries,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            excluded,
+            CompileError::Runtime(apl_runtime::RuntimeError::Failed(message))
+                if message == "excluded symbol `math.internal` from library `math`"
+        ));
+
+        let missing_include =
+            compile_linked_artifact_with_libraries("out math.answer()", &libraries).unwrap_err();
+        assert!(matches!(
+            missing_include,
+            CompileError::Runtime(apl_runtime::RuntimeError::Failed(message))
+                if message == "unknown function `math.answer`"
+        ));
     }
 
     #[test]

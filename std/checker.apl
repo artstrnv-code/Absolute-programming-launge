@@ -225,7 +225,27 @@ func checker.exclusion_exists(exclusions, library, symbol) {
   return false
 }
 
-func checker.collect_composition(statements) {
+func checker.library_entry(libraries, name) {
+  pick(libraries): library {
+    if get(library, 0) == name {
+      return library
+    }
+  }
+
+  return NONE
+}
+
+func checker.library_has_symbol(library, name) {
+  pick(get(library, 1)): symbol {
+    if get(symbol, 0) == name {
+      return true
+    }
+  }
+
+  return false
+}
+
+func checker.collect_composition_with_libraries(statements, libraries) {
   VTime includes = []
   VTime exclusions = []
   VTime checked_statements = []
@@ -239,7 +259,9 @@ func checker.collect_composition(statements) {
       }
 
       if library != "base" {
-        return checker.fail([], join(["unknown library `", library, "`"], ""))
+        if checker.library_entry(libraries, library) == NONE {
+          return checker.fail([], join(["unknown library `", library, "`"], ""))
+        }
       }
 
       if checker.value_exists(includes, library) {
@@ -263,12 +285,24 @@ func checker.collect_composition(statements) {
         return checker.fail([], join(["invalid name `", symbol, "`"], ""))
       }
 
-      if library != "base" {
-        return checker.fail([], join(["unknown library `", library, "`"], ""))
-      }
+      if library == "base" {
+        if checker.base_export_is_known(symbol) != true {
+          return checker.fail([], join(["unknown symbol `", symbol, "` in library `base`"], ""))
+        }
+      } else {
+        VTime library_entry = checker.library_entry(libraries, library)
 
-      if checker.base_export_is_known(symbol) != true {
-        return checker.fail([], join(["unknown symbol `", symbol, "` in library `base`"], ""))
+        if library_entry == NONE {
+          return checker.fail([], join(["unknown library `", library, "`"], ""))
+        }
+
+        if checker.value_exists(includes, library) != true {
+          return checker.fail([], join(["library `", library, "` is not included"], ""))
+        }
+
+        if checker.library_has_symbol(library_entry, symbol) != true {
+          return checker.fail([], join(["unknown symbol `", symbol, "` in library `", library, "`"], ""))
+        }
       }
 
       if checker.exclusion_exists(exclusions, library, symbol) {
@@ -288,6 +322,10 @@ func checker.collect_composition(statements) {
   }
 
   return [checker.STATUS_OK, checked_statements, includes, exclusions]
+}
+
+func checker.collect_composition(statements) {
+  return checker.collect_composition_with_libraries(statements, [])
 }
 
 func checker.validate_name(names, name) {
@@ -638,6 +676,18 @@ func checker.base_symbol_is_excluded(names, symbol) {
   }
 
   return false
+}
+
+func checker.excluded_library_for_symbol(names, symbol) {
+  pick(names): entry {
+    if checker.entry_role(entry) == "Excluded" {
+      if checker.entry_name(entry) == symbol {
+        return checker.entry_type(entry)
+      }
+    }
+  }
+
+  return NONE
 }
 
 func checker.require_base_symbol(names, symbol) {
@@ -1070,10 +1120,15 @@ func checker.validate_decl_protection(node, names) {
 
 func checker.validate_assignment_protection(node, names) {
   VTime name = get(node, 1)
+  VTime op = get(node, 2)
   VTime entry = checker.find_name(names, name)
   VTime source = checker.expr_protection(get(node, 3), names)
 
   if checker.entry_role(entry) == "VTime" {
+    if op != "=" {
+      source = checker.max_protection(checker.entry_protection(entry), source)
+    }
+
     return checker.ok(checker.update_name_protection(names, name, source))
   }
 
@@ -1552,6 +1607,12 @@ func checker.validate_call_target(expression, names) {
       return checker.fail(names, join(["invalid function `", name, "`"], ""))
     }
 
+    VTime excluded_library = checker.excluded_library_for_symbol(names, name)
+
+    if excluded_library != NONE {
+      return checker.fail(names, join(["excluded symbol `", name, "` from library `", excluded_library, "`"], ""))
+    }
+
     return checker.fail(names, join(["unknown function `", name, "`"], ""))
   }
 
@@ -1730,6 +1791,12 @@ func checker.validate_expr(expression, names) {
       if checker.entry_role(entry) != "Func" {
         return checker.ok(names)
       }
+    }
+
+    VTime excluded_library = checker.excluded_library_for_symbol(names, name)
+
+    if excluded_library != NONE {
+      return checker.fail(names, join(["excluded symbol `", name, "` from library `", excluded_library, "`"], ""))
     }
 
     return checker.fail(names, join(["unknown variable `", name, "`"], ""))
@@ -2291,8 +2358,23 @@ func checker.export_symbols(names) {
   return symbols
 }
 
-func checker.validate_report_with_symbols(statements, symbols) {
-  VTime composition = checker.collect_composition(statements)
+func checker.add_library_symbols(names, library, exclusions) {
+  VTime library_name = get(library, 0)
+  VTime included_symbols = []
+
+  pick(get(library, 1)): symbol {
+    if checker.exclusion_exists(exclusions, library_name, get(symbol, 0)) {
+      names = checker.add_name(names, get(symbol, 0), "Excluded", library_name)
+    } else {
+      add(included_symbols, symbol)
+    }
+  }
+
+  return checker.add_external_symbols(names, included_symbols)
+}
+
+func checker.validate_report_with_library_symbols(statements, symbols, libraries) {
+  VTime composition = checker.collect_composition_with_libraries(statements, libraries)
 
   if get(composition, 0) != checker.STATUS_OK {
     return [get(composition, 0), get(composition, 2)]
@@ -2302,7 +2384,9 @@ func checker.validate_report_with_symbols(statements, symbols) {
   VTime names = []
 
   pick(get(composition, 3)): exclusion {
-    names = checker.add_name(names, get(exclusion, 1), "Excluded", get(exclusion, 0))
+    if get(exclusion, 0) == "base" {
+      names = checker.add_name(names, get(exclusion, 1), "Excluded", get(exclusion, 0))
+    }
   }
 
   VTime external_state = checker.add_external_symbols(names, symbols)
@@ -2311,7 +2395,21 @@ func checker.validate_report_with_symbols(statements, symbols) {
     return [get(external_state, 0), get(external_state, 2)]
   }
 
-  VTime collect_state = checker.collect_function_names(checked_statements, get(external_state, 1))
+  VTime names_with_libraries = get(external_state, 1)
+
+  pick(get(composition, 2)): library_name {
+    if library_name != "base" {
+      VTime library_state = checker.add_library_symbols(names_with_libraries, checker.library_entry(libraries, library_name), get(composition, 3))
+
+      if get(library_state, 0) != checker.STATUS_OK {
+        return [get(library_state, 0), get(library_state, 2)]
+      }
+
+      names_with_libraries = get(library_state, 1)
+    }
+  }
+
+  VTime collect_state = checker.collect_function_names(checked_statements, names_with_libraries)
 
   if get(collect_state, 0) != checker.STATUS_OK {
     return [get(collect_state, 0), get(collect_state, 2)]
@@ -2323,7 +2421,11 @@ func checker.validate_report_with_symbols(statements, symbols) {
     return [get(state, 0), get(state, 2)]
   }
 
-  return [checker.STATUS_OK, checked_statements, checker.export_symbols(get(state, 1))]
+  return [checker.STATUS_OK, checked_statements, checker.export_symbols(get(state, 1)), get(composition, 2), get(composition, 3)]
+}
+
+func checker.validate_report_with_symbols(statements, symbols) {
+  return checker.validate_report_with_library_symbols(statements, symbols, [])
 }
 
 func checker.validate_report_with_functions(statements, function_names, arities) {
