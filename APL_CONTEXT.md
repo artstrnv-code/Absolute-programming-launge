@@ -75,7 +75,7 @@ stores a checked `Program` in binary `.aplc` form, then lowers it at load time
 to an in-memory `CompiledProgram`: linear statement opcodes with program-counter
 jumps and stack opcodes for expressions. `.aplc` is therefore not itself the
 runtime bytecode format. The APL-written self-host path emits `APLMOD3` and
-`APLLINK2`, which serialize recursive list-based IR interpreted by `std/vm.apl`.
+`APLLINK3`, which serialize recursive list-based IR interpreted by `std/vm.apl`.
 That portable IR is a bootstrap and semantic-reference format, not the final
 native backend. Bytecode may remain useful as a VM/debugging target, but native
 object and executable output is the primary production goal.
@@ -124,7 +124,7 @@ the parser-level `pick` construct before its opcode can be emitted. Current
 removable base exports are `pick`, `add`, `get`, `pop`, conversions, string/list
 helpers, `ord`, `char`, and `pow`.
 
-The portable `APLLINK2` result contains neither composition AST nodes nor
+The portable `APLLINK3` result contains neither composition AST nodes nor
 unreachable user functions. Its base builtin implementations still live in the
 external bootstrap VM, so this stage proves surface removal, not native binary
 section removal. Once the native backend owns builtin code, the same checked
@@ -152,9 +152,14 @@ reusable compiler artifact does: an `APLCREQ1:` request sends the catalog count,
 `name`/`APLMOD3` pairs, and source through distinct VM input values, while its
 `APLCOMP2` response stays backward compatible. The compiler links libraries
 over its precompiled base module rather than recompiling the runtime source.
-The final `APLLINK2` does not yet record the resolved library manifest. That is
-the next composition protocol step; native builtin and data-section elimination
-remains the responsibility of the future native linker.
+Final `APLLINK3` carries a required `APLMAN1` composition manifest. It records
+implicit `base`, every selected named library, and exclusions in source order;
+the verifier rejects duplicate/malformed libraries, invalid exclusions, or a
+manifest without `base`. `inspect-linked` exposes it without executing the
+program. The decoder still accepts manifest-less `APLLINK2`, and re-encoding
+migrates that image to v3. Module content digests are not recorded yet; native
+builtin and data-section elimination remains the responsibility of the future
+native linker.
 
 Standalone calls such as `record(42)` are expression statements. The
 APL-written frontend already represented them as `NODE_EXPR`/`OP_EXPR`; the
@@ -652,7 +657,7 @@ Rust workspace:
 - `apl_compiler`: generates Rust-hosted executable packages from portable
   linked artifacts and retains the earlier host `.aplc` package generator for
   compiler bootstrap tests. It exposes a narrow host bridge that asks the
-  APL-written bootstrap pipeline to compile source into portable `APLLINK2`
+  APL-written bootstrap pipeline to compile source into portable `APLLINK3`
   artifacts and to load, verify, and run those artifacts. The bridge passes an
   explicit input count so an empty input line remains a real value instead of
   becoming an end-of-stream marker. Both the Rust runtime and the APL VM return
@@ -669,7 +674,7 @@ Rust workspace:
   compiler/runtime layer. Runtime strings cache Unicode characters and runtime
   lists use copy-on-write storage, avoiding whole-source and whole-AST copies
   during bootstrap while preserving APL value semantics. It can also build a
-  reusable compiler `APLLINK2` containing the complete APL-written compiler and
+  reusable compiler `APLLINK3` containing the complete APL-written compiler and
   an embedded runtime `APLMOD3`. Running that artifact compiles input source
   inside the APL VM and returns a linked artifact or diagnostic through the
   versioned, Unicode-character-length-framed `APLCOMP2` protocol. The host
@@ -863,13 +868,17 @@ APL-owned runtime code:
   nested blocks, builtin arity, function-table consistency, unique function and
   parameter names, loop limits, and `CALL_SLOT` bounds before VM execution.
   It also recursively detects `CALL_SLOT` in relocatable programs, including
-  nested expressions, blocks, and function bodies. An APL module must be
+  nested expressions, blocks, and function bodies. It also validates the
+  complete `APLMAN1` library manifest: `base` must be first, library names must
+  be unique, and exclusions must be valid and unique. An APL module must be
   unlinked so slot assignment can happen once after all code is combined.
 - `std/artifact.apl`: the APL-written portable codec for linked images. It
-  emits `APLLINK2:` wire strings with tagged scalar nodes, length-prefixed
-  payloads, and recursive lists. The APL decoder reconstructs the linked image
-  without source parsing and rejects bad headers, malformed/truncated nodes,
-  unknown tags, trailing data, and structures rejected by the APL verifier.
+  emits `APLLINK3:` wire strings with tagged scalar nodes, length-prefixed
+  payloads, recursive lists, and a required `APLMAN1` composition manifest.
+  The APL decoder reconstructs the linked image without source parsing and
+  rejects bad headers, malformed/truncated nodes, unknown tags, trailing data,
+  invalid manifests, and structures rejected by the APL verifier. It accepts
+  legacy manifest-less `APLLINK2:` and upgrades it when encoding again.
   The same scalar/list codec emits `APLMOD3:` relocatable modules containing
   unlinked IR and a symbol table for functions, absolute variables, and `List`
   declarations. Function symbols carry arity; absolute symbols retain their
@@ -972,6 +981,8 @@ APL-owned runtime code:
   `bootstrap.linked_artifact(source)`,
   `bootstrap.load_linked_artifact_report(encoded)`,
   `bootstrap.load_linked_artifact(encoded)`,
+  `bootstrap.linked_artifact_manifest_report(encoded)`,
+  `bootstrap.linked_artifact_manifest(encoded)`,
   `bootstrap.module_report(source)`, `bootstrap.module(source)`,
   `bootstrap.modules_report(sources)`, `bootstrap.modules(sources)`,
   `bootstrap.load_module_report(encoded)`, `bootstrap.load_module(encoded)`,
@@ -1012,13 +1023,18 @@ APL-owned runtime code:
   `bootstrap.run_loaded_image*` calls do not re-tokenize, re-parse, re-check,
   re-collect or look up functions from the original source, or execute function
   declarations as no-op instructions.
-  Portable linked artifact reports return `[OK, "APLLINK2:..."]` or
+  Portable linked artifact reports return `[OK, "APLLINK3:..."]` or
   `[FAIL, message]`. Their payload is encoded and decoded entirely by APL code;
-  a decoded artifact is the same `APLLOAD2` image consumed by the loaded-image
-  execution APIs and must pass the same structural verifier before it can run.
+  a decoded v3 artifact is
+  `["APLLOAD2", entry, functions, ["APLMAN1", libraries]]` and must pass the
+  same structural verifier before it can run. Each library entry is
+  `[name, exclusions]`; `base` is always first. The loader accepts an old
+  three-field `APLLINK2`, for which `bootstrap.linked_artifact_manifest*`
+  returns `NONE`. Encoding that loaded image produces v3 with a default base
+  manifest.
   The Rust compiler facade and CLI now expose this path through
   `compile_linked_artifact`, `emit_linked_artifact_file`,
-  `run_linked_artifact`, `emit-linked`, and `run-linked`. The default file
+  `run_linked_artifact`, `emit-linked`, `inspect-linked`, and `run-linked`. The default file
   extension is `.apllink`; this is a portable bootstrap wire format, not native
   machine code and not the host-side binary `.aplc` format. The compiler bridge
   prepends the small APL runtime module as a separate input and performs source
@@ -1035,7 +1051,7 @@ APL-owned runtime code:
   The current bootstrap gate is now closed at the portable VM level:
   `emit-standard-module` produces one `APLMOD3` containing the APL-written
   runtime and compiler, `emit-linked-module` links
-  `examples/bootstrap_runtime.apl` against it, and that `APLLINK2` successfully
+  `examples/bootstrap_runtime.apl` against it, and that `APLLINK3` successfully
   runs the compiler pipeline again inside the APL-written VM. The nested run
   produces the expected public values while static secret outputs are rejected
   by the checker before lowering. Direct VM tests separately verify `DENIED`
@@ -1045,11 +1061,11 @@ APL-owned runtime code:
   native bootstrap. Use a release host for the VM-in-VM smoke-test; debug mode
   is currently impractically slow.
   A second gate builds that complete compiler/runtime module into a reusable
-  compiler `APLLINK2`. `emit-linked-bootstrap` runs the compiler artifact
+  compiler `APLLINK3`. `emit-linked-bootstrap` runs the compiler artifact
   inside the APL VM with user source and an optional named-library catalog as
   input. The artifact invokes `bootstrap.linked_artifact_with_module_report` or
   `bootstrap.linked_artifact_with_module_and_libraries_report` against its
-  embedded runtime `APLMOD3` and returns a fresh user `APLLINK2`. The verified
+  embedded runtime `APLMOD3` and returns a fresh user `APLLINK3`. The verified
   gate compiles and runs both a function-bearing source-only program and a
   program using an included/excluded library surface to produce `42`, then
   reuses the same compiler instance to return the exact parser diagnostic for

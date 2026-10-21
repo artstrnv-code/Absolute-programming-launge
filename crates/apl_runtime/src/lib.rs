@@ -3807,7 +3807,62 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKAPLLINK2:OKAPLLOAD2CALL_SLOT0CALL_SLOT1trueOK]x[,b:a52.5trueNONEFAILinvalid linked artifact headerFAILtrailing linked artifact dataFAILFAILinvalid linked artifact imageFAILinvalid loaded imageFAILinvalid linked artifact imageFAILinvalid linked artifact image"
+            "OKAPLLINK3:OKAPLLOAD2CALL_SLOT0CALL_SLOT1trueOK]x[,b:a52.5trueNONEFAILinvalid linked artifact headerFAILtrailing linked artifact dataFAILFAILinvalid linked artifact imageFAILinvalid loaded imageFAILinvalid linked artifact imageFAILinvalid linked artifact image"
+        );
+    }
+
+    #[test]
+    fn source_runtime_migrates_legacy_linked_artifacts_and_validates_manifests_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime loaded = get(bootstrap.loaded_image_report("out 7"), 1)
+            VTime legacy = join([artifact.LEGACY_HEADER, artifact.encode_node(artifact.wrap_loaded(loaded))], "")
+            VTime legacy_load = bootstrap.load_linked_artifact_report(legacy)
+            VTime legacy_manifest = bootstrap.linked_artifact_manifest_report(legacy)
+            VTime legacy_run = bootstrap.run_linked_artifact_report(legacy)
+            VTime migrated = artifact.encode_loaded(get(legacy_load, 1))
+            VTime migrated_manifest = bootstrap.linked_artifact_manifest(migrated)
+            VTime valid_manifest = [linker.MANIFEST_MAGIC, [["base", []]]]
+            VTime bad_manifest = [linker.MANIFEST_MAGIC, [["math", []]]]
+            VTime loaded_with_manifest = [get(loaded, 0), get(loaded, 1), get(loaded, 2), valid_manifest]
+            VTime missing_manifest_v3 = join([artifact.HEADER, artifact.encode_node(artifact.wrap_loaded(loaded))], "")
+            VTime extra_manifest_v2 = join([artifact.LEGACY_HEADER, artifact.encode_node(artifact.wrap_loaded(loaded_with_manifest))], "")
+            VTime invalid_manifest_v3 = join([artifact.HEADER, artifact.encode_node(artifact.wrap_loaded([get(loaded, 0), get(loaded, 1), get(loaded, 2), bad_manifest]))], "")
+            VTime duplicate_library_manifest = [linker.MANIFEST_MAGIC, [["base", []], ["math", []], ["math", []]]]
+            VTime duplicate_exclusion_manifest = [linker.MANIFEST_MAGIC, [["base", ["len", "len"]]]]
+            VTime duplicate_library_v3 = join([artifact.HEADER, artifact.encode_node(artifact.wrap_loaded([get(loaded, 0), get(loaded, 1), get(loaded, 2), duplicate_library_manifest]))], "")
+            VTime duplicate_exclusion_v3 = join([artifact.HEADER, artifact.encode_node(artifact.wrap_loaded([get(loaded, 0), get(loaded, 1), get(loaded, 2), duplicate_exclusion_manifest]))], "")
+            VTime missing_manifest_load = bootstrap.load_linked_artifact_report(missing_manifest_v3)
+            VTime extra_manifest_load = bootstrap.load_linked_artifact_report(extra_manifest_v2)
+            VTime invalid_manifest_load = bootstrap.load_linked_artifact_report(invalid_manifest_v3)
+            VTime duplicate_library_load = bootstrap.load_linked_artifact_report(duplicate_library_v3)
+            VTime duplicate_exclusion_load = bootstrap.load_linked_artifact_report(duplicate_exclusion_v3)
+
+            out legacy[:len(artifact.LEGACY_HEADER)]
+            out get(legacy_load, 0)
+            out get(legacy_manifest, 0)
+            out get(legacy_manifest, 1) == NONE
+            out get(legacy_run, 0)
+            out get(get(legacy_run, 1), 0)
+            out migrated[:len(artifact.HEADER)]
+            out get(get(get(migrated_manifest, 1), 0), 0)
+            out get(missing_manifest_load, 0)
+            out get(missing_manifest_load, 1)
+            out get(extra_manifest_load, 0)
+            out get(extra_manifest_load, 1)
+            out get(invalid_manifest_load, 0)
+            out get(invalid_manifest_load, 1)
+            out get(duplicate_library_load, 0)
+            out get(duplicate_library_load, 1)
+            out get(duplicate_exclusion_load, 0)
+            out get(duplicate_exclusion_load, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "APLLINK2:OKOKtrueOK7APLLINK3:baseFAILinvalid linked artifact imageFAILinvalid linked artifact imageFAILinvalid linked artifact imageFAILinvalid linked artifact imageFAILinvalid linked artifact image"
         );
     }
 
@@ -3886,11 +3941,20 @@ mod tests {
             VTime math_report = bootstrap.module_report("func math.hidden(value) { return value + 1 } func math.answer() { return math.hidden(40) }")
             VTime libraries = [["math", get(math_report, 1)]]
             VTime linked = bootstrap.linked_artifact_with_module_and_libraries_report(get(base_report, 1), libraries, "include >> math exclude \"math.hidden\" << math out base.one() out math.answer()")
+            VTime manifest_report = bootstrap.linked_artifact_manifest_report(get(linked, 1))
+            VTime manifest = get(manifest_report, 1)
             VTime run = bootstrap.run_linked_artifact_report(get(linked, 1))
             VTime excluded = bootstrap.linked_artifact_with_module_and_libraries_report(get(base_report, 1), libraries, "include >> math exclude \"math.hidden\" << math out math.hidden(1)")
             VTime missing_include = bootstrap.linked_artifact_with_module_and_libraries_report(get(base_report, 1), libraries, "out math.answer()")
 
             out get(linked, 0)
+            out get(linked, 1)[:len(artifact.HEADER)]
+            out get(manifest_report, 0)
+            out get(manifest, 0)
+            out get(get(get(manifest, 1), 0), 0)
+            out len(get(manifest, 1))
+            out get(get(get(manifest, 1), 1), 0)
+            out get(get(get(get(manifest, 1), 1), 1), 0)
             out get(run, 0)
             out get(get(run, 1), 0)
             out get(get(run, 1), 1)
@@ -3904,7 +3968,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOK141FAILexcluded symbol `math.hidden` from library `math`FAILunknown function `math.answer`"
+            "OKAPLLINK3:OKAPLMAN1base2mathmath.hiddenOK141FAILexcluded symbol `math.hidden` from library `math`FAILunknown function `math.answer`"
         );
     }
 

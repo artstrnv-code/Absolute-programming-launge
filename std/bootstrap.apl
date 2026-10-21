@@ -48,7 +48,7 @@ func bootstrap.compile_with_symbols_report(source) {
     return [vm.FLOW_FAIL, bootstrap.ir_error(program)]
   }
 
-  return [vm.FLOW_OK, program, get(checked, 2)]
+  return [vm.FLOW_OK, program, get(checked, 2), get(checked, 3), get(checked, 4)]
 }
 
 func bootstrap.compile_report(source) {
@@ -149,6 +149,40 @@ func bootstrap.extend_module(encoded_module, source) {
   return get(bootstrap.extend_module_report(encoded_module, source), 1)
 }
 
+func bootstrap.library_exclusions(library, exclusions) {
+  VTime symbols = []
+
+  pick(exclusions): exclusion {
+    if get(exclusion, 0) == library {
+      add(symbols, get(exclusion, 1))
+    }
+  }
+
+  return symbols
+}
+
+func bootstrap.library_manifest(includes, exclusions) {
+  VTime libraries = [["base", bootstrap.library_exclusions("base", exclusions)]]
+
+  pick(includes): library {
+    if library != "base" {
+      add(libraries, [library, bootstrap.library_exclusions(library, exclusions)])
+    }
+  }
+
+  return [linker.MANIFEST_MAGIC, libraries]
+}
+
+func bootstrap.encode_loaded_with_composition_report(loaded, includes, exclusions) {
+  VTime manifested = artifact.with_library_manifest_report(loaded, bootstrap.library_manifest(includes, exclusions))
+
+  if get(manifested, 0) != vm.FLOW_OK {
+    return manifested
+  }
+
+  return artifact.encode_loaded_report(get(manifested, 1))
+}
+
 func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
   VTime module_report = bootstrap.load_module_report(encoded_module)
 
@@ -182,7 +216,7 @@ func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
     return loaded
   }
 
-  return artifact.encode_loaded_report(get(loaded, 1))
+  return bootstrap.encode_loaded_with_composition_report(get(loaded, 1), get(checked, 3), get(checked, 4))
 }
 
 func bootstrap.linked_artifact_with_module(encoded_module, source) {
@@ -280,7 +314,7 @@ func bootstrap.linked_artifact_from_library_catalog_report(base_program, base_sy
     return loaded
   }
 
-  return artifact.encode_loaded_report(get(loaded, 1))
+  return bootstrap.encode_loaded_with_composition_report(get(loaded, 1), get(checked, 3), get(checked, 4))
 }
 
 func bootstrap.linked_artifact_with_libraries_report(base_source, encoded_libraries, source) {
@@ -400,14 +434,30 @@ func bootstrap.load_artifact_image(image) {
   return get(bootstrap.load_artifact_image_report(image), 1)
 }
 
-func bootstrap.loaded_image_report(source) {
-  VTime image_report = bootstrap.artifact_image_report(source)
+func bootstrap.loaded_image_with_composition_report(source) {
+  VTime compiled = bootstrap.compile_with_symbols_report(source)
 
-  if get(image_report, 0) != vm.FLOW_OK {
-    return image_report
+  if get(compiled, 0) != vm.FLOW_OK {
+    return compiled
   }
 
-  return bootstrap.load_artifact_image_report(get(image_report, 1))
+  VTime loaded = vm.load_ir_report(get(compiled, 1))
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return [vm.FLOW_OK, get(loaded, 1), get(compiled, 3), get(compiled, 4)]
+}
+
+func bootstrap.loaded_image_report(source) {
+  VTime loaded = bootstrap.loaded_image_with_composition_report(source)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return [vm.FLOW_OK, get(loaded, 1)]
 }
 
 func bootstrap.loaded_image(source) {
@@ -415,13 +465,13 @@ func bootstrap.loaded_image(source) {
 }
 
 func bootstrap.linked_artifact_report(source) {
-  VTime loaded = bootstrap.loaded_image_report(source)
+  VTime loaded = bootstrap.loaded_image_with_composition_report(source)
 
   if get(loaded, 0) != vm.FLOW_OK {
     return loaded
   }
 
-  return artifact.encode_loaded_report(get(loaded, 1))
+  return bootstrap.encode_loaded_with_composition_report(get(loaded, 1), get(loaded, 2), get(loaded, 3))
 }
 
 func bootstrap.linked_artifact(source) {
@@ -434,6 +484,20 @@ func bootstrap.load_linked_artifact_report(encoded) {
 
 func bootstrap.load_linked_artifact(encoded) {
   return get(bootstrap.load_linked_artifact_report(encoded), 1)
+}
+
+func bootstrap.linked_artifact_manifest_report(encoded) {
+  VTime loaded = bootstrap.load_linked_artifact_report(encoded)
+
+  if get(loaded, 0) != vm.FLOW_OK {
+    return loaded
+  }
+
+  return [vm.FLOW_OK, artifact.loaded_library_manifest(get(loaded, 1))]
+}
+
+func bootstrap.linked_artifact_manifest(encoded) {
+  return get(bootstrap.linked_artifact_manifest_report(encoded), 1)
 }
 
 func bootstrap.run_linked_artifact_report(encoded) {

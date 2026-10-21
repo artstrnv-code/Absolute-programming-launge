@@ -3,6 +3,7 @@
 # stable numeric slots before VM execution.
 
 AVStr linker.IMAGE_MAGIC = "APLLOAD2"
+AVStr linker.MANIFEST_MAGIC = "APLMAN1"
 
 func linker.name_index(names, name) {
   VTime index = len(names) - 1

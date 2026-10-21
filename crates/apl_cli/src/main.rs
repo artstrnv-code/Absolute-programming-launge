@@ -271,6 +271,21 @@ fn main() {
                 Err(error) => exit_compile_error("run-linked", error),
             }
         }
+        "inspect-linked" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing linked artifact path");
+                process::exit(2);
+            };
+            let artifact = fs::read_to_string(&path).unwrap_or_else(|error| {
+                eprintln!("failed to read `{path}`: {error}");
+                process::exit(1);
+            });
+
+            match apl_compiler::inspect_linked_artifact(&artifact) {
+                Ok(manifest) => print!("{manifest}"),
+                Err(error) => exit_compile_error("inspect-linked", error),
+            }
+        }
         "build" | "compile" | "build-linked" | "compile-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -359,7 +374,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 

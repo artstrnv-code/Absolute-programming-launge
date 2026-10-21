@@ -782,9 +782,77 @@ func verifier.functions_are_valid(functions) {
   return true
 }
 
+func verifier.library_manifest_is_valid(manifest) {
+  if len(manifest) != 2 {
+    return false
+  }
+
+  if get(manifest, 0) != linker.MANIFEST_MAGIC {
+    return false
+  }
+
+  VTime libraries = get(manifest, 1)
+  VTime names = []
+
+  pick(libraries): library {
+    if len(library) != 2 {
+      return false
+    }
+
+    VTime name = get(library, 0)
+    VTime exclusions = get(library, 1)
+
+    if verifier.is_str(name) != true {
+      return false
+    }
+
+    if checker.composition_name_is_valid(name) != true {
+      return false
+    }
+
+    if verifier.str_list_is_valid(exclusions) != true {
+      return false
+    }
+
+    if verifier.values_are_unique(exclusions) != true {
+      return false
+    }
+
+    pick(exclusions): exclusion {
+      if checker.composition_name_is_valid(exclusion) != true {
+        return false
+      }
+
+      if name == "base" {
+        if checker.base_export_is_known(exclusion) != true {
+          return false
+        }
+      }
+    }
+
+    add(names, name)
+  }
+
+  if len(names) == 0 {
+    return false
+  }
+
+  if get(names, 0) != "base" {
+    return false
+  }
+
+  return verifier.values_are_unique(names)
+}
+
 func verifier.loaded_image_is_valid(loaded) {
   if len(loaded) != 3 {
-    return false
+    if len(loaded) != 4 {
+      return false
+    }
+
+    if verifier.library_manifest_is_valid(get(loaded, 3)) != true {
+      return false
+    }
   }
 
   if get(loaded, 0) != linker.IMAGE_MAGIC {

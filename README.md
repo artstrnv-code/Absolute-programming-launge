@@ -83,7 +83,7 @@ Two bootstrap execution paths exist today. The Rust-hosted path serializes a
 checked `Program` into binary `.aplc`, then lowers it on load to an in-memory
 `CompiledProgram` with linear statement opcodes, jumps, and stack expression
 opcodes. `.aplc` is not a stable emitted bytecode format. The APL-written
-self-host path serializes list-based IR into `APLMOD3` and `APLLINK2`; its VM is
+self-host path serializes list-based IR into `APLMOD3` and `APLLINK3`; its VM is
 the portable semantic reference and bootstrap vehicle, not the final production
 backend. A bytecode target may remain useful for portability and debugging, but
 native object and executable output is the primary goal.
@@ -198,17 +198,18 @@ source file `project/program.apl`, `include >> math` loads
 `include >> unsafe.memory` resolves `unsafe.memory.aplmod`. The APL-written
 bootstrap decoder validates the complete module before its exports are made
 visible. Only explicitly included module IR enters the link, excluded exports
-are unavailable to user code, and final `APLLINK2` reachability removes unused
+are unavailable to user code, and final `APLLINK3` reachability removes unused
 APL functions.
 
 The source-relative resolver is used by `check`, `run`, `emit-linked`, linked
 package builds, `emit-linked-bootstrap`, and APL Studio when the buffer has a
 saved path. A reusable bootstrap compiler accepts the resolved catalog through
 its framed input stream and links it over its precompiled base `APLMOD3`, so it
-does not recompile the runtime module for each user program. Legacy host
-`.aplc` output does not carry a named-library catalog. Final artifact manifest
-recording and removal of native builtin/data sections remain future linker
-work.
+does not recompile the runtime module for each user program. Final `APLLINK3`
+artifacts carry a verified `APLMAN1` manifest containing implicit `base`, each
+selected named library, and exclusions in source order. Legacy host `.aplc`
+output does not carry this catalog. Module content digests and removal of native
+builtin/data sections remain future linker work.
 
 A runnable base-composition example is in
 `examples/test_composition.apl`.
@@ -297,15 +298,21 @@ cargo run -p apl -- run-ir build\compiled_runtime.aplc
 
 Emit and run an APL-owned portable linked artifact. `emit-linked` enters the
 APL-written lexer/parser/checker/IR/linker/artifact pipeline through a narrow
-Rust host bridge and writes the resulting `APLLINK2:` payload. `run-linked`
+Rust host bridge and writes the resulting `APLLINK3:` payload. `run-linked`
 loads, verifies, and executes that payload through the APL-written artifact
 loader and VM. The host passes the input count explicitly, so empty input lines
 remain valid values and are not confused with end of input:
 
 ```powershell
 cargo run -p apl -- emit-linked examples\linked_hello.apl build\linked_hello.apllink
+cargo run -p apl -- inspect-linked build\linked_hello.apllink
 cargo run -p apl -- run-linked build\linked_hello.apllink
 ```
+
+`inspect-linked` prints the verified `APLMAN1` library manifest without running
+the program. New loaders still accept legacy `APLLINK2` artifacts; those report
+that no manifest is available. Re-encoding a loaded v2 image upgrades it to
+v3.
 
 The runner returns a versioned `APLRUN1:` response from the APL bridge.
 Terminal status and every output fragment are length-framed, so empty strings,
@@ -368,7 +375,7 @@ APL invocation. The combined IR and symbol table stay in memory and are encoded
 once. The current VM-in-VM smoke-test is computationally expensive, so release
 mode is recommended for that final command.
 
-Build a reusable compiler program, then use that `APLLINK2` program to compile
+Build a reusable compiler program, then use that `APLLINK3` program to compile
 new source from inside the APL VM:
 
 ```powershell
@@ -383,7 +390,7 @@ cargo run --release -p apl -- run-linked build\with_math_selfhost.apllink
 
 The bootstrap compiler artifact contains the APL-written frontend, checker,
 linker, verifier, artifact codec, VM, and an embedded relocatable runtime
-module. It accepts source as input and returns either a new `APLLINK2` payload
+module. It accepts source as input and returns either a new `APLLINK3` payload
 or a diagnostic through the versioned, length-framed `APLCOMP2` response
 protocol. Payload lengths count Unicode characters, so truncation, trailing
 data, colons, newlines, and NUL characters are handled unambiguously. The host
@@ -650,18 +657,22 @@ builtin elimination still belongs to the future native linker.
 Relocatable `.aplmod` validation uses a separate complete-link pass. It checks
 every exported function without deleting exports that are unused until a later
 program links the module. Reachability pruning happens only when producing the
-final loaded image or `APLLINK2` artifact.
+final loaded image or `APLLINK3` artifact.
 
 `std/verifier.apl` validates an entire loaded image before the VM accepts it.
 It checks instruction and expression opcodes and arities, operators, literal
 types, recursive blocks, builtin arities, function-table consistency, unique
-function/parameter names, and every `CALL_SLOT` bound.
+function/parameter names, every `CALL_SLOT` bound, and the complete `APLMAN1`
+library/exclusion shape.
 
 `std/artifact.apl` is the APL-written portable artifact codec. It converts a
-linked image to an `APLLINK2:` wire string and reconstructs it without calling
-the Rust parser or IR codec. Scalars are tagged, strings are length-prefixed,
-and malformed headers, truncated payloads, unknown tags, and trailing data are
-rejected before execution. Decoded structure also has to pass the APL verifier.
+linked image to an `APLLINK3:` wire string and reconstructs it without calling
+the Rust parser or IR codec. V3 requires a verified `APLMAN1` composition
+manifest; the decoder remains compatible with manifest-less `APLLINK2` and
+upgrades it when re-encoding. Scalars are tagged, strings are length-prefixed,
+and malformed headers, truncated payloads, unknown tags, trailing data, and
+invalid manifests are rejected before execution. Decoded structure also has to
+pass the APL verifier.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,
@@ -706,6 +717,8 @@ exposes `bootstrap.tokens(source)`, `bootstrap.ast(source)`,
 `bootstrap.loaded_image_report(source)`,
 `bootstrap.linked_artifact_report(source)`,
 `bootstrap.load_linked_artifact_report(encoded)`,
+`bootstrap.linked_artifact_manifest_report(encoded)`,
+`bootstrap.linked_artifact_manifest(encoded)`,
 `bootstrap.run_linked_artifact(encoded)`,
 `bootstrap.run_linked_artifact_with_input(encoded, inputs)`,
 `bootstrap.run_loaded_image(loaded)`,
@@ -726,9 +739,12 @@ compilation, function-table collection, user-function name lookup, and function
 declaration no-ops. The source-level `bootstrap.run*` facade compiles to a
 linked loaded image before execution.
 
-Portable linked artifacts use an `APLLINK2:` header and can be decoded and run
-by APL code through the `bootstrap.*linked_artifact*` APIs. Unlike the older
-diagnostic `APLIR1:` string, this format is unambiguous and round-trippable.
+Portable linked artifacts use an `APLLINK3:` header and decode to
+`["APLLOAD2", entry, functions, manifest]`. They can be decoded, inspected, and
+run by APL code through the `bootstrap.*linked_artifact*` APIs. The loader also
+accepts legacy `APLLINK2:` images without a manifest. Unlike the older
+diagnostic `APLIR1:` string, both linked formats are unambiguous and
+round-trippable.
 
 ```powershell
 .\emit_aplc.bat examples\test_vm.apl build\test_vm.aplc

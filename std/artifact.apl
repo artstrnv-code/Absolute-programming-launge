@@ -1,7 +1,8 @@
 # Portable linked-artifact codec written in APL.
 # Scalars are tagged and length-prefixed, so strings need no escaping.
 
-AVStr artifact.HEADER = "APLLINK2:"
+AVStr artifact.HEADER = "APLLINK3:"
+AVStr artifact.LEGACY_HEADER = "APLLINK2:"
 AVStr artifact.MODULE_HEADER = "APLMOD3:"
 AVStr artifact.MODULE_HEADER_V2 = "APLMOD2:"
 AVStr artifact.MODULE_HEADER_V1 = "APLMOD1:"
@@ -367,12 +368,34 @@ func artifact.wrap_functions(functions) {
   ])
 }
 
-func artifact.wrap_loaded(loaded) {
+func artifact.wrap_library_manifest(manifest) {
+  VTime libraries = []
+
+  pick(get(manifest, 1)): library {
+    add(libraries, artifact.node_list([
+      artifact.node_str(get(library, 0)),
+      artifact.wrap_str_list(get(library, 1))
+    ]))
+  }
+
   return artifact.node_list([
+    artifact.node_str(get(manifest, 0)),
+    artifact.node_list(libraries)
+  ])
+}
+
+func artifact.wrap_loaded(loaded) {
+  VTime items = [
     artifact.node_str(get(loaded, 0)),
     artifact.wrap_program(get(loaded, 1)),
     artifact.wrap_functions(get(loaded, 2))
-  ])
+  ]
+
+  if len(loaded) == 4 {
+    add(items, artifact.wrap_library_manifest(get(loaded, 3)))
+  }
+
+  return artifact.node_list(items)
 }
 
 func artifact.decode_ok(value, index) {
@@ -527,6 +550,10 @@ func artifact.decode_node(text, index) {
 }
 
 func artifact.encode_loaded_report(loaded) {
+  if len(loaded) == 3 {
+    loaded = [get(loaded, 0), get(loaded, 1), get(loaded, 2), [linker.MANIFEST_MAGIC, [["base", []]]]]
+  }
+
   if vm.loaded_image_is_valid(loaded) != true {
     return [vm.FLOW_FAIL, "invalid loaded image"]
   }
@@ -540,14 +567,26 @@ func artifact.encode_loaded(loaded) {
 }
 
 func artifact.decode_loaded_report(encoded) {
-  VTime header_size = len(artifact.HEADER)
+  VTime header = artifact.HEADER
+  VTime expects_manifest = true
+  VTime header_size = len(header)
 
   if len(encoded) < header_size {
     return [vm.FLOW_FAIL, "invalid linked artifact header"]
   }
 
-  if encoded[:header_size] != artifact.HEADER {
-    return [vm.FLOW_FAIL, "invalid linked artifact header"]
+  if encoded[:header_size] != header {
+    header = artifact.LEGACY_HEADER
+    expects_manifest = false
+    header_size = len(header)
+
+    if len(encoded) < header_size {
+      return [vm.FLOW_FAIL, "invalid linked artifact header"]
+    }
+
+    if encoded[:header_size] != header {
+      return [vm.FLOW_FAIL, "invalid linked artifact header"]
+    }
   }
 
   VTime decoded = artifact.decode_node(encoded, header_size)
@@ -562,6 +601,16 @@ func artifact.decode_loaded_report(encoded) {
 
   VTime loaded = get(decoded, 1)
 
+  if expects_manifest == true {
+    if len(loaded) != 4 {
+      return [vm.FLOW_FAIL, "invalid linked artifact image"]
+    }
+  } else {
+    if len(loaded) != 3 {
+      return [vm.FLOW_FAIL, "invalid linked artifact image"]
+    }
+  }
+
   if vm.loaded_image_is_valid(loaded) != true {
     return [vm.FLOW_FAIL, "invalid linked artifact image"]
   }
@@ -571,6 +620,32 @@ func artifact.decode_loaded_report(encoded) {
 
 func artifact.decode_loaded(encoded) {
   return get(artifact.decode_loaded_report(encoded), 1)
+}
+
+func artifact.loaded_library_manifest(loaded) {
+  if len(loaded) != 4 {
+    return NONE
+  }
+
+  return get(loaded, 3)
+}
+
+func artifact.with_library_manifest_report(loaded, manifest) {
+  if vm.loaded_image_is_valid(loaded) != true {
+    return [vm.FLOW_FAIL, "invalid loaded image"]
+  }
+
+  VTime with_manifest = [get(loaded, 0), get(loaded, 1), get(loaded, 2), manifest]
+
+  if vm.loaded_image_is_valid(with_manifest) != true {
+    return [vm.FLOW_FAIL, "invalid library manifest"]
+  }
+
+  return [vm.FLOW_OK, with_manifest]
+}
+
+func artifact.with_library_manifest(loaded, manifest) {
+  return get(artifact.with_library_manifest_report(loaded, manifest), 1)
 }
 
 func artifact.function_arities(functions) {

@@ -42,6 +42,8 @@ const BOOTSTRAP_COMPILER_LIBRARY_REQUEST: &str = "APLCREQ1:";
 const LEGACY_BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
 const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
+const LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK3:";
+const LEGACY_LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK2:";
 const LIBRARY_DIRECTORY: &str = "libraries";
 const LIBRARY_EXTENSION: &str = "aplmod";
 
@@ -382,6 +384,11 @@ pub fn run_linked_artifact_report(
     parse_linked_run_report(&output.stdout)
 }
 
+pub fn inspect_linked_artifact(artifact: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(LINKED_MANIFEST_BRIDGE, vec![artifact.to_owned()])?;
+    Ok(output.stdout)
+}
+
 pub fn build_executable_package(
     source_path: &Path,
     output_dir: &Path,
@@ -611,7 +618,7 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
         }
 
         return match status {
-            "OK" if payload.starts_with("APLLINK2:") => Ok(payload.to_owned()),
+            "OK" if is_linked_artifact(payload) => Ok(payload.to_owned()),
             "OK" => Err(CompileError::Bootstrap(
                 "APL bootstrap compiler returned an invalid linked artifact".to_owned(),
             )),
@@ -625,7 +632,7 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
     }
 
     if let Some(artifact) = output.strip_prefix(LEGACY_BOOTSTRAP_COMPILER_OK) {
-        if artifact.starts_with("APLLINK2:") {
+        if is_linked_artifact(artifact) {
             return Ok(artifact.to_owned());
         }
         return Err(CompileError::Bootstrap(
@@ -646,6 +653,11 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
 
 fn invalid_bootstrap_compiler_response() -> CompileError {
     CompileError::Bootstrap("APL bootstrap compiler returned an invalid response".to_owned())
+}
+
+fn is_linked_artifact(value: &str) -> bool {
+    value.starts_with(LINKED_ARTIFACT_PROTOCOL)
+        || value.starts_with(LEGACY_LINKED_ARTIFACT_PROTOCOL)
 }
 
 fn parse_linked_run_report(output: &str) -> Result<LinkedRunReport, CompileError> {
@@ -807,6 +819,34 @@ while (aplhost.input_index < aplhost.input_count) (-1) {
 VTime aplhost.run_report = bootstrap.run_loaded_image_with_input_report(get(aplhost.loaded_report, 1), aplhost.inputs)
 VTime aplhost.output = get(aplhost.run_report, 1)
 VTime aplhost.report_emitted = aplhost.emit_run_report(get(aplhost.run_report, 0), aplhost.output)"#;
+
+const LINKED_MANIFEST_BRIDGE: &str = r#"VTime aplhost.encoded = input
+VTime aplhost.manifest_report = bootstrap.linked_artifact_manifest_report(aplhost.encoded)
+
+if get(aplhost.manifest_report, 0) != vm.FLOW_OK {
+  fail get(aplhost.manifest_report, 1)
+}
+
+VTime aplhost.manifest = get(aplhost.manifest_report, 1)
+
+if aplhost.manifest == NONE {
+  out "manifest unavailable (legacy APLLINK2)\n"
+} else {
+  out "manifest "
+  out get(aplhost.manifest, 0)
+  out "\n"
+
+  pick(get(aplhost.manifest, 1)): aplhost.library {
+    out get(aplhost.library, 0)
+    out "\n"
+
+    pick(get(aplhost.library, 1)): aplhost.exclusion {
+      out "  exclude "
+      out aplhost.exclusion
+      out "\n"
+    }
+  }
+}"#;
 
 fn compiled_package_name(source_stem: Option<&str>) -> String {
     let name = source_stem
@@ -1054,6 +1094,7 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func bootstrap.loaded_image_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.load_linked_artifact_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_manifest_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.module_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.load_module_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.linked_artifact_with_module_report"));
@@ -1091,7 +1132,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(artifact.starts_with("APLLINK2:"));
+        assert!(artifact.starts_with(LINKED_ARTIFACT_PROTOCOL));
         let output = run_linked_artifact(&artifact, vec!["4".to_owned()]).unwrap();
         assert_eq!(output.stdout, "5");
     }
@@ -1103,10 +1144,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(artifact.starts_with("APLLINK2:"));
+        assert!(artifact.starts_with(LINKED_ARTIFACT_PROTOCOL));
         assert!(!artifact.contains("Include"));
         assert!(!artifact.contains("Exclude"));
         assert_eq!(run_linked_artifact(&artifact, vec![]).unwrap().stdout, "42");
+        assert_eq!(
+            inspect_linked_artifact(&artifact).unwrap(),
+            "manifest APLMAN1\nbase\n  exclude pick\n  exclude len\n"
+        );
 
         let CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)) =
             compile_linked_artifact(r#"exclude "len" << base out len([1])"#).unwrap_err()
@@ -1260,6 +1305,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(run_linked_artifact(&artifact, vec![]).unwrap().stdout, "42");
+        assert_eq!(
+            inspect_linked_artifact(&artifact).unwrap(),
+            "manifest APLMAN1\nbase\nmath\n  exclude math.internal\n"
+        );
 
         let excluded = compile_linked_artifact_with_libraries(
             r#"include >> math exclude "math.internal" << math out math.internal(1)"#,
@@ -1303,12 +1352,19 @@ mod tests {
 
     #[test]
     fn bootstrap_compiler_protocol_is_versioned_and_validated() {
-        let artifact = "APLLINK2:payload:Привет\0";
+        let artifact = "APLLINK3:payload:Привет\0";
         let encoded = format!(
             "{BOOTSTRAP_COMPILER_PROTOCOL}OK:{}:{artifact}",
             artifact.chars().count()
         );
         assert_eq!(parse_bootstrap_compiler_output(&encoded).unwrap(), artifact);
+
+        let legacy = "APLLINK2:legacy";
+        let encoded = format!(
+            "{BOOTSTRAP_COMPILER_PROTOCOL}OK:{}:{legacy}",
+            legacy.chars().count()
+        );
+        assert_eq!(parse_bootstrap_compiler_output(&encoded).unwrap(), legacy);
 
         let diagnostic = "declaration:\nожидалось =\0";
         let encoded = format!(
@@ -1378,7 +1434,11 @@ mod tests {
     #[ignore = "expensive compiler-in-VM bootstrap gate"]
     fn bootstrap_compiler_artifact_compiles_inside_apl_vm() {
         let compiler = compile_bootstrap_compiler_artifact().unwrap();
-        assert!(compiler.starts_with("APLLINK2:"));
+        assert!(compiler.starts_with(LINKED_ARTIFACT_PROTOCOL));
+        assert_eq!(
+            inspect_linked_artifact(&compiler).unwrap(),
+            "manifest APLMAN1\nbase\n"
+        );
 
         let artifact = compile_linked_artifact_with_bootstrap_compiler(
             &compiler,
@@ -1387,6 +1447,10 @@ mod tests {
         .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "42");
+        assert_eq!(
+            inspect_linked_artifact(&artifact).unwrap(),
+            "manifest APLMAN1\nbase\n"
+        );
 
         let math = compile_module_artifact(
             "func math.hidden(value) { return value + 1 } func math.answer() { return math.hidden(41) }",
@@ -1404,6 +1468,10 @@ mod tests {
         .unwrap();
         let output = run_linked_artifact(&artifact, vec![]).unwrap();
         assert_eq!(output.stdout, "42");
+        assert_eq!(
+            inspect_linked_artifact(&artifact).unwrap(),
+            "manifest APLMAN1\nbase\nmath\n  exclude math.hidden\n"
+        );
 
         let CompileError::Bootstrap(message) =
             compile_linked_artifact_with_bootstrap_compiler(&compiler, "AVInt value 1")
