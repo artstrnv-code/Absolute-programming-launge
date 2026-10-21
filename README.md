@@ -258,10 +258,13 @@ cargo run -p apl -- check examples\hello.apl
 
 `check` and `run` now always compile an `APLLINK3` artifact through the
 APL-written frontend before returning or executing it. Their diagnostics are
-therefore the APL frontend's stable text diagnostics. Portable source spans are
-not encoded yet; adding one-based Unicode `line:column` locations to those
-diagnostics is core-language follow-up work. The Rust reference parser still
-retains source locations for explicit host tools and differential tests.
+therefore the APL frontend's stable text diagnostics. Lexer and parser failures
+include one-based `line:column` locations counted in Unicode characters, for
+example `parse error at 3:8: expected expression`. The successful path keeps
+compact `[kind, value]` tokens; source offsets are collected by a lazy second
+lexer pass only when a syntax diagnostic is produced. Semantic checker errors
+do not carry source spans yet. The Rust reference parser retains its own source
+locations for explicit host tools and differential tests.
 
 Execute through the APL-written compiler and portable VM:
 
@@ -499,8 +502,10 @@ The standard prelude already contains the first APL-written lexer in
 `std/lexer.apl`. It scans source text in APL and returns token records as
 `[kind, value]` lists. It handles whitespace, line comments, quoted strings,
 `=self=`, and common two-character operators. An unterminated quoted string
-produces an explicit lexer error token instead of being accepted at EOF. A
-quick lexer smoke-test:
+produces an explicit lexer error token instead of being accepted at EOF.
+`lexer.tokenize_with_offsets(source)` additionally returns a parallel list of
+Unicode-character offsets for diagnostics; normal compilation uses the compact
+`lexer.tokenize(source)` result. A quick lexer smoke-test:
 
 ```powershell
 .\emit_aplc.bat examples\test_lexer.apl build\test_lexer.aplc

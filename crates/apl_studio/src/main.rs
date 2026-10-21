@@ -1094,7 +1094,7 @@ mod windows_app {
         fn reports_invalid_source_in_output_panel() {
             assert_eq!(
                 execute_source("AVInt = 4", Vec::new()),
-                "Compile error:\r\ndeclaration expects identifier"
+                "Compile error:\r\nparse error at 1:7: declaration expects identifier"
             );
         }
 

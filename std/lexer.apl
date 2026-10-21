@@ -9,6 +9,7 @@ AVStr lexer.TOKEN_FLOAT = "Float"
 AVStr lexer.TOKEN_STR = "Str"
 AVStr lexer.TOKEN_SYM = "Symbol"
 AVStr lexer.TOKEN_ERROR = "Error"
+AVStr lexer.TOKEN_EOF = "Eof"
 
 List lexer.KEYWORDS = ["include", "exclude", "if", "else", "while", "pick", "break", "continue",
     "func", "return", "true", "false", "and", "or", "not",
@@ -88,6 +89,25 @@ func lexer.token_value(token) {
 
 func lexer.token_kind(token) {
   return get(token, 0)
+}
+
+func lexer.position_at(source, offset) {
+  VTime line = 1
+  VTime column = 1
+  VTime index = 0
+
+  while ((index < offset) and (index < len(source))) (-1) {
+    if ord(source[index]) == 10 {
+      line += 1
+      column = 1
+    } else {
+      column += 1
+    }
+
+    index += 1
+  }
+
+  return [line, column]
 }
 
 func lexer.is_keyword(value) {
@@ -182,10 +202,12 @@ func lexer.token_type(value) {
   return lexer.TOKEN_IDENT
 }
 
-func lexer.tokenize(source) {
+func lexer.tokenize_core(source, include_offsets) {
   VTime tokens = []
+  VTime offsets = []
   VTime chars = []
   VTime index = 0
+  VTime chars_index = 0
 
   while (index < len(source)) (-1) {
     VTime ch = source[index]
@@ -194,6 +216,9 @@ func lexer.tokenize(source) {
       if len(chars) > 0 {
         VTime text = join(chars, "")
         add(tokens, lexer.make_token(lexer.token_type(text), text))
+        if include_offsets {
+          add(offsets, chars_index)
+        }
         chars = []
       }
 
@@ -208,6 +233,9 @@ func lexer.tokenize(source) {
       if len(chars) > 0 {
         VTime text = join(chars, "")
         add(tokens, lexer.make_token(lexer.token_type(text), text))
+        if include_offsets {
+          add(offsets, chars_index)
+        }
         chars = []
       }
 
@@ -219,19 +247,27 @@ func lexer.tokenize(source) {
       if len(chars) > 0 {
         VTime text = join(chars, "")
         add(tokens, lexer.make_token(lexer.token_type(text), text))
+        if include_offsets {
+          add(offsets, chars_index)
+        }
         chars = []
       }
 
+      VTime string_index = index
       index += 1
       VTime text_chars = []
 
       while ((index < len(source)) and (lexer.is_quote(source[index]) == false)) (-1) {
         if source[index] == char(92) {
+          VTime escape_index = index
           index += 1
 
           if index >= len(source) {
             add(tokens, lexer.make_token(lexer.TOKEN_ERROR, "unterminated escape sequence"))
-            return tokens
+            if include_offsets {
+              add(offsets, escape_index)
+            }
+            return [tokens, offsets]
           }
 
           VTime escape = source[index]
@@ -251,7 +287,10 @@ func lexer.tokenize(source) {
           } else {
             VTime message = join(["invalid escape sequence `", char(92), escape, "`"], "")
             add(tokens, lexer.make_token(lexer.TOKEN_ERROR, message))
-            return tokens
+            if include_offsets {
+              add(offsets, escape_index)
+            }
+            return [tokens, offsets]
           }
         } else {
           add(text_chars, source[index])
@@ -262,11 +301,17 @@ func lexer.tokenize(source) {
 
       if index >= len(source) {
         add(tokens, lexer.make_token(lexer.TOKEN_ERROR, "unterminated string literal"))
-        return tokens
+        if include_offsets {
+          add(offsets, string_index)
+        }
+        return [tokens, offsets]
       }
 
       VTime text = join(text_chars, "")
       add(tokens, lexer.make_token(lexer.TOKEN_STR, text))
+      if include_offsets {
+        add(offsets, string_index)
+      }
 
       index += 1
 
@@ -277,10 +322,16 @@ func lexer.tokenize(source) {
       if len(chars) > 0 {
         VTime text = join(chars, "")
         add(tokens, lexer.make_token(lexer.token_type(text), text))
+        if include_offsets {
+          add(offsets, chars_index)
+        }
         chars = []
       }
 
       add(tokens, lexer.make_token(lexer.TOKEN_SYM, "=self="))
+      if include_offsets {
+        add(offsets, index)
+      }
       index += 6
       continue
     }
@@ -289,11 +340,17 @@ func lexer.tokenize(source) {
       if len(chars) > 0 {
         VTime text = join(chars, "")
         add(tokens, lexer.make_token(lexer.token_type(text), text))
+        if include_offsets {
+          add(offsets, chars_index)
+        }
         chars = []
       }
 
       VTime symbol = source[index:index + 2]
       add(tokens, lexer.make_token(lexer.TOKEN_SYM, symbol))
+      if include_offsets {
+        add(offsets, index)
+      }
       index += 2
       continue
     }
@@ -302,13 +359,23 @@ func lexer.tokenize(source) {
       if len(chars) > 0 {
         VTime text = join(chars, "")
         add(tokens, lexer.make_token(lexer.token_type(text), text))
+        if include_offsets {
+          add(offsets, chars_index)
+        }
         chars = []
       }
 
       add(tokens, lexer.make_token(lexer.TOKEN_SYM, ch))
+      if include_offsets {
+        add(offsets, index)
+      }
       index += 1
       continue
     } else {
+      if len(chars) == 0 {
+        chars_index = index
+      }
+
       add(chars, ch)
     }
 
@@ -318,7 +385,18 @@ func lexer.tokenize(source) {
   if len(chars) > 0 {
     VTime text = join(chars, "")
     add(tokens, lexer.make_token(lexer.token_type(text), text))
+    if include_offsets {
+      add(offsets, chars_index)
+    }
   }
 
-  return tokens
+  return [tokens, offsets]
+}
+
+func lexer.tokenize_with_offsets(source) {
+  return lexer.tokenize_core(source, true)
+}
+
+func lexer.tokenize(source) {
+  return get(lexer.tokenize_core(source, false), 0)
 }

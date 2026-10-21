@@ -3500,7 +3500,50 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKDECLFAILdeclaration expects =FAILdeclaration expects ="
+            "OKDECLFAILparse error at 1:9: declaration expects =FAILparse error at 1:9: declaration expects ="
+        );
+    }
+
+    #[test]
+    fn source_runtime_apl_frontend_reports_unicode_source_positions() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime quote = char(34)
+            VTime slash = char(92)
+            VTime unicode_source = join(["out ", quote, char(1105), char(1078), quote, " AVInt x 1"], "")
+            VTime crlf_source = join(["out 1", char(13), char(10), "AVInt x 1"], "")
+            VTime escape_source = join(["out ", quote, char(1105), char(1078), slash, "q", quote], "")
+            VTime tokenized = lexer.tokenize_with_offsets(unicode_source)
+            VTime offsets = get(tokenized, 1)
+            VTime declaration_position = lexer.position_at(unicode_source, get(offsets, 2))
+            VTime bad_value_position = lexer.position_at(unicode_source, get(offsets, 4))
+            VTime unicode_report = bootstrap.compile_report(unicode_source)
+            VTime crlf_report = bootstrap.compile_report(crlf_source)
+            VTime escape_report = bootstrap.compile_report(escape_source)
+
+            out get(declaration_position, 0)
+            out ":"
+            out get(declaration_position, 1)
+            out "|"
+            out get(bad_value_position, 0)
+            out ":"
+            out get(bad_value_position, 1)
+            out "|"
+            out get(unicode_report, 0)
+            out get(unicode_report, 1)
+            out "|"
+            out get(crlf_report, 0)
+            out get(crlf_report, 1)
+            out "|"
+            out get(escape_report, 0)
+            out get(escape_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "1:10|1:18|FAILparse error at 1:18: declaration expects =|FAILparse error at 2:9: declaration expects =|FAILparse error at 1:8: invalid escape sequence `\\q`"
         );
     }
 
@@ -3565,7 +3608,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAILexpected }FAILgroup expects )FAILcall expects )FAILlist expects ]FAILcall expects , or )FAILlist expects , or ]FAILexpected expression after ,FAILindex expects ]FAILunexpected }FAILunknown statement"
+            "FAILparse error at 1:16: expected }FAILparse error at 1:21: group expects )FAILparse error at 1:22: call expects )FAILparse error at 1:20: list expects ]FAILparse error at 1:21: call expects , or )FAILparse error at 1:18: list expects , or ]FAILparse error at 1:21: expected expression after ,FAILparse error at 1:41: index expects ]FAILparse error at 1:7: unexpected }FAILparse error at 1:17: unknown statement"
         );
     }
 
@@ -3607,7 +3650,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAILunterminated string literalFAILdeclaration expects identifierFAILlist declaration expects identifierFAILvtime declaration expects identifierFAILfunc expects identifierFAILfunc expects parameter identifierFAILfunc expects , or )FAILfunc expects parameter identifierFAILpick expects item identifierFAILsecretup expects identifierFAILinfo assignment expects identifierFAILinfo assignment expects source identifierFAILunknown statementFAILunknown statementFAILunknown statementFAILunknown statementFAILunknown statementFAILlist expects , or ]FAILunknown variable `secret`"
+            "FAILparse error at 1:5: unterminated string literalFAILparse error at 1:7: declaration expects identifierFAILparse error at 1:6: list declaration expects identifierFAILparse error at 1:7: vtime declaration expects identifierFAILparse error at 1:6: func expects identifierFAILparse error at 1:8: func expects parameter identifierFAILparse error at 1:10: func expects , or )FAILparse error at 1:10: func expects parameter identifierFAILparse error at 1:12: pick expects item identifierFAILparse error at 1:10: secretup expects identifierFAILparse error at 1:7: info assignment expects identifierFAILparse error at 1:20: info assignment expects source identifierFAILparse error at 1:1: unknown statementFAILparse error at 1:17: unknown statementFAILparse error at 1:17: unknown statementFAILparse error at 1:20: unknown statementFAILparse error at 1:29: unknown statementFAILparse error at 1:18: list expects , or ]FAILunknown variable `secret`"
         );
     }
 
@@ -3632,7 +3675,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "OKAPLIR1:truetrueFAILdeclaration expects =");
+        assert_eq!(
+            output,
+            "OKAPLIR1:truetrueFAILparse error at 1:9: declaration expects ="
+        );
     }
 
     #[test]

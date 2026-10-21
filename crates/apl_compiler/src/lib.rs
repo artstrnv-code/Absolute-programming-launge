@@ -1124,7 +1124,7 @@ mod tests {
         else {
             panic!("expected APL parser diagnostic from library discovery");
         };
-        assert_eq!(message, "declaration expects =");
+        assert_eq!(message, "parse error at 1:13: declaration expects =");
     }
 
     #[test]
@@ -1166,7 +1166,10 @@ mod tests {
     fn standard_prelude_includes_runtime_and_lexer_modules() {
         assert!(STANDARD_PRELUDE.contains("func apl.pow_int"));
         assert!(STANDARD_PRELUDE.contains("func lexer.tokenize"));
+        assert!(STANDARD_PRELUDE.contains("func lexer.tokenize_with_offsets"));
+        assert!(STANDARD_PRELUDE.contains("func lexer.position_at"));
         assert!(STANDARD_PRELUDE.contains("func parser.parse_source"));
+        assert!(STANDARD_PRELUDE.contains("func parser.diagnostic"));
         assert!(STANDARD_PRELUDE.contains("func checker.validate_report"));
         assert!(STANDARD_PRELUDE.contains("func ir.compile_source"));
         assert!(STANDARD_PRELUDE.contains("func linker.link_image"));
@@ -1566,7 +1569,7 @@ mod tests {
         else {
             panic!("expected nested compiler diagnostic");
         };
-        assert_eq!(message, "declaration expects =");
+        assert_eq!(message, "parse error at 1:13: declaration expects =");
     }
 
     #[test]

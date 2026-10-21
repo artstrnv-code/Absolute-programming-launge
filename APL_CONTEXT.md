@@ -718,8 +718,9 @@ Rust workspace:
   standard Windows file dialogs. Studio is intentionally not a full IDE.
   Ordinary and library-using buffers share the same portable compile/run path
   as the CLI; an unsaved buffer must be saved before external modules can be
-  resolved. Portable diagnostics are stable text but do not carry source spans
-  yet. Its Win32 output control renders an
+  resolved. Portable lexer/parser diagnostics carry one-based, Unicode-character
+  `line:column` positions; semantic checker diagnostics do not carry spans yet.
+  Its Win32 output control renders an
   embedded NUL visibly as `\0` so later output is not truncated; the runtime
   and CLI retain the actual NUL character.
 - `apl_router`: placeholder for future router/container phase.
@@ -766,7 +767,12 @@ APL-owned runtime code:
   single-character symbols, integer/float literals, keywords, and identifiers.
   Unterminated strings produce a `TOKEN_ERROR` carrying
   `unterminated string literal`, which the parser propagates to compile reports.
-  It is still a bootstrap lexer, not the final parser.
+  `lexer.tokenize_with_offsets(source)` returns the same compact tokens plus a
+  parallel list of Unicode-character offsets. The ordinary successful path does
+  not build that table: `parser.diagnostic` invokes the offset-producing pass
+  lazily only after detecting a syntax failure. It converts the selected offset
+  to one-based Unicode `line:column`, including exact EOF, CRLF, and escape
+  locations. Semantic checker diagnostics do not carry source spans yet.
 - `examples/test_lexer.apl` is the current lexer smoke-test. It uses public
   `AVStr` input so the token list can be printed safely.
 - `std/parser.apl`: the first APL-written parser bootstrap. It consumes lexer

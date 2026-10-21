@@ -56,12 +56,15 @@ fn default_check_and_run_use_the_portable_apl_pipeline() {
     assert!(run.status.success());
     assert_eq!(String::from_utf8(run.stdout).unwrap(), "42");
 
-    fs::write(&main, "AVInt value 1").unwrap();
+    let invalid_source = "out \"\u{451}\u{436}\" AVInt value 1";
+    let reference_error = apl_parser::parse_program(invalid_source).unwrap_err();
+    assert_eq!((reference_error.line, reference_error.column), (1, 22));
+    fs::write(&main, invalid_source).unwrap();
     let invalid = apl().arg("check").arg(&main).output().unwrap();
     assert!(!invalid.status.success());
     assert_eq!(
         String::from_utf8(invalid.stderr).unwrap(),
-        "check error: declaration expects =\n"
+        "check error: parse error at 1:22: declaration expects =\n"
     );
 }
 
