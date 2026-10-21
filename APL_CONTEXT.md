@@ -702,24 +702,51 @@ Rust workspace:
   `run_linked_artifact` shape remains as a compatibility wrapper: it
   concatenates successful fragments and maps `FAIL` to
   `RuntimeError::Failed` with the VM's actual reason. Source `check` and `run`
-  switch to the portable linked path when external includes are present;
-  `emit-linked` and linked package commands resolve the same catalog.
+  always use the APL-written frontend and portable linked path. The host asks
+  `bootstrap.requested_libraries_report` which external modules the source
+  requests, then only performs source-relative filesystem loading for those
+  exact artifacts. `emit-linked` and linked package commands resolve the same
+  catalog.
 - `apl_studio`: small Windows-only native Win32 editor for opening, saving,
   checking, and running `.apl` source without leaving the window. It calls the
-  Rust reference parser/checker/runtime directly, keeps execution off the UI
-  thread, and displays output and diagnostics in a read-only lower pane. Its
+  APL-written parser/checker/linker and portable VM through the narrow Rust
+  host bridge, keeps execution off the UI thread, and displays output and
+  diagnostics in a read-only lower pane. Its
   multiline input pane maps lines, including empty lines, to successive
   `input` and `secret input` expressions. Input remains visible plain text and
   is only intended for testing. `F5` runs, while `Ctrl+O` and `Ctrl+S` use
-  standard Windows file dialogs. Lexer/parser failures are reported against the
-  user buffer with one-based `line:column` coordinates rather than hidden
-  standard-prelude offsets. Studio is intentionally not a full IDE. Ordinary
-  buffers use the Rust reference runtime, while a saved source containing
-  external includes switches to the same named-library portable compile/run
-  path as the CLI. Its Win32 output control renders an
+  standard Windows file dialogs. Studio is intentionally not a full IDE.
+  Ordinary and library-using buffers share the same portable compile/run path
+  as the CLI; an unsaved buffer must be saved before external modules can be
+  resolved. Portable diagnostics are stable text but do not carry source spans
+  yet. Its Win32 output control renders an
   embedded NUL visibly as `\0` so later output is not truncated; the runtime
   and CLI retain the actual NUL character.
 - `apl_router`: placeholder for future router/container phase.
+
+### Portable Bootstrap Exit Gate
+
+The portable bootstrap stage is closed when all of these remain true:
+
+1. Ordinary source is lexed, parsed, checked, lowered, linked, verified, and
+   executed by the implementations in `std/*.apl`.
+2. Default CLI `check`/`run` and APL Studio use that route for source with or
+   without named libraries; the Rust host only supplies files, framed values,
+   process I/O, and VM hosting at this boundary.
+3. Named library discovery and composition decisions are made by APL code.
+   The host may read the exact requested `.aplmod` files but does not parse APL
+   source or decode portable modules to decide language semantics.
+4. A reusable compiler artifact can compile a program from inside the APL VM,
+   and the resulting `APLLINK3` artifact can be independently loaded, verified,
+   and run by the portable path.
+5. The Rust reference frontend/runtime remain an explicit oracle and legacy
+   host target, not the default user execution route.
+
+The repository currently satisfies this portable gate. This is not the native
+bootstrap exit: the outer process and VM are still Rust-hosted. The next major
+compiler phase is an APL-owned native lowering/backend that emits assembly or
+object code, links platform executables, and eventually supports a freestanding
+runtime without the Rust host.
 
 APL-owned runtime code:
 

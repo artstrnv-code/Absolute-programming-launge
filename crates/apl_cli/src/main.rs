@@ -24,68 +24,27 @@ fn main() {
                 process::exit(1);
             });
 
-            if let Err(error) = apl_parser::parse_program(&source) {
-                eprintln!(
-                    "parse error at {}:{}: {}",
-                    error.line, error.column, error.message
-                );
-                process::exit(1);
-            }
-
-            let libraries = apl_compiler::resolve_named_libraries(Path::new(&path), &source)
-                .unwrap_or_else(|error| exit_compile_error(&command, error));
-
-            if !libraries.is_empty() {
-                let artifact =
-                    apl_compiler::compile_linked_artifact_with_libraries(&source, &libraries)
-                        .unwrap_or_else(|error| exit_compile_error(&command, error));
-
-                if command == "check" {
-                    println!("ok: linked program with {} library(s)", libraries.len());
-                } else {
-                    let input = read_input();
-                    match apl_compiler::run_linked_artifact(&artifact, input) {
-                        Ok(output) => print!("{}", output.stdout),
-                        Err(error) => exit_compile_error(&command, error),
+            let artifact =
+                match apl_compiler::compile_linked_artifact_for_source(Path::new(&path), &source) {
+                    Ok(artifact) => artifact,
+                    Err(apl_compiler::CompileError::Runtime(
+                        apl_runtime::RuntimeError::Failed(message),
+                    ))
+                    | Err(apl_compiler::CompileError::Bootstrap(message)) => {
+                        eprintln!("{command} error: {message}");
+                        process::exit(1);
                     }
-                }
-                return;
-            }
-
-            let program = match apl_compiler::checked_program_with_prelude(
-                apl_compiler::STANDARD_PRELUDE,
-                &source,
-            ) {
-                Ok(program) => program,
-                Err(apl_compiler::CompileError::Parse(error)) => {
-                    eprintln!(
-                        "internal parse error at {}:{}: {}",
-                        error.line, error.column, error.message
-                    );
-                    process::exit(1);
-                }
-                Err(apl_compiler::CompileError::Check(error)) => {
-                    eprintln!("check error: {error:?}");
-                    process::exit(1);
-                }
-                Err(error) => exit_compile_error(&command, error),
-            };
+                    Err(error) => exit_compile_error(&command, error),
+                };
 
             if command == "check" {
-                println!("ok: {} statement(s)", program.statements.len());
+                println!("ok: portable linked program");
             } else {
                 let input = read_input();
 
-                match apl_runtime::run_program(&program, input) {
+                match apl_compiler::run_linked_artifact(&artifact, input) {
                     Ok(output) => print!("{}", output.stdout),
-                    Err(apl_runtime::RuntimeError::Failed(message)) => {
-                        eprintln!("APL fail: {message}");
-                        process::exit(1);
-                    }
-                    Err(error) => {
-                        eprintln!("runtime error: {error:?}");
-                        process::exit(1);
-                    }
+                    Err(error) => exit_compile_error(&command, error),
                 }
             }
         }

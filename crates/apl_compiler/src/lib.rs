@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     thread,
@@ -44,6 +43,7 @@ const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
 const LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK3:";
 const LEGACY_LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK2:";
+const LIBRARY_DISCOVERY_PROTOCOL: &str = "APLLIB1:";
 const LIBRARY_DIRECTORY: &str = "libraries";
 const LIBRARY_EXTENSION: &str = "aplmod";
 
@@ -279,19 +279,8 @@ pub fn compile_linked_artifact_with_libraries(
 }
 
 pub fn requested_external_libraries(source: &str) -> Result<Vec<String>, CompileError> {
-    let program = apl_parser::parse_program(source)?;
-    let mut seen = HashSet::new();
-    let mut names = Vec::new();
-
-    for statement in program.statements {
-        if let apl_core::Statement::Include(name) = statement {
-            if name != "base" && seen.insert(name.clone()) {
-                names.push(name);
-            }
-        }
-    }
-
-    Ok(names)
+    let output = run_bootstrap_bridge(LIBRARY_DISCOVERY_BRIDGE, vec![source.to_owned()])?;
+    parse_library_discovery_output(&output.stdout)
 }
 
 pub fn resolve_named_libraries(
@@ -722,6 +711,43 @@ fn invalid_linked_run_response() -> CompileError {
     CompileError::Bootstrap("invalid APL linked run response".to_owned())
 }
 
+fn parse_library_discovery_output(output: &str) -> Result<Vec<String>, CompileError> {
+    let Some(mut payload) = output.strip_prefix(LIBRARY_DISCOVERY_PROTOCOL) else {
+        return Err(invalid_library_discovery_response());
+    };
+    let Some(status) = take_protocol_field(&mut payload) else {
+        return Err(invalid_library_discovery_response());
+    };
+    let Some(value_count) = take_protocol_usize(&mut payload) else {
+        return Err(invalid_library_discovery_response());
+    };
+    let mut values = Vec::with_capacity(value_count);
+
+    for _ in 0..value_count {
+        let Some(char_count) = take_protocol_usize(&mut payload) else {
+            return Err(invalid_library_discovery_response());
+        };
+        let Some(value) = take_protocol_chars(&mut payload, char_count) else {
+            return Err(invalid_library_discovery_response());
+        };
+        values.push(value.to_owned());
+    }
+
+    if !payload.is_empty() {
+        return Err(invalid_library_discovery_response());
+    }
+
+    match status {
+        "OK" => Ok(values),
+        "FAIL" if values.len() == 1 => Err(CompileError::Bootstrap(values.remove(0))),
+        _ => Err(invalid_library_discovery_response()),
+    }
+}
+
+fn invalid_library_discovery_response() -> CompileError {
+    CompileError::Bootstrap("invalid APL library discovery response".to_owned())
+}
+
 const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
 VTime aplhost.program_source = input
 VTime aplhost.source = join([aplhost.runtime_source, char(10), aplhost.program_source], "")
@@ -847,6 +873,30 @@ if aplhost.manifest == NONE {
     }
   }
 }"#;
+
+const LIBRARY_DISCOVERY_BRIDGE: &str = r#"func aplhost.emit_library_report(status, values) {
+  out "APLLIB1:"
+  out status
+  out ":"
+  out len(values)
+  out ":"
+
+  pick(values): aplhost.value {
+    out len(aplhost.value)
+    out ":"
+    out aplhost.value
+  }
+
+  stop
+}
+
+VTime aplhost.report = bootstrap.requested_libraries_report(input)
+
+if get(aplhost.report, 0) != vm.FLOW_OK {
+  VTime aplhost.failure_emitted = aplhost.emit_library_report(vm.FLOW_FAIL, [get(aplhost.report, 1)])
+}
+
+VTime aplhost.success_emitted = aplhost.emit_library_report(vm.FLOW_OK, get(aplhost.report, 1))"#;
 
 fn compiled_package_name(source_stem: Option<&str>) -> String {
     let name = source_stem
@@ -1068,6 +1118,42 @@ mod tests {
                         .join("libraries")
                         .join("unsafe.memory.aplmod")
         ));
+
+        let CompileError::Bootstrap(message) =
+            requested_external_libraries("AVInt value 1").unwrap_err()
+        else {
+            panic!("expected APL parser diagnostic from library discovery");
+        };
+        assert_eq!(message, "declaration expects =");
+    }
+
+    #[test]
+    fn library_discovery_protocol_is_length_framed_and_validated() {
+        assert_eq!(
+            parse_library_discovery_output("APLLIB1:OK:2:4:math13:unsafe.memory").unwrap(),
+            vec!["math", "unsafe.memory"]
+        );
+
+        let CompileError::Bootstrap(message) =
+            parse_library_discovery_output("APLLIB1:FAIL:1:11:bad: source").unwrap_err()
+        else {
+            panic!("expected discovery diagnostic");
+        };
+        assert_eq!(message, "bad: source");
+
+        for malformed in [
+            "unknown",
+            "APLLIB1:MAYBE:0:",
+            "APLLIB1:OK:x:",
+            "APLLIB1:OK:1:4:abc",
+            "APLLIB1:OK:0:trailing",
+            "APLLIB1:FAIL:0:",
+        ] {
+            assert!(matches!(
+                parse_library_discovery_output(malformed),
+                Err(CompileError::Bootstrap(_))
+            ));
+        }
     }
 
     #[test]
@@ -1088,6 +1174,7 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
         assert!(STANDARD_PRELUDE.contains("func artifact.encode_loaded_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.requested_libraries_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_image_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.run_artifact_image_with_input_report"));

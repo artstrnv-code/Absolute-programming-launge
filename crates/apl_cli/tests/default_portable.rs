@@ -1,0 +1,104 @@
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+struct TestProject {
+    root: PathBuf,
+}
+
+impl TestProject {
+    fn new() -> Self {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "apl_cli_portable_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        fs::create_dir_all(root.join("libraries")).unwrap();
+        Self { root }
+    }
+
+    fn path(&self, name: &str) -> PathBuf {
+        self.root.join(name)
+    }
+}
+
+impl Drop for TestProject {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn apl() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_apl"))
+}
+
+#[test]
+fn default_check_and_run_use_the_portable_apl_pipeline() {
+    let project = TestProject::new();
+    let main = project.path("main.apl");
+    fs::write(&main, "func answer() { return 42 } out answer()").unwrap();
+
+    let checked = apl().arg("check").arg(&main).output().unwrap();
+    assert!(checked.status.success());
+    assert_eq!(
+        String::from_utf8(checked.stdout).unwrap(),
+        "ok: portable linked program\n"
+    );
+
+    let run = apl().arg("run").arg(&main).output().unwrap();
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), "42");
+
+    fs::write(&main, "AVInt value 1").unwrap();
+    let invalid = apl().arg("check").arg(&main).output().unwrap();
+    assert!(!invalid.status.success());
+    assert_eq!(
+        String::from_utf8(invalid.stderr).unwrap(),
+        "check error: declaration expects =\n"
+    );
+}
+
+#[test]
+fn default_run_resolves_named_modules_for_the_apl_compiler() {
+    let project = TestProject::new();
+    let library_source = project.path("math.apl");
+    let library_artifact = project.path("libraries").join("math.aplmod");
+    let main = project.path("main.apl");
+    fs::write(
+        &library_source,
+        "func math.internal(value) { return value + 1 } func math.answer() { return math.internal(41) }",
+    )
+    .unwrap();
+    fs::write(
+        &main,
+        "include >> math exclude \"math.internal\" << math out math.answer()",
+    )
+    .unwrap();
+
+    let emitted = apl()
+        .arg("emit-module")
+        .arg(&library_source)
+        .arg(&library_artifact)
+        .output()
+        .unwrap();
+    assert!(
+        emitted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&emitted.stderr)
+    );
+
+    let run = apl().arg("run").arg(&main).output().unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), "42");
+}

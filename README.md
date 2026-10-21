@@ -236,19 +236,19 @@ cargo build -p apl_studio
 ```
 
 APL Studio is a deliberately small source editor rather than a full IDE. It
-opens and saves `.apl` files, runs the current buffer with `F5`, and shows
-parser, checker, runtime errors, and program output in the lower pane. Lexer
-and parser diagnostics include one-based source `line:column` coordinates. Use
-`Ctrl+O` and `Ctrl+S` for the standard file commands. A modified file that
-already has a path is saved before it runs; an untitled buffer can run without
-being written to disk. Since Win32 text controls use NUL as a terminator, the
-output pane renders an embedded NUL visibly as `\0`; the runtime value itself
-remains unchanged. The `Input` pane supplies one value per line to
-successive `input` and `secret input` expressions. Empty lines are preserved.
-
-The first Studio version executes source through the Rust reference
-parser/checker/runtime path. Studio input is visible plain text intended for
-language testing, not storage or entry of real secrets.
+opens and saves `.apl` files, runs the current buffer with `F5`, and shows APL
+compiler diagnostics, runtime errors, and program output in the lower pane.
+Both saved and unsaved buffers use the APL-written parser, checker, linker, and
+portable VM path. An untitled buffer can run without being written to disk;
+external `include` directives require a saved path so Studio can resolve the
+source-relative `libraries` directory. Use `Ctrl+O` and `Ctrl+S` for the
+standard file commands. A modified file that already has a path is saved before
+it runs. Since Win32 text controls use NUL as a terminator, the output pane
+renders an embedded NUL visibly as `\0`; the runtime value itself remains
+unchanged. The `Input` pane supplies one value per line to successive `input`
+and `secret input` expressions. Empty lines are preserved. Studio input is
+visible plain text intended for language testing, not storage or entry of real
+secrets.
 
 Check syntax and language rules:
 
@@ -256,11 +256,14 @@ Check syntax and language rules:
 cargo run -p apl -- check examples\hello.apl
 ```
 
-Source syntax failures from `check` and `run` identify the offending location,
-for example `parse error at 3:8: expected expression`. Columns count Unicode
-characters rather than UTF-8 bytes.
+`check` and `run` now always compile an `APLLINK3` artifact through the
+APL-written frontend before returning or executing it. Their diagnostics are
+therefore the APL frontend's stable text diagnostics. Portable source spans are
+not encoded yet; adding one-based Unicode `line:column` locations to those
+diagnostics is core-language follow-up work. The Rust reference parser still
+retains source locations for explicit host tools and differential tests.
 
-Execute with the Rust-hosted APL runtime and standard APL prelude:
+Execute through the APL-written compiler and portable VM:
 
 ```powershell
 cargo run -p apl -- run examples\hello.apl

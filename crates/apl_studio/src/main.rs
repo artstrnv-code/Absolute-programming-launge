@@ -891,24 +891,19 @@ mod windows_app {
         input: Vec<String>,
         source_path: Option<&Path>,
     ) -> String {
-        if let Err(error) = apl_parser::parse_program(source) {
-            return format!(
-                "Parse error at {}:{}:\r\n{}",
-                error.line, error.column, error.message
-            );
-        }
-
         let external_libraries = match apl_compiler::requested_external_libraries(source) {
             Ok(libraries) => libraries,
-            Err(error) => return format!("Compile error:\r\n{error:?}"),
+            Err(error) => return portable_compile_error(error),
         };
 
-        if !external_libraries.is_empty() {
+        let libraries = if external_libraries.is_empty() {
+            Vec::new()
+        } else {
             let Some(source_path) = source_path else {
                 return "Library error:\r\nSave the APL source before using external libraries."
                     .to_owned();
             };
-            let libraries = match apl_compiler::resolve_named_libraries(source_path, source) {
+            match apl_compiler::resolve_named_libraries(source_path, source) {
                 Ok(libraries) => libraries,
                 Err(apl_compiler::CompileError::LibraryNotFound { name, path }) => {
                     return format!(
@@ -916,50 +911,39 @@ mod windows_app {
                         path.display()
                     )
                 }
-                Err(error) => return format!("Compile error:\r\n{error:?}"),
-            };
-            let artifact =
-                match apl_compiler::compile_linked_artifact_with_libraries(source, &libraries) {
-                    Ok(artifact) => artifact,
-                    Err(error) => return format!("Compile error:\r\n{error:?}"),
-                };
-
-            return match apl_compiler::run_linked_artifact(&artifact, input) {
-                Ok(output) if output.stdout.is_empty() => {
-                    "Program finished with no output.".to_owned()
-                }
-                Ok(output) => output.stdout,
-                Err(apl_compiler::CompileError::Runtime(apl_runtime::RuntimeError::Failed(
-                    message,
-                ))) => format!("APL fail:\r\n{message}"),
-                Err(error) => format!("Runtime error:\r\n{error:?}"),
-            };
-        }
-
-        let program = match apl_compiler::checked_program_with_prelude(
-            apl_compiler::STANDARD_PRELUDE,
-            source,
-        ) {
-            Ok(program) => program,
-            Err(apl_compiler::CompileError::Parse(error)) => {
-                return format!(
-                    "Internal parse error at {}:{}:\r\n{}",
-                    error.line, error.column, error.message
-                )
+                Err(error) => return portable_compile_error(error),
             }
-            Err(apl_compiler::CompileError::Check(error)) => {
-                return format!("Check error:\r\n{error:?}")
-            }
-            Err(error) => return format!("Compile error:\r\n{error:?}"),
         };
 
-        match apl_runtime::run_program(&program, input) {
+        let artifact = if libraries.is_empty() {
+            apl_compiler::compile_linked_artifact(source)
+        } else {
+            apl_compiler::compile_linked_artifact_with_libraries(source, &libraries)
+        };
+        let artifact = match artifact {
+            Ok(artifact) => artifact,
+            Err(error) => return portable_compile_error(error),
+        };
+
+        match apl_compiler::run_linked_artifact(&artifact, input) {
             Ok(output) if output.stdout.is_empty() => "Program finished with no output.".to_owned(),
             Ok(output) => output.stdout,
-            Err(apl_runtime::RuntimeError::Failed(message)) => {
+            Err(apl_compiler::CompileError::Runtime(apl_runtime::RuntimeError::Failed(
+                message,
+            ))) => {
                 format!("APL fail:\r\n{message}")
             }
             Err(error) => format!("Runtime error:\r\n{error:?}"),
+        }
+    }
+
+    fn portable_compile_error(error: apl_compiler::CompileError) -> String {
+        match error {
+            apl_compiler::CompileError::Runtime(apl_runtime::RuntimeError::Failed(message))
+            | apl_compiler::CompileError::Bootstrap(message) => {
+                format!("Compile error:\r\n{message}")
+            }
+            error => format!("Compile error:\r\n{error:?}"),
         }
     }
 
@@ -1074,7 +1058,7 @@ mod windows_app {
             );
             assert_eq!(
                 execute_source(r#"exclude "len" << base out len([1])"#, Vec::new()),
-                "Check error:\r\nExcludedSymbol { library: \"base\", symbol: \"len\" }"
+                "Compile error:\r\nexcluded symbol `len` from library `base`"
             );
             assert_eq!(
                 execute_source("include >> math out math.answer()", Vec::new()),
@@ -1110,7 +1094,7 @@ mod windows_app {
         fn reports_invalid_source_in_output_panel() {
             assert_eq!(
                 execute_source("AVInt = 4", Vec::new()),
-                "Parse error at 1:7:\r\nexpected identifier"
+                "Compile error:\r\ndeclaration expects identifier"
             );
         }
 
@@ -1131,7 +1115,7 @@ out steal
 
             assert_eq!(
                 execute_source(source, Vec::new()),
-                "Check error:\r\nProtectionDowngrade { name: \"z\", source: Sasv, target: Av }"
+                "Compile error:\r\nprotection downgrade `z`: source SASV, target AV"
             );
         }
 

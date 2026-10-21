@@ -10,6 +10,39 @@ func bootstrap.ast(source) {
   return parser.parse_source(source)
 }
 
+func bootstrap.requested_libraries_report(source) {
+  VTime statements = bootstrap.ast(source)
+  VTime libraries = []
+
+  pick(statements): statement {
+    VTime kind = parser.node_kind(statement)
+
+    if kind == parser.NODE_ERROR {
+      return [vm.FLOW_FAIL, get(statement, 1)]
+    }
+
+    if kind == parser.NODE_INCLUDE {
+      VTime library = get(statement, 1)
+
+      if checker.composition_name_is_valid(library) != true {
+        return [vm.FLOW_FAIL, join(["invalid library name `", library, "`"], "")]
+      }
+
+      if library != "base" {
+        if checker.value_exists(libraries, library) != true {
+          add(libraries, library)
+        }
+      }
+    }
+  }
+
+  return [vm.FLOW_OK, libraries]
+}
+
+func bootstrap.requested_libraries(source) {
+  return get(bootstrap.requested_libraries_report(source), 1)
+}
+
 func bootstrap.ir(source) {
   return ir.compile_ast(bootstrap.ast(source))
 }
