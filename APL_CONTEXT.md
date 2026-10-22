@@ -66,9 +66,10 @@ Current high-level plan:
 
 Current implementation has parser, checker, CLI, GUI shell, runtime v0.1
 interpreter coverage for the current base language, an in-memory Rust-hosted
-opcode runtime, and a closed portable self-host compiler/VM loop. It does not
-yet have a native code generator, stable emitted bytecode format, freestanding
-runtime, or container bundle system.
+opcode runtime, a closed portable self-host compiler/VM loop, and the first
+APL-owned target-neutral native lowering layer. It does not yet have a machine
+code generator, platform object writer, freestanding runtime, or container
+bundle system.
 
 There are currently two compiled execution paths. The legacy Rust-hosted path
 stores a checked `Program` in binary `.aplc` form, then lowers it at load time
@@ -79,6 +80,13 @@ runtime bytecode format. The APL-written self-host path emits `APLMOD3` and
 That portable IR is a bootstrap and semantic-reference format, not the final
 native backend. Bytecode may remain useful as a VM/debugging target, but native
 object and executable output is the primary production goal.
+
+The native path now begins with `APLLOW1`. `std/native.apl` consumes a verified
+linked image after reachability and composition, flattens expressions to stack
+operations, turns structured control flow into labels/jumps, records explicit
+scope unwinds, and preserves final function slots and the `APLMAN1` manifest.
+This target-neutral artifact is the contract between language semantics and
+future x86-64/ARM64 emitters. It is not executable machine code.
 
 ## Library Composition
 
@@ -926,6 +934,20 @@ APL-owned runtime code:
   with `APLMOD1:` and `APLMOD2:` and normalizes their exports for the external
   checker. Because old module formats did not store list protection, their
   lists are conservatively imported as `SASV`.
+- `std/native.apl`: the first APL-owned production-backend pass. It lowers a
+  verified `APLLOAD2`/`APLLINK3` image to versioned `APLLOW1` linear IR after
+  library composition, reachability pruning, and function-slot assignment.
+  Expressions become postorder stack operations. `if`, bounded `while`, and
+  `pick` become explicit labels and jumps; `break`/`continue` become unwind
+  jumps carrying the exact number of lexical scopes to remove. Function bodies
+  are stored by final slot, and mutating `add`/`pop` calls keep named target
+  descriptors so a native runtime updates the correct binding rather than a
+  copied value. The decoder validates opcodes and arities, literal/operator
+  shape, builtin arity, call-slot bounds, unique labels and function records,
+  every jump target, the library manifest, and linear stack discipline.
+  `emit-native-ir` writes `.apllow`; `inspect-native-ir` renders its entry code,
+  function slots, and manifest. Machine-specific ABI lowering, assembly/object
+  emission, platform linking, and native execution remain the next layers.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`. Its environment is
   `[bindings, inputs, input_index, scope_depth]`, where each compact binding is

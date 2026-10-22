@@ -13,6 +13,7 @@ pub const LINKER_PRELUDE: &str = include_str!("../../../std/linker.apl");
 pub const VERIFIER_PRELUDE: &str = include_str!("../../../std/verifier.apl");
 pub const VM_PRELUDE: &str = include_str!("../../../std/vm.apl");
 pub const ARTIFACT_PRELUDE: &str = include_str!("../../../std/artifact.apl");
+pub const NATIVE_PRELUDE: &str = include_str!("../../../std/native.apl");
 pub const BOOTSTRAP_PRELUDE: &str = include_str!("../../../std/bootstrap.apl");
 pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/runtime.apl"),
@@ -33,6 +34,8 @@ pub const STANDARD_PRELUDE: &str = concat!(
     "\n\n",
     include_str!("../../../std/artifact.apl"),
     "\n\n",
+    include_str!("../../../std/native.apl"),
+    "\n\n",
     include_str!("../../../std/bootstrap.apl")
 );
 
@@ -42,6 +45,7 @@ const LEGACY_BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
 const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
 const LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK3:";
+pub const NATIVE_IR_PROTOCOL: &str = "APLLOW1:";
 const LEGACY_LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK2:";
 const LIBRARY_DISCOVERY_PROTOCOL: &str = "APLLIB1:";
 const LIBRARY_DIRECTORY: &str = "libraries";
@@ -156,6 +160,7 @@ pub fn compile_standard_module_artifact() -> Result<String, CompileError> {
         VERIFIER_PRELUDE,
         VM_PRELUDE,
         ARTIFACT_PRELUDE,
+        NATIVE_PRELUDE,
         BOOTSTRAP_PRELUDE,
     ])
 }
@@ -375,6 +380,31 @@ pub fn run_linked_artifact_report(
 
 pub fn inspect_linked_artifact(artifact: &str) -> Result<String, CompileError> {
     let output = run_bootstrap_bridge(LINKED_MANIFEST_BRIDGE, vec![artifact.to_owned()])?;
+    Ok(output.stdout)
+}
+
+pub fn lower_linked_artifact_to_native_ir(artifact: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(NATIVE_LOWER_BRIDGE, vec![artifact.to_owned()])?;
+    bootstrap_stdout_artifact(output, "low IR artifact")
+}
+
+pub fn compile_native_ir_for_source(
+    source_path: &Path,
+    source: &str,
+) -> Result<String, CompileError> {
+    let linked = compile_linked_artifact_for_source(source_path, source)?;
+    lower_linked_artifact_to_native_ir(&linked)
+}
+
+pub fn emit_native_ir_file(source_path: &Path, output_path: &Path) -> Result<(), CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let artifact = compile_native_ir_for_source(source_path, &source)?;
+    fs::write(output_path, artifact)?;
+    Ok(())
+}
+
+pub fn inspect_native_ir(artifact: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(NATIVE_INSPECT_BRIDGE, vec![artifact.to_owned()])?;
     Ok(output.stdout)
 }
 
@@ -873,6 +903,24 @@ if aplhost.manifest == NONE {
   }
 }"#;
 
+const NATIVE_LOWER_BRIDGE: &str = r#"VTime aplhost.encoded = input
+VTime aplhost.lowered = native.lower_linked_artifact_report(aplhost.encoded)
+
+if get(aplhost.lowered, 0) != vm.FLOW_OK {
+  fail get(aplhost.lowered, 1)
+}
+
+out get(aplhost.lowered, 1)"#;
+
+const NATIVE_INSPECT_BRIDGE: &str = r#"VTime aplhost.encoded = input
+VTime aplhost.description = native.describe_image_report(aplhost.encoded)
+
+if get(aplhost.description, 0) != vm.FLOW_OK {
+  fail get(aplhost.description, 1)
+}
+
+out get(aplhost.description, 1)"#;
+
 const LIBRARY_DISCOVERY_BRIDGE: &str = r#"func aplhost.emit_library_report(status, values) {
   out "APLLIB1:"
   out status
@@ -1178,6 +1226,10 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func verifier.loaded_image_is_valid"));
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
         assert!(STANDARD_PRELUDE.contains("func artifact.encode_loaded_report"));
+        assert!(STANDARD_PRELUDE.contains("func artifact.wrap_value"));
+        assert!(STANDARD_PRELUDE.contains("func native.lower_loaded_image_report"));
+        assert!(STANDARD_PRELUDE.contains("func native.lower_linked_artifact_report"));
+        assert!(STANDARD_PRELUDE.contains("func native.decode_image_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.check_error"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.located_check_error"));
@@ -1256,6 +1308,30 @@ mod tests {
             message,
             "semantic error at 1:23: excluded symbol `len` from library `base`"
         );
+    }
+
+    #[test]
+    fn linked_artifact_lowers_to_inspectable_native_ir() {
+        let linked = compile_linked_artifact(
+            "func double(value) { return value * 2 } AVInt answer = double(21) out answer",
+        )
+        .unwrap();
+        let lowered = lower_linked_artifact_to_native_ir(&linked).unwrap();
+
+        assert!(lowered.starts_with(NATIVE_IR_PROTOCOL));
+
+        let description = inspect_native_ir(&lowered).unwrap();
+        assert!(description.starts_with("low-ir APLLOW1\nentry\n"));
+        assert!(description.contains("[CALL_SLOT, 0, 1]"));
+        assert!(description.contains("slot 0 double[value]"));
+        assert!(description.contains("[BINARY, *]"));
+        assert!(description.contains("manifest [APLMAN1, [[base, []]]]"));
+
+        assert!(matches!(
+            inspect_native_ir("BAD"),
+            Err(CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)))
+                if message == "invalid low IR header"
+        ));
     }
 
     #[test]

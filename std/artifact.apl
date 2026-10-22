@@ -37,6 +37,36 @@ func artifact.node_list(items) {
   return [artifact.NODE_LIST, items]
 }
 
+func artifact.wrap_value(value) {
+  if value == NONE {
+    return artifact.node_none()
+  }
+
+  if verifier.is_bool(value) {
+    return artifact.node_bool(value)
+  }
+
+  if verifier.is_int(value) {
+    return artifact.node_int(value)
+  }
+
+  if verifier.is_float(value) {
+    return artifact.node_float(value)
+  }
+
+  if verifier.is_str(value) {
+    return artifact.node_str(value)
+  }
+
+  VTime items = []
+
+  pick(value): item {
+    add(items, artifact.wrap_value(item))
+  }
+
+  return artifact.node_list(items)
+}
+
 func artifact.encode_sized(tag, value) {
   VTime text = str(value)
   return join([tag, str(len(text)), ":", text], "")

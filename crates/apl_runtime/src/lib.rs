@@ -1909,6 +1909,8 @@ mod tests {
             "\n\n",
             include_str!("../../../std/artifact.apl"),
             "\n\n",
+            include_str!("../../../std/native.apl"),
+            "\n\n",
             include_str!("../../../std/bootstrap.apl")
         );
         let source = format!("{}\n\n{}\n", prelude.trim(), source.trim());
@@ -3824,6 +3826,250 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "OKOKeven,odd,recurse302falsefalseOKtrue0");
+    }
+
+    #[test]
+    fn source_runtime_lowers_linked_programs_to_linear_native_ir_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func twice(value) { return value * 2 } AVInt x = 1 out twice(x + 2)"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime lowered = native.lower_linked_artifact_report(get(linked, 1))
+            VTime encoded = get(lowered, 1)
+            VTime decoded = native.decode_image_report(encoded)
+            VTime image = get(decoded, 1)
+            VTime entry = get(image, 1)
+            VTime functions = get(image, 2)
+            VTime function = get(functions, 0)
+            VTime body = get(function, 3)
+
+            out get(linked, 0)
+            out get(lowered, 0)
+            out encoded[:len(native.HEADER)]
+            out get(decoded, 0)
+            out native.image_is_valid(image)
+            out len(entry)
+
+            pick(entry): instruction {
+              out native.opcode(instruction)
+            }
+
+            out len(functions)
+            out get(function, 0)
+            out get(function, 1)
+            out join(get(function, 2), ",")
+            out len(body)
+
+            pick(body): instruction {
+              out native.opcode(instruction)
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKOKAPLLOW1:OKtrue7CONSTDECLARELOADCONSTBINARYCALL_SLOTOUT10twicevalue6LOADCONSTBINARYRETURNNONERETURN"
+        );
+    }
+
+    #[test]
+    fn source_runtime_native_ir_flattens_control_flow_and_scope_unwinds_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt x = 0 if true { x = 1 } else { x = 2 } while (x < 3) (4) { if x == 1 { x += 1 continue } if x == 2 { break } } pick([1, 2]): item { if item == 1 { continue } break }"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime lowered = native.lower_linked_artifact_report(get(linked, 1))
+            VTime image = get(native.decode_image_report(get(lowered, 1)), 1)
+            VTime code = get(image, 1)
+            VTime labels = 0
+            VTime conditional_jumps = 0
+            VTime loop_enters = 0
+            VTime pick_enters = 0
+            List unwinds = []
+
+            pick(code): instruction {
+              VTime opcode = native.opcode(instruction)
+
+              if opcode == native.OP_LABEL {
+                labels += 1
+              }
+
+              if opcode == native.OP_JUMP_IF_FALSE {
+                conditional_jumps += 1
+              }
+
+              if opcode == native.OP_LOOP_ENTER {
+                loop_enters += 1
+              }
+
+              if opcode == native.OP_PICK_ENTER {
+                pick_enters += 1
+              }
+
+              if opcode == native.OP_UNWIND_JUMP {
+                add(unwinds, str(get(instruction, 1)))
+              }
+            }
+
+            out get(linked, 0)
+            out get(lowered, 0)
+            out native.image_is_valid(image)
+            out labels
+            out conditional_jumps
+            out loop_enters
+            out pick_enters
+            out join(unwinds, ",")
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "OKOKtrue125112,2,2,1");
+    }
+
+    #[test]
+    fn source_runtime_native_ir_covers_current_value_and_statement_surface_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) VTime last = pop(items) VTime returned = echo(neg + 2) secretup(x) if false { fail \"never\" } out \"ok\" stop"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime lowered = native.lower_linked_artifact_report(get(linked, 1))
+            VTime image = get(native.decode_image_report(get(lowered, 1)), 1)
+            List opcodes = []
+            List mutation_targets = []
+
+            pick(get(image, 1)): instruction {
+              add(opcodes, native.opcode(instruction))
+
+              if native.opcode(instruction) == native.OP_CALL_BUILTIN {
+                VTime name = get(instruction, 1)
+
+                if (name == "add") or (name == "pop") {
+                  add(mutation_targets, get(get(instruction, 3), 0))
+                }
+              }
+            }
+
+            pick(get(image, 2)): function {
+              pick(get(function, 3)): instruction {
+                add(opcodes, native.opcode(instruction))
+              }
+            }
+
+            List expected = [
+              native.OP_CONST,
+              native.OP_NONE,
+              native.OP_INPUT,
+              native.OP_SECRET_INPUT,
+              native.OP_LOAD,
+              native.OP_UNARY,
+              native.OP_BINARY,
+              native.OP_CALL_BUILTIN,
+              native.OP_CALL_SLOT,
+              native.OP_LIST,
+              native.OP_INDEX,
+              native.OP_SLICE,
+              native.OP_SELF,
+              native.OP_TAG,
+              native.OP_DECLARE,
+              native.OP_DECLARE_LIST,
+              native.OP_DECLARE_VTIME,
+              native.OP_ASSIGN,
+              native.OP_INFO_ASSIGN,
+              native.OP_DROP,
+              native.OP_SECRETUP,
+              native.OP_OUT,
+              native.OP_STOP,
+              native.OP_FAIL,
+              native.OP_RETURN
+            ]
+            List missing = []
+
+            pick(expected): opcode {
+              if checker.value_exists(opcodes, opcode) != true {
+                add(missing, opcode)
+              }
+            }
+
+            out get(linked, 0)
+            out get(lowered, 0)
+            out native.image_is_valid(image)
+            out len(missing)
+            out join(missing, ",")
+            out join(mutation_targets, ",")
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "OKOKtrue0items,items");
+    }
+
+    #[test]
+    fn source_runtime_native_ir_codec_rejects_malformed_images_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime manifest = [linker.MANIFEST_MAGIC, [["base", []]]]
+            VTime bad_label = [native.IMAGE_MAGIC, [[native.OP_JUMP, 7]], [], manifest]
+            VTime bad_slot = [native.IMAGE_MAGIC, [[native.OP_CALL_SLOT, 0, 0]], [], manifest]
+            VTime duplicate_label = [native.IMAGE_MAGIC, [[native.OP_LABEL, 1], [native.OP_LABEL, 1]], [], manifest]
+            VTime stack_underflow = [native.IMAGE_MAGIC, [[native.OP_OUT]], [], manifest]
+            VTime stack_residue = [native.IMAGE_MAGIC, [[native.OP_CONST, parser.EXPR_INT, 1]], [], manifest]
+            VTime bad_arity_function = [0, "f", ["value"], [[native.OP_NONE], [native.OP_RETURN, 0]]]
+            VTime bad_arity = [native.IMAGE_MAGIC, [[native.OP_CALL_SLOT, 0, 0], [native.OP_DROP]], [bad_arity_function], manifest]
+            VTime missing_mutation_target = [native.IMAGE_MAGIC, [[native.OP_CONST, parser.EXPR_INT, 1], [native.OP_CONST, parser.EXPR_INT, 2], [native.OP_CALL_BUILTIN, "add", 2, [NONE, NONE]], [native.OP_DROP]], [], manifest]
+            VTime bad_label_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(bad_label))], "")
+            VTime bad_slot_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(bad_slot))], "")
+            VTime duplicate_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(duplicate_label))], "")
+            VTime underflow_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(stack_underflow))], "")
+            VTime residue_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(stack_residue))], "")
+            VTime scalar_text = join([native.HEADER, artifact.encode_node(artifact.node_int(1))], "")
+            VTime bad_arity_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(bad_arity))], "")
+            VTime mutation_text = join([native.HEADER, artifact.encode_node(artifact.wrap_value(missing_mutation_target))], "")
+            VTime valid = native.lower_linked_artifact_report(get(bootstrap.linked_artifact_report("out 1"), 1))
+            VTime encoded = get(valid, 1)
+            VTime bad_header = native.decode_image_report("BAD")
+            VTime trailing = native.decode_image_report(join([encoded, "x"], ""))
+            VTime label_report = native.decode_image_report(bad_label_text)
+            VTime slot_report = native.decode_image_report(bad_slot_text)
+            VTime duplicate_report = native.decode_image_report(duplicate_text)
+            VTime underflow_report = native.decode_image_report(underflow_text)
+            VTime residue_report = native.decode_image_report(residue_text)
+            VTime scalar_report = native.decode_image_report(scalar_text)
+            VTime arity_report = native.decode_image_report(bad_arity_text)
+            VTime mutation_report = native.decode_image_report(mutation_text)
+            VTime encode_report = native.encode_image_report(bad_label)
+
+            out get(valid, 0)
+            out get(bad_header, 0)
+            out get(bad_header, 1)
+            out get(trailing, 0)
+            out get(trailing, 1)
+            out get(label_report, 0)
+            out get(label_report, 1)
+            out get(slot_report, 0)
+            out get(slot_report, 1)
+            out get(duplicate_report, 0)
+            out get(duplicate_report, 1)
+            out get(underflow_report, 0)
+            out get(underflow_report, 1)
+            out get(residue_report, 0)
+            out get(residue_report, 1)
+            out get(scalar_report, 0)
+            out get(scalar_report, 1)
+            out get(arity_report, 0)
+            out get(arity_report, 1)
+            out get(mutation_report, 0)
+            out get(mutation_report, 1)
+            out get(encode_report, 0)
+            out get(encode_report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKFAILinvalid low IR headerFAILtrailing low IR dataFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR image"
+        );
     }
 
     #[test]

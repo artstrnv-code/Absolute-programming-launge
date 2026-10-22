@@ -112,4 +112,31 @@ fn default_run_resolves_named_modules_for_the_apl_compiler() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert_eq!(String::from_utf8(run.stdout).unwrap(), "42");
+
+    let low_ir = project.path("main.apllow");
+    let emitted_low = apl()
+        .arg("emit-native-ir")
+        .arg(&main)
+        .arg(&low_ir)
+        .output()
+        .unwrap();
+    assert!(
+        emitted_low.status.success(),
+        "{}",
+        String::from_utf8_lossy(&emitted_low.stderr)
+    );
+    assert!(fs::read_to_string(&low_ir)
+        .unwrap()
+        .starts_with(apl_compiler::NATIVE_IR_PROTOCOL));
+
+    let inspected = apl()
+        .arg("inspect-native-ir")
+        .arg(&low_ir)
+        .output()
+        .unwrap();
+    assert!(inspected.status.success());
+    let description = String::from_utf8(inspected.stdout).unwrap();
+    assert!(description.contains("low-ir APLLOW1"));
+    assert!(description.contains("[CALL_SLOT, 1, 0]"));
+    assert!(description.contains("manifest [APLMAN1, [[base, []], [math, [math.internal]]]]"));
 }

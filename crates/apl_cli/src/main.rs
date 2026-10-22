@@ -245,6 +245,36 @@ fn main() {
                 Err(error) => exit_compile_error("inspect-linked", error),
             }
         }
+        "emit-native-ir" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_native_ir_path(&path));
+
+            match apl_compiler::emit_native_ir_file(Path::new(&path), &output_path) {
+                Ok(()) => println!("emitted native low IR: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-native-ir", error),
+            }
+        }
+        "inspect-native-ir" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing native low IR path");
+                process::exit(2);
+            };
+            let artifact = fs::read_to_string(&path).unwrap_or_else(|error| {
+                eprintln!("failed to read `{path}`: {error}");
+                process::exit(1);
+            });
+
+            match apl_compiler::inspect_native_ir(&artifact) {
+                Ok(description) => print!("{description}"),
+                Err(error) => exit_compile_error("inspect-native-ir", error),
+            }
+        }
         "build" | "compile" | "build-linked" | "compile-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -333,7 +363,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
@@ -359,6 +389,14 @@ fn default_linked_path(path: &str) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("program");
     PathBuf::from("build").join(format!("{stem}.apllink"))
+}
+
+fn default_native_ir_path(path: &str) -> PathBuf {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("program");
+    PathBuf::from("build").join(format!("{stem}.apllow"))
 }
 
 fn default_module_path(path: &str) -> PathBuf {

@@ -88,6 +88,16 @@ the portable semantic reference and bootstrap vehicle, not the final production
 backend. A bytecode target may remain useful for portability and debugging, but
 native object and executable output is the primary goal.
 
+The first APL-owned native-backend boundary is now implemented as `APLLOW1`.
+`std/native.apl` consumes a verified, reachability-pruned `APLLINK3` image and
+lowers every current expression to linear stack operations. Structured
+`if`/`while`/`pick` blocks become labels and jumps, functions retain their final
+numeric slots, and `break`/`continue` carry explicit scope-unwind counts.
+Mutating `add`/`pop` calls retain their named target descriptors. The low-IR
+codec verifies instruction shapes, label targets, call-slot bounds, function
+tables, manifests, and stack discipline. `APLLOW1` is the input contract for
+future machine backends; it is not assembly, object code, or an executable yet.
+
 ## Current Syntax
 
 ```apl
@@ -344,6 +354,18 @@ cargo run -p apl -- run-linked build\compiled_runtime.apllink
 The `.apllink` format is the current portable bootstrap format. It is distinct
 from host-side binary `.aplc` IR and is not yet native machine code.
 
+Lower a fully linked program through the APL-owned native pass and inspect the
+linear result:
+
+```powershell
+cargo run -p apl -- emit-native-ir examples\linked_hello.apl build\linked_hello.apllow
+cargo run -p apl -- inspect-native-ir build\linked_hello.apllow
+```
+
+The `.apllow` file begins with `APLLOW1:` and uses the same tagged,
+length-framed scalar/list codec as other portable artifacts. Named-library
+composition and exclusions are preserved in its `APLMAN1` manifest.
+
 Precompile a reusable APL function module, then link new user source against it
 without tokenizing or parsing the module source again:
 
@@ -377,10 +399,10 @@ cargo run --release -p apl -- run-linked build\bootstrap_runtime.apllink
 ```
 
 `emit-standard-module` compiles `runtime`, `lexer`, `parser`, `checker`, `ir`,
-`linker`, `verifier`, `vm`, `artifact`, and `bootstrap` sequentially inside one
-APL invocation. The combined IR and symbol table stay in memory and are encoded
-once. The current VM-in-VM smoke-test is computationally expensive, so release
-mode is recommended for that final command.
+`linker`, `verifier`, `vm`, `artifact`, `native`, and `bootstrap` sequentially
+inside one APL invocation. The combined IR and symbol table stay in memory and
+are encoded once. The current VM-in-VM smoke-test is computationally expensive,
+so release mode is recommended for that final command.
 
 Build a reusable compiler program, then use that `APLLINK3` program to compile
 new source from inside the APL VM:
@@ -396,8 +418,9 @@ cargo run --release -p apl -- run-linked build\with_math_selfhost.apllink
 ```
 
 The bootstrap compiler artifact contains the APL-written frontend, checker,
-linker, verifier, artifact codec, VM, and an embedded relocatable runtime
-module. It accepts source as input and returns either a new `APLLINK3` payload
+linker, verifier, artifact codec, VM, native low-IR pass, and an embedded
+relocatable runtime module. It accepts source as input and returns either a new
+`APLLINK3` payload
 or a diagnostic through the versioned, length-framed `APLCOMP2` response
 protocol. Payload lengths count Unicode characters, so truncation, trailing
 data, colons, newlines, and NUL characters are handled unambiguously. The host
@@ -682,6 +705,16 @@ upgrades it when re-encoding. Scalars are tagged, strings are length-prefixed,
 and malformed headers, truncated payloads, unknown tags, trailing data, and
 invalid manifests are rejected before execution. Decoded structure also has to
 pass the APL verifier.
+
+`std/native.apl` begins the production backend. It accepts only verified linked
+images and emits versioned `APLLOW1` images with linear stack operations,
+explicit labels and jumps, scope entry/exit and unwind operations, bounded-loop
+state, pick iterators, and separately lowered function slots. It covers the
+current value, collection, protection, control-flow, and function instruction
+surface. Its verifier rejects malformed opcodes, literals, builtin arities,
+call slots, labels, function records, manifests, stack underflow, and residual
+stack values. The next backend layer will translate this target-neutral low IR
+to platform assembly/object code and provide the native value/runtime ABI.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,
