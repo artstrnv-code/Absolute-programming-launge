@@ -1058,7 +1058,7 @@ mod windows_app {
             );
             assert_eq!(
                 execute_source(r#"exclude "len" << base out len([1])"#, Vec::new()),
-                "Compile error:\r\nexcluded symbol `len` from library `base`"
+                "Compile error:\r\nsemantic error at 1:23: excluded symbol `len` from library `base`"
             );
             assert_eq!(
                 execute_source("include >> math out math.answer()", Vec::new()),
@@ -1115,7 +1115,7 @@ out steal
 
             assert_eq!(
                 execute_source(source, Vec::new()),
-                "Compile error:\r\nprotection downgrade `z`: source SASV, target AV"
+                "Compile error:\r\nsemantic error at 7:3: protection downgrade `z`: source SASV, target AV"
             );
         }
 

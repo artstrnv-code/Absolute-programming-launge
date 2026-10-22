@@ -66,6 +66,14 @@ fn default_check_and_run_use_the_portable_apl_pipeline() {
         String::from_utf8(invalid.stderr).unwrap(),
         "check error: parse error at 1:22: declaration expects =\n"
     );
+
+    fs::write(&main, "out \"ok\"\nif true {\n  out missing\n}").unwrap();
+    let semantic = apl().arg("check").arg(&main).output().unwrap();
+    assert!(!semantic.status.success());
+    assert_eq!(
+        String::from_utf8(semantic.stderr).unwrap(),
+        "check error: semantic error at 3:3: unknown variable `missing`\n"
+    );
 }
 
 #[test]

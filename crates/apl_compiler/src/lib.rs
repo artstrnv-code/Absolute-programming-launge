@@ -750,8 +750,7 @@ fn invalid_library_discovery_response() -> CompileError {
 
 const LINKED_COMPILE_BRIDGE: &str = r#"VTime aplhost.runtime_source = input
 VTime aplhost.program_source = input
-VTime aplhost.source = join([aplhost.runtime_source, char(10), aplhost.program_source], "")
-VTime aplhost.compile_report = bootstrap.linked_artifact_report(aplhost.source)
+VTime aplhost.compile_report = bootstrap.linked_artifact_with_libraries_report(aplhost.runtime_source, [], aplhost.program_source)
 if get(aplhost.compile_report, 0) != vm.FLOW_OK {
   fail get(aplhost.compile_report, 1)
 }
@@ -1169,7 +1168,10 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func lexer.tokenize_with_offsets"));
         assert!(STANDARD_PRELUDE.contains("func lexer.position_at"));
         assert!(STANDARD_PRELUDE.contains("func parser.parse_source"));
+        assert!(STANDARD_PRELUDE.contains("func parser.parse_source_with_positions"));
+        assert!(STANDARD_PRELUDE.contains("func parser.node_token_index"));
         assert!(STANDARD_PRELUDE.contains("func parser.diagnostic"));
+        assert!(STANDARD_PRELUDE.contains("func parser.source_diagnostic"));
         assert!(STANDARD_PRELUDE.contains("func checker.validate_report"));
         assert!(STANDARD_PRELUDE.contains("func ir.compile_source"));
         assert!(STANDARD_PRELUDE.contains("func linker.link_image"));
@@ -1177,6 +1179,8 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func vm.run_source"));
         assert!(STANDARD_PRELUDE.contains("func artifact.encode_loaded_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.check_error"));
+        assert!(STANDARD_PRELUDE.contains("func bootstrap.located_check_error"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.requested_libraries_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.artifact_image_report"));
@@ -1248,7 +1252,10 @@ mod tests {
         else {
             panic!("expected excluded base symbol to fail before artifact emission");
         };
-        assert_eq!(message, "excluded symbol `len` from library `base`");
+        assert_eq!(
+            message,
+            "semantic error at 1:23: excluded symbol `len` from library `base`"
+        );
     }
 
     #[test]
@@ -1408,7 +1415,7 @@ mod tests {
         assert!(matches!(
             excluded,
             CompileError::Runtime(apl_runtime::RuntimeError::Failed(message))
-                if message == "excluded symbol `math.internal` from library `math`"
+                if message == "semantic error at 1:49: excluded symbol `math.internal` from library `math`"
         ));
 
         let missing_include =
@@ -1416,7 +1423,7 @@ mod tests {
         assert!(matches!(
             missing_include,
             CompileError::Runtime(apl_runtime::RuntimeError::Failed(message))
-                if message == "unknown function `math.answer`"
+                if message == "semantic error at 1:1: unknown function `math.answer`"
         ));
     }
 

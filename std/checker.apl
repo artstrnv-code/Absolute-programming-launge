@@ -255,17 +255,17 @@ func checker.collect_composition_with_libraries(statements, libraries) {
       VTime library = get(statement, 1)
 
       if checker.composition_name_is_valid(library) != true {
-        return checker.fail([], join(["invalid name `", library, "`"], ""))
+        return checker.fail_at_node([], join(["invalid name `", library, "`"], ""), statement)
       }
 
       if library != "base" {
         if checker.library_entry(libraries, library) == NONE {
-          return checker.fail([], join(["unknown library `", library, "`"], ""))
+          return checker.fail_at_node([], join(["unknown library `", library, "`"], ""), statement)
         }
       }
 
       if checker.value_exists(includes, library) {
-        return checker.fail([], join(["duplicate include `", library, "`"], ""))
+        return checker.fail_at_node([], join(["duplicate include `", library, "`"], ""), statement)
       }
 
       add(includes, library)
@@ -278,35 +278,35 @@ func checker.collect_composition_with_libraries(statements, libraries) {
       VTime library = get(statement, 2)
 
       if checker.composition_name_is_valid(library) != true {
-        return checker.fail([], join(["invalid name `", library, "`"], ""))
+        return checker.fail_at_node([], join(["invalid name `", library, "`"], ""), statement)
       }
 
       if checker.composition_name_is_valid(symbol) != true {
-        return checker.fail([], join(["invalid name `", symbol, "`"], ""))
+        return checker.fail_at_node([], join(["invalid name `", symbol, "`"], ""), statement)
       }
 
       if library == "base" {
         if checker.base_export_is_known(symbol) != true {
-          return checker.fail([], join(["unknown symbol `", symbol, "` in library `base`"], ""))
+          return checker.fail_at_node([], join(["unknown symbol `", symbol, "` in library `base`"], ""), statement)
         }
       } else {
         VTime library_entry = checker.library_entry(libraries, library)
 
         if library_entry == NONE {
-          return checker.fail([], join(["unknown library `", library, "`"], ""))
+          return checker.fail_at_node([], join(["unknown library `", library, "`"], ""), statement)
         }
 
         if checker.value_exists(includes, library) != true {
-          return checker.fail([], join(["library `", library, "` is not included"], ""))
+          return checker.fail_at_node([], join(["library `", library, "` is not included"], ""), statement)
         }
 
         if checker.library_has_symbol(library_entry, symbol) != true {
-          return checker.fail([], join(["unknown symbol `", symbol, "` in library `", library, "`"], ""))
+          return checker.fail_at_node([], join(["unknown symbol `", symbol, "` in library `", library, "`"], ""), statement)
         }
       }
 
       if checker.exclusion_exists(exclusions, library, symbol) {
-        return checker.fail([], join(["duplicate exclude `", symbol, "` from library `", library, "`"], ""))
+        return checker.fail_at_node([], join(["duplicate exclude `", symbol, "` from library `", library, "`"], ""), statement)
       }
 
       add(exclusions, [library, symbol])
@@ -466,6 +466,36 @@ func checker.declared_protection(node, names) {
 
 func checker.fail(names, message) {
   return [checker.STATUS_FAIL, names, message]
+}
+
+func checker.attach_failure(state, node) {
+  if get(state, 0) == checker.STATUS_FAIL {
+    if len(state) < 4 {
+      VTime token_index = parser.node_token_index(node)
+
+      if token_index != NONE {
+        add(state, token_index)
+      }
+    }
+  }
+
+  return state
+}
+
+func checker.fail_at_node(names, message, node) {
+  return checker.attach_failure(checker.fail(names, message), node)
+}
+
+func checker.failure_report(state) {
+  if len(state) >= 4 {
+    if get(state, 3) == NONE {
+      return [get(state, 0), get(state, 2)]
+    }
+
+    return [get(state, 0), get(state, 2), get(state, 3)]
+  }
+
+  return [get(state, 0), get(state, 2)]
 }
 
 func checker.ok(names) {
@@ -1984,7 +2014,7 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
   VTime kind = parser.node_kind(node)
 
   if kind == parser.NODE_ERROR {
-    return checker.fail(names, get(node, 1))
+    return [checker.STATUS_FAIL, names, get(node, 1), NONE]
   }
 
   if (kind == parser.NODE_INCLUDE) or (kind == parser.NODE_EXCLUDE) {
@@ -2293,7 +2323,7 @@ func checker.validate_block(statements, names, allow_predeclared_func, in_functi
     names = get(state, 1)
 
     if get(state, 0) != checker.STATUS_OK {
-      return state
+      return checker.attach_failure(state, statement)
     }
   }
 
@@ -2307,11 +2337,11 @@ func checker.collect_function_names(statements, names) {
       VTime name_state = checker.validate_name(names, name)
 
       if get(name_state, 0) != checker.STATUS_OK {
-        return name_state
+        return checker.attach_failure(name_state, statement)
       }
 
       if checker.name_exists(names, name) {
-        return checker.fail(names, join(["duplicate name `", name, "`"], ""))
+        return checker.fail_at_node(names, join(["duplicate name `", name, "`"], ""), statement)
       }
 
       names = checker.add_name(names, name, "Func", len(get(statement, 2)))
@@ -2377,7 +2407,7 @@ func checker.validate_report_with_library_symbols(statements, symbols, libraries
   VTime composition = checker.collect_composition_with_libraries(statements, libraries)
 
   if get(composition, 0) != checker.STATUS_OK {
-    return [get(composition, 0), get(composition, 2)]
+    return checker.failure_report(composition)
   }
 
   VTime checked_statements = get(composition, 1)
@@ -2392,7 +2422,7 @@ func checker.validate_report_with_library_symbols(statements, symbols, libraries
   VTime external_state = checker.add_external_symbols(names, symbols)
 
   if get(external_state, 0) != checker.STATUS_OK {
-    return [get(external_state, 0), get(external_state, 2)]
+    return checker.failure_report(external_state)
   }
 
   VTime names_with_libraries = get(external_state, 1)
@@ -2402,7 +2432,7 @@ func checker.validate_report_with_library_symbols(statements, symbols, libraries
       VTime library_state = checker.add_library_symbols(names_with_libraries, checker.library_entry(libraries, library_name), get(composition, 3))
 
       if get(library_state, 0) != checker.STATUS_OK {
-        return [get(library_state, 0), get(library_state, 2)]
+        return checker.failure_report(library_state)
       }
 
       names_with_libraries = get(library_state, 1)
@@ -2412,13 +2442,13 @@ func checker.validate_report_with_library_symbols(statements, symbols, libraries
   VTime collect_state = checker.collect_function_names(checked_statements, names_with_libraries)
 
   if get(collect_state, 0) != checker.STATUS_OK {
-    return [get(collect_state, 0), get(collect_state, 2)]
+    return checker.failure_report(collect_state)
   }
 
   VTime state = checker.validate_block(checked_statements, get(collect_state, 1), true, false, 0)
 
   if get(state, 0) != checker.STATUS_OK {
-    return [get(state, 0), get(state, 2)]
+    return checker.failure_report(state)
   }
 
   return [checker.STATUS_OK, checked_statements, checker.export_symbols(get(state, 1)), get(composition, 2), get(composition, 3)]

@@ -23,6 +23,8 @@ AVStr parser.NODE_SECRETUP = "SecretUp"
 AVStr parser.NODE_INCLUDE = "Include"
 AVStr parser.NODE_EXCLUDE = "Exclude"
 AVStr parser.NODE_ERROR = "Error"
+AVStr parser.SOURCE_AT = "SourceAt"
+AVBool parser.RECORD_SOURCE_POSITIONS = false
 
 AVStr parser.EXPR_INT = "Int"
 AVStr parser.EXPR_FLOAT = "Float"
@@ -52,6 +54,25 @@ List parser.STATEMENT_KEYWORDS = ["include", "exclude", "if", "func", "while", "
 
 func parser.node_kind(node) {
   return get(node, 0)
+}
+
+func parser.node_token_index(node) {
+  if len(node) >= 3 {
+    if get(node, len(node) - 2) == parser.SOURCE_AT {
+      return get(node, len(node) - 1)
+    }
+  }
+
+  return NONE
+}
+
+func parser.node_at(node, token_index) {
+  if parser.RECORD_SOURCE_POSITIONS {
+    add(node, parser.SOURCE_AT)
+    add(node, token_index)
+  }
+
+  return node
 }
 
 func parser.expr_kind(expression) {
@@ -705,31 +726,24 @@ func parser.parse_expression(tokens, index) {
   return [left, next_index]
 }
 
-func parser.diagnostic(tokens, index, message) {
-  VTime source = NONE
+func parser.source_diagnostic(source, token_index, category, message) {
+  VTime offsets = get(lexer.tokenize_with_offsets(source), 1)
+  VTime offset = len(source)
 
+  if token_index < len(offsets) {
+    offset = get(offsets, token_index)
+  }
+
+  VTime position = lexer.position_at(source, offset)
+  return join([category, " at ", str(get(position, 0)), ":", str(get(position, 1)), ": ", message], "")
+}
+
+func parser.diagnostic(tokens, index, message) {
   if len(tokens) > 0 {
     VTime context = get(tokens, len(tokens) - 1)
 
     if lexer.token_kind(context) == lexer.TOKEN_EOF {
-      source = lexer.token_value(context)
-    }
-  }
-
-  if source != NONE {
-    VTime offsets = get(lexer.tokenize_with_offsets(source), 1)
-    VTime offset = len(source)
-
-    if index < len(offsets) {
-      offset = get(offsets, index)
-    }
-
-    VTime position = lexer.position_at(source, offset)
-    VTime line = get(position, 0)
-    VTime column = get(position, 1)
-
-    if (line != NONE) and (column != NONE) {
-      return join(["parse error at ", str(line), ":", str(column), ": ", message], "")
+      return parser.source_diagnostic(lexer.token_value(context), index, "parse error", message)
     }
   }
 
@@ -773,7 +787,7 @@ func parser.parse_statement(tokens, index) {
       return parser.error(tokens, "include expects library name", index + 2)
     }
 
-    return [[parser.NODE_INCLUDE, lexer.token_value(library_token)], index + 3]
+    return [parser.node_at([parser.NODE_INCLUDE, lexer.token_value(library_token)], index), index + 3]
   }
 
   if parser.is_keyword_token(token, "exclude") {
@@ -793,7 +807,7 @@ func parser.parse_statement(tokens, index) {
       return parser.error(tokens, "exclude expects library name", index + 3)
     }
 
-    return [[parser.NODE_EXCLUDE, lexer.token_value(symbol_token), lexer.token_value(library_token)], index + 4]
+    return [parser.node_at([parser.NODE_EXCLUDE, lexer.token_value(symbol_token), lexer.token_value(library_token)], index), index + 4]
   }
 
   if parser.is_keyword_token(token, "func") {
@@ -862,7 +876,7 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_body = parser.parse_block(tokens, body_open_index + 1, true)
-    return [[parser.NODE_FUNC, lexer.token_value(name_token), params, get(parsed_body, 0)], get(parsed_body, 1)]
+    return [parser.node_at([parser.NODE_FUNC, lexer.token_value(name_token), params, get(parsed_body, 0)], index), get(parsed_body, 1)]
   }
 
   if parser.is_keyword_token(token, "List") {
@@ -878,7 +892,7 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_value = parser.parse_expression(tokens, index + 3)
-    return [[parser.NODE_LIST_DECL, lexer.token_value(name_token), get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_LIST_DECL, lexer.token_value(name_token), get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "VTime") {
@@ -894,7 +908,7 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_value = parser.parse_expression(tokens, index + 3)
-    return [[parser.NODE_VTIME_DECL, lexer.token_value(name_token), get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_VTIME_DECL, lexer.token_value(name_token), get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "if") {
@@ -930,7 +944,7 @@ func parser.parse_statement(tokens, index) {
       }
     }
 
-    return [[parser.NODE_IF, get(parsed_condition, 0), get(parsed_body, 0), else_body], next_index]
+    return [parser.node_at([parser.NODE_IF, get(parsed_condition, 0), get(parsed_body, 0), else_body], index), next_index]
   }
 
   if parser.is_keyword_token(token, "while") {
@@ -992,7 +1006,7 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_body = parser.parse_block(tokens, body_open_index + 1, true)
-    return [[parser.NODE_WHILE, get(parsed_condition, 0), limit, get(parsed_body, 0)], get(parsed_body, 1)]
+    return [parser.node_at([parser.NODE_WHILE, get(parsed_condition, 0), limit, get(parsed_body, 0)], index), get(parsed_body, 1)]
   }
 
   if parser.is_keyword_token(token, "pick") {
@@ -1030,7 +1044,7 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_body = parser.parse_block(tokens, body_open_index + 1, true)
-    return [[parser.NODE_PICK, get(parsed_value, 0), lexer.token_value(item_token), get(parsed_body, 0)], get(parsed_body, 1)]
+    return [parser.node_at([parser.NODE_PICK, get(parsed_value, 0), lexer.token_value(item_token), get(parsed_body, 0)], index), get(parsed_body, 1)]
   }
 
   if (kind == lexer.TOKEN_KW) and (parser.is_decl_keyword(value)) {
@@ -1046,31 +1060,31 @@ func parser.parse_statement(tokens, index) {
     }
 
     VTime parsed_value = parser.parse_expression(tokens, index + 3)
-    return [[parser.NODE_DECL, value, lexer.token_value(name_token), get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_DECL, value, lexer.token_value(name_token), get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "out") {
     VTime parsed_value = parser.parse_expression(tokens, index + 1)
-    return [[parser.NODE_OUT, get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_OUT, get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "stop") {
     if parser.next_starts_statement_or_block_end(tokens, index + 1) {
-      return [[parser.NODE_STOP, NONE], index + 1]
+      return [parser.node_at([parser.NODE_STOP, NONE], index), index + 1]
     }
 
     VTime parsed_value = parser.parse_expression(tokens, index + 1)
-    return [[parser.NODE_STOP, get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_STOP, get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "fail") {
     VTime parsed_value = parser.parse_expression(tokens, index + 1)
-    return [[parser.NODE_FAIL, get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_FAIL, get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "return") {
     VTime parsed_value = parser.parse_expression(tokens, index + 1)
-    return [[parser.NODE_RETURN, get(parsed_value, 0)], get(parsed_value, 1)]
+    return [parser.node_at([parser.NODE_RETURN, get(parsed_value, 0)], index), get(parsed_value, 1)]
   }
 
   if parser.is_keyword_token(token, "secretup") {
@@ -1090,15 +1104,15 @@ func parser.parse_statement(tokens, index) {
       return parser.error(tokens, "secretup expects )", index + 3)
     }
 
-    return [[parser.NODE_SECRETUP, lexer.token_value(name_token)], index + 4]
+    return [parser.node_at([parser.NODE_SECRETUP, lexer.token_value(name_token)], index), index + 4]
   }
 
   if parser.is_keyword_token(token, "break") {
-    return [[parser.NODE_BREAK], index + 1]
+    return [parser.node_at([parser.NODE_BREAK], index), index + 1]
   }
 
   if parser.is_keyword_token(token, "continue") {
-    return [[parser.NODE_CONTINUE], index + 1]
+    return [parser.node_at([parser.NODE_CONTINUE], index), index + 1]
   }
 
   if kind == lexer.TOKEN_IDENT {
@@ -1137,17 +1151,17 @@ func parser.parse_statement(tokens, index) {
         return parser.error(tokens, "info assignment expects )", index + 7)
       }
 
-      return [[parser.NODE_INFO_ASSIGN, value, lexer.token_value(level_token), lexer.token_value(source_token)], index + 8]
+      return [parser.node_at([parser.NODE_INFO_ASSIGN, value, lexer.token_value(level_token), lexer.token_value(source_token)], index), index + 8]
     }
 
     if parser.is_symbol_token(op_token, "(") {
       VTime parsed_expr = parser.parse_expression(tokens, index)
-      return [[parser.NODE_EXPR, get(parsed_expr, 0)], get(parsed_expr, 1)]
+      return [parser.node_at([parser.NODE_EXPR, get(parsed_expr, 0)], index), get(parsed_expr, 1)]
     }
 
     if (lexer.token_kind(op_token) == lexer.TOKEN_SYM) and (parser.is_assign_op(op)) {
       VTime parsed_value = parser.parse_expression(tokens, index + 2)
-      return [[parser.NODE_ASSIGN, value, op, get(parsed_value, 0)], get(parsed_value, 1)]
+      return [parser.node_at([parser.NODE_ASSIGN, value, op, get(parsed_value, 0)], index), get(parsed_value, 1)]
     }
   }
 
@@ -1201,8 +1215,19 @@ func parser.parse_tokens(tokens) {
   return statements
 }
 
-func parser.parse_source(source) {
+func parser.parse_source_with_mode(source, record_source_positions) {
+  parser.RECORD_SOURCE_POSITIONS = record_source_positions
   VTime tokens = lexer.tokenize(source)
   add(tokens, [lexer.TOKEN_EOF, source])
-  return parser.parse_tokens(tokens)
+  VTime statements = parser.parse_tokens(tokens)
+  parser.RECORD_SOURCE_POSITIONS = false
+  return statements
+}
+
+func parser.parse_source(source) {
+  return parser.parse_source_with_mode(source, false)
+}
+
+func parser.parse_source_with_positions(source) {
+  return parser.parse_source_with_mode(source, true)
 }

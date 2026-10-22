@@ -718,8 +718,9 @@ Rust workspace:
   standard Windows file dialogs. Studio is intentionally not a full IDE.
   Ordinary and library-using buffers share the same portable compile/run path
   as the CLI; an unsaved buffer must be saved before external modules can be
-  resolved. Portable lexer/parser diagnostics carry one-based, Unicode-character
-  `line:column` positions; semantic checker diagnostics do not carry spans yet.
+  resolved. Portable lexer, parser, and semantic-checker diagnostics carry
+  one-based, Unicode-character `line:column` positions. Semantic locations
+  point to the start of the containing statement.
   Its Win32 output control renders an
   embedded NUL visibly as `\0` so later output is not truncated; the runtime
   and CLI retain the actual NUL character.
@@ -772,7 +773,10 @@ APL-owned runtime code:
   not build that table: `parser.diagnostic` invokes the offset-producing pass
   lazily only after detecting a syntax failure. It converts the selected offset
   to one-based Unicode `line:column`, including exact EOF, CRLF, and escape
-  locations. Semantic checker diagnostics do not carry source spans yet.
+  locations. Successful compilation keeps the compact statement AST. On a
+  semantic failure, the frontend reparses with internal statement token
+  indexes, rechecks to preserve the innermost failing statement, and uses the
+  same lazy offset pass to render its one-based `line:column` location.
 - `examples/test_lexer.apl` is the current lexer smoke-test. It uses public
   `AVStr` input so the token list can be printed safely.
 - `std/parser.apl`: the first APL-written parser bootstrap. It consumes lexer

@@ -67,12 +67,84 @@ func bootstrap.ir_error(program) {
   return NONE
 }
 
+func bootstrap.check_error(source, checked) {
+  VTime message = get(checked, 1)
+
+  if len(message) >= 15 {
+    if message[0:15] == "parse error at " {
+      return message
+    }
+  }
+
+  if len(checked) >= 3 {
+    return parser.source_diagnostic(source, get(checked, 2), "semantic error", message)
+  }
+
+  return message
+}
+
+func bootstrap.located_check_error(source, checked) {
+  VTime message = get(checked, 1)
+
+  if len(message) >= 15 {
+    if message[0:15] == "parse error at " {
+      return message
+    }
+  }
+
+  VTime located = checker.validate_report(parser.parse_source_with_positions(source))
+
+  if get(located, 0) == checker.STATUS_OK {
+    return message
+  }
+
+  return bootstrap.check_error(source, located)
+}
+
+func bootstrap.located_check_error_with_symbols(source, checked, symbols) {
+  VTime message = get(checked, 1)
+
+  if len(message) >= 15 {
+    if message[0:15] == "parse error at " {
+      return message
+    }
+  }
+
+  VTime ast = parser.parse_source_with_positions(source)
+  VTime located = checker.validate_report_with_symbols(ast, symbols)
+
+  if get(located, 0) == checker.STATUS_OK {
+    return message
+  }
+
+  return bootstrap.check_error(source, located)
+}
+
+func bootstrap.located_check_error_with_libraries(source, checked, symbols, libraries) {
+  VTime message = get(checked, 1)
+
+  if len(message) >= 15 {
+    if message[0:15] == "parse error at " {
+      return message
+    }
+  }
+
+  VTime ast = parser.parse_source_with_positions(source)
+  VTime located = checker.validate_report_with_library_symbols(ast, symbols, libraries)
+
+  if get(located, 0) == checker.STATUS_OK {
+    return message
+  }
+
+  return bootstrap.check_error(source, located)
+}
+
 func bootstrap.compile_with_symbols_report(source) {
   VTime ast = bootstrap.ast(source)
   VTime checked = checker.validate_report(ast)
 
   if get(checked, 0) != checker.STATUS_OK {
-    return [vm.FLOW_FAIL, get(checked, 1)]
+    return [vm.FLOW_FAIL, bootstrap.located_check_error(source, checked)]
   }
 
   VTime program = ir.compile_ast(get(checked, 1))
@@ -117,7 +189,7 @@ func bootstrap.modules_report(sources) {
     VTime checked = checker.validate_report_with_symbols(ast, symbols)
 
     if get(checked, 0) != checker.STATUS_OK {
-      return [vm.FLOW_FAIL, get(checked, 1)]
+      return [vm.FLOW_FAIL, bootstrap.located_check_error_with_symbols(source, checked, symbols)]
     }
 
     VTime extension = ir.compile_ast(get(checked, 1))
@@ -160,7 +232,7 @@ func bootstrap.extend_module_report(encoded_module, source) {
   VTime checked = checker.validate_report_with_symbols(ast, artifact.module_symbols(module))
 
   if get(checked, 0) != checker.STATUS_OK {
-    return [vm.FLOW_FAIL, get(checked, 1)]
+    return [vm.FLOW_FAIL, bootstrap.located_check_error_with_symbols(source, checked, artifact.module_symbols(module))]
   }
 
   VTime extension = ir.compile_ast(get(checked, 1))
@@ -228,7 +300,7 @@ func bootstrap.linked_artifact_with_module_report(encoded_module, source) {
   VTime checked = checker.validate_report_with_symbols(ast, artifact.module_symbols(module))
 
   if get(checked, 0) != checker.STATUS_OK {
-    return [vm.FLOW_FAIL, get(checked, 1)]
+    return [vm.FLOW_FAIL, bootstrap.located_check_error_with_symbols(source, checked, artifact.module_symbols(module))]
   }
 
   VTime user_program = ir.compile_ast(get(checked, 1))
@@ -316,7 +388,7 @@ func bootstrap.linked_artifact_from_library_catalog_report(base_program, base_sy
   VTime checked = checker.validate_report_with_library_symbols(ast, base_symbols, catalog)
 
   if get(checked, 0) != checker.STATUS_OK {
-    return [vm.FLOW_FAIL, get(checked, 1)]
+    return [vm.FLOW_FAIL, bootstrap.located_check_error_with_libraries(source, checked, base_symbols, catalog)]
   }
 
   VTime user_program = ir.compile_ast(get(checked, 1))

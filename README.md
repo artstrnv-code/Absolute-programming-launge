@@ -258,13 +258,14 @@ cargo run -p apl -- check examples\hello.apl
 
 `check` and `run` now always compile an `APLLINK3` artifact through the
 APL-written frontend before returning or executing it. Their diagnostics are
-therefore the APL frontend's stable text diagnostics. Lexer and parser failures
-include one-based `line:column` locations counted in Unicode characters, for
-example `parse error at 3:8: expected expression`. The successful path keeps
-compact `[kind, value]` tokens; source offsets are collected by a lazy second
-lexer pass only when a syntax diagnostic is produced. Semantic checker errors
-do not carry source spans yet. The Rust reference parser retains its own source
-locations for explicit host tools and differential tests.
+therefore the APL frontend's stable text diagnostics. Lexer, parser, and
+semantic-checker failures include one-based `line:column` locations counted in
+Unicode characters, for example `parse error at 3:8: expected expression` or
+``semantic error at 3:3: unknown variable `missing```. Semantic locations point
+to the start of the containing statement. The successful path keeps compact
+`[kind, value]` tokens; source offsets are collected by a lazy second lexer
+pass only when a diagnostic is produced. The Rust reference parser retains its
+own source locations for explicit host tools and differential tests.
 
 Execute through the APL-written compiler and portable VM:
 

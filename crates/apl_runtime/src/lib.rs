@@ -2147,7 +2147,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK1OUTFAILexcluded symbol `len` from library `base`FAILunknown library `math`FAILcomposition directive must be top-level"
+            "OK1OUTFAILsemantic error at 1:23: excluded symbol `len` from library `base`FAILsemantic error at 1:1: unknown library `math`FAILsemantic error at 1:11: composition directive must be top-level"
         );
     }
 
@@ -2666,6 +2666,29 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "3DeclAVIntxInt42OutAssign+=While-1");
+    }
+
+    #[test]
+    fn source_runtime_parser_keeps_positions_out_of_the_success_ast() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt x = 1 if true { out missing }"
+            VTime compact = parser.parse_source(source)
+            VTime located = parser.parse_source_with_positions(source)
+            VTime compact_decl = get(compact, 0)
+            VTime located_decl = get(located, 0)
+            VTime nested_out = get(get(get(located, 1), 2), 0)
+
+            out len(compact_decl)
+            out parser.node_token_index(compact_decl) == NONE
+            out len(located_decl)
+            out parser.node_token_index(located_decl)
+            out parser.node_token_index(nested_out)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "4true607");
     }
 
     #[test]
@@ -3548,6 +3571,26 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_checker_reports_nested_statement_position() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime quote = char(34)
+            VTime source = join(["out ", quote, char(1105), char(1078), quote, char(10), "if true {", char(10), "  out missing", char(10), "}"], "")
+            VTime report = bootstrap.compile_report(source)
+
+            out get(report, 0)
+            out get(report, 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "FAILsemantic error at 3:3: unknown variable `missing`"
+        );
+    }
+
+    #[test]
     fn source_runtime_apl_frontend_checks_numeric_literal_boundaries() {
         let output = run_source_with_prelude(
             r#"
@@ -3575,7 +3618,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK-9223372036854775808FAILinteger literal out of rangeFAILinteger literal out of rangeFAILinvalid float literal"
+            "OK-9223372036854775808FAILsemantic error at 1:1: integer literal out of rangeFAILsemantic error at 1:1: integer literal out of rangeFAILsemantic error at 1:1: invalid float literal"
         );
     }
 
@@ -3650,7 +3693,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAILparse error at 1:5: unterminated string literalFAILparse error at 1:7: declaration expects identifierFAILparse error at 1:6: list declaration expects identifierFAILparse error at 1:7: vtime declaration expects identifierFAILparse error at 1:6: func expects identifierFAILparse error at 1:8: func expects parameter identifierFAILparse error at 1:10: func expects , or )FAILparse error at 1:10: func expects parameter identifierFAILparse error at 1:12: pick expects item identifierFAILparse error at 1:10: secretup expects identifierFAILparse error at 1:7: info assignment expects identifierFAILparse error at 1:20: info assignment expects source identifierFAILparse error at 1:1: unknown statementFAILparse error at 1:17: unknown statementFAILparse error at 1:17: unknown statementFAILparse error at 1:20: unknown statementFAILparse error at 1:29: unknown statementFAILparse error at 1:18: list expects , or ]FAILunknown variable `secret`"
+            "FAILparse error at 1:5: unterminated string literalFAILparse error at 1:7: declaration expects identifierFAILparse error at 1:6: list declaration expects identifierFAILparse error at 1:7: vtime declaration expects identifierFAILparse error at 1:6: func expects identifierFAILparse error at 1:8: func expects parameter identifierFAILparse error at 1:10: func expects , or )FAILparse error at 1:10: func expects parameter identifierFAILparse error at 1:12: pick expects item identifierFAILparse error at 1:10: secretup expects identifierFAILparse error at 1:7: info assignment expects identifierFAILparse error at 1:20: info assignment expects source identifierFAILparse error at 1:1: unknown statementFAILparse error at 1:17: unknown statementFAILparse error at 1:17: unknown statementFAILparse error at 1:20: unknown statementFAILparse error at 1:29: unknown statementFAILparse error at 1:18: list expects , or ]FAILsemantic error at 1:1: unknown variable `secret`"
         );
     }
 
@@ -3975,7 +4018,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKAPLMOD3:OKOKOK40242OKOK101FAILunknown function `module.missing`FAILduplicate name `module.answer`FAILinvalid module artifact headerFAILmodule program is already linkedFAILinvalid module artifact imageOKAPLMOD1"
+            "OKAPLMOD3:OKOKOK40242OKOK101FAILsemantic error at 1:1: unknown function `module.missing`FAILsemantic error at 1:1: duplicate name `module.answer`FAILinvalid module artifact headerFAILmodule program is already linkedFAILinvalid module artifact imageOKAPLMOD1"
         );
     }
 
@@ -4014,7 +4057,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKAPLLINK3:OKAPLMAN1base2mathmath.hiddenOK141FAILexcluded symbol `math.hidden` from library `math`FAILunknown function `math.answer`"
+            "OKAPLLINK3:OKAPLMAN1base2mathmath.hiddenOK141FAILsemantic error at 1:47: excluded symbol `math.hidden` from library `math`FAILsemantic error at 1:1: unknown function `math.answer`"
         );
     }
 
@@ -4070,7 +4113,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "APLMOD3:ASVFAILsecret expression denied `out`ASVFAILsecret expression denied `out`OKSASVFAILinvalid module artifact image"
+            "APLMOD3:ASVFAILsemantic error at 1:1: secret expression denied `out`ASVFAILsemantic error at 1:1: secret expression denied `out`OKSASVFAILinvalid module artifact image"
         );
     }
 
@@ -4106,7 +4149,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKDECLFAILduplicate name `x`FAILduplicate name `go`FAILduplicate name `x`FAILduplicate name `go`"
+            "OKDECLFAILsemantic error at 1:13: duplicate name `x`FAILsemantic error at 1:24: duplicate name `go`FAILsemantic error at 1:23: duplicate name `x`FAILsemantic error at 1:34: duplicate name `go`"
         );
     }
 
@@ -4126,7 +4169,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "OKFAILunknown variable `local`");
+        assert_eq!(
+            output,
+            "OKFAILsemantic error at 1:46: unknown variable `local`"
+        );
     }
 
     #[test]
@@ -4185,7 +4231,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAILunknown assignment target `missing`FAILinvalid assignment target `items`FAILinvalid assignment target `go`FAILinvalid compound assignment target `hidden`FAILinvalid compound assignment target `text`OK2FAILunknown secretup target `missing`FAILinvalid secretup target `items`FAILunknown info target `typ`FAILinvalid info target `typ`FAILunknown info source `missing`"
+            "FAILsemantic error at 1:1: unknown assignment target `missing`FAILsemantic error at 1:17: invalid assignment target `items`FAILsemantic error at 1:24: invalid assignment target `go`FAILsemantic error at 1:19: invalid compound assignment target `hidden`FAILsemantic error at 1:17: invalid compound assignment target `text`OK2FAILsemantic error at 1:1: unknown secretup target `missing`FAILsemantic error at 1:17: invalid secretup target `items`FAILsemantic error at 1:18: unknown info target `typ`FAILsemantic error at 1:32: invalid info target `typ`FAILsemantic error at 1:33: unknown info source `missing`"
         );
     }
 
@@ -4233,7 +4279,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK2FAILunknown variable `missing`FAILunknown variable `missing`FAILunknown variable `missing`FAILunknown variable `missing`FAILunknown variable `missing`FAILinvalid self target `temp`FAILunknown variable `missing`"
+            "OK2FAILsemantic error at 1:1: unknown variable `missing`FAILsemantic error at 1:1: unknown variable `missing`FAILsemantic error at 1:13: unknown variable `missing`FAILsemantic error at 1:1: unknown variable `missing`FAILsemantic error at 1:1: unknown variable `missing`FAILsemantic error at 1:16: invalid self target `temp`FAILsemantic error at 1:18: unknown variable `missing`"
         );
     }
 
@@ -4285,7 +4331,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OK7OK2FAILunknown function `missing`FAILinvalid function `x`FAILwrong argument count `go`FAILunknown variable `missing`FAILwrong argument count `len`FAILwrong argument count `pow`FAILwrong argument count `add`"
+            "OK7OK2FAILsemantic error at 1:1: unknown function `missing`FAILsemantic error at 1:13: invalid function `x`FAILsemantic error at 1:25: wrong argument count `go`FAILsemantic error at 1:1: unknown variable `missing`FAILsemantic error at 1:1: wrong argument count `len`FAILsemantic error at 1:1: wrong argument count `pow`FAILsemantic error at 1:1: wrong argument count `add`"
         );
     }
 
@@ -4371,7 +4417,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOKFAILlen(value) requires Str, Bytes, List, or VTimeFAILget(list, index) requires List and IntFAILsplit(value, separator) requires Str and StrFAILjoin(values, separator) requires List and StrFAILcontains(value, needle) requires Str and StrFAILord(value) requires StrFAILchar(value) requires IntFAILpow(base, exponent) requires Int/Float and IntFAILpop(list) requires ListFAILadd(list, value) requires List"
+            "OKOKFAILsemantic error at 1:1: len(value) requires Str, Bytes, List, or VTimeFAILsemantic error at 1:1: get(list, index) requires List and IntFAILsemantic error at 1:1: split(value, separator) requires Str and StrFAILsemantic error at 1:1: join(values, separator) requires List and StrFAILsemantic error at 1:1: contains(value, needle) requires Str and StrFAILsemantic error at 1:1: ord(value) requires StrFAILsemantic error at 1:1: char(value) requires IntFAILsemantic error at 1:1: pow(base, exponent) requires Int/Float and IntFAILsemantic error at 1:1: pop(list) requires ListFAILsemantic error at 1:17: add(list, value) requires List"
         );
     }
 
@@ -4406,7 +4452,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKFAILadd(list, value) is only valid as a statementFAILadd(list, value) requires a named List or VTime targetFAILpop(list) requires a named List or VTime targetFAILsecret expression denied `out`"
+            "OKFAILsemantic error at 1:18: add(list, value) is only valid as a statementFAILsemantic error at 1:1: add(list, value) requires a named List or VTime targetFAILsemantic error at 1:1: pop(list) requires a named List or VTime targetFAILsemantic error at 1:56: secret expression denied `out`"
         );
     }
 
@@ -4451,7 +4497,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOKFAILtype mismatch `value`: expected Int, got StrFAILtype mismatch `value`: expected Float, got IntFAILtype mismatch `value`: expected Bool, got IntFAILtype mismatch `value`: expected Str, got IntFAILtype mismatch `value`: expected Bytes, got StrFAILtype mismatch `value`: expected Json, got StrFAILtype mismatch `value`: expected Int, got StrFAILtype mismatch `value`: expected Int, got Float"
+            "OKOKFAILsemantic error at 1:1: type mismatch `value`: expected Int, got StrFAILsemantic error at 1:1: type mismatch `value`: expected Float, got IntFAILsemantic error at 1:1: type mismatch `value`: expected Bool, got IntFAILsemantic error at 1:1: type mismatch `value`: expected Str, got IntFAILsemantic error at 1:1: type mismatch `value`: expected Bytes, got StrFAILsemantic error at 1:1: type mismatch `value`: expected Json, got StrFAILsemantic error at 1:17: type mismatch `value`: expected Int, got StrFAILsemantic error at 1:17: type mismatch `value`: expected Int, got Float"
         );
     }
 
@@ -4508,7 +4554,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOKFAILinvalid unary operation for BoolFAILinvalid unary operation for IntFAILarithmetic requires matching Int or Float values, got Int and FloatFAILarithmetic requires matching Int or Float values, got Bytes and BytesFAILcomparison requires matching types, got Int and BytesFAILordered comparison requires matching Int or Float values, got Int and FloatFAILlogical operation requires Bool values, got Bool and IntFAILtype mismatch `condition`: expected Bool, got IntFAILtype mismatch `condition`: expected Bool, got BytesFAILpick requires Str, Bytes, List, or VTime, got IntFAILindex access requires Str, Bytes, List, or VTime, got IntFAILindex must be Int or VTime, got BoolFAILslice requires Str, Bytes, List, or VTime, got BoolFAILslice bounds must be Int or VTime, got Float"
+            "OKOKFAILsemantic error at 1:1: invalid unary operation for BoolFAILsemantic error at 1:1: invalid unary operation for IntFAILsemantic error at 1:1: arithmetic requires matching Int or Float values, got Int and FloatFAILsemantic error at 1:1: arithmetic requires matching Int or Float values, got Bytes and BytesFAILsemantic error at 1:1: comparison requires matching types, got Int and BytesFAILsemantic error at 1:1: ordered comparison requires matching Int or Float values, got Int and FloatFAILsemantic error at 1:1: logical operation requires Bool values, got Bool and IntFAILsemantic error at 1:1: type mismatch `condition`: expected Bool, got IntFAILsemantic error at 1:1: type mismatch `condition`: expected Bool, got BytesFAILsemantic error at 1:1: pick requires Str, Bytes, List, or VTime, got IntFAILsemantic error at 1:1: index access requires Str, Bytes, List, or VTime, got IntFAILsemantic error at 1:1: index must be Int or VTime, got BoolFAILsemantic error at 1:1: slice requires Str, Bytes, List, or VTime, got BoolFAILsemantic error at 1:1: slice bounds must be Int or VTime, got Float"
         );
     }
 
@@ -4555,7 +4601,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOKOKFAILreturn outside functionFAILreturn outside functionFAILbreak outside loopFAILcontinue outside loopFAILbreak outside loopFAILbreak outside loopFAILinvalid loop limit `-2`FAILbreak outside loop"
+            "OKOKOKFAILsemantic error at 1:1: return outside functionFAILsemantic error at 1:11: return outside functionFAILsemantic error at 1:1: break outside loopFAILsemantic error at 1:1: continue outside loopFAILsemantic error at 1:11: break outside loopFAILsemantic error at 1:15: break outside loopFAILsemantic error at 1:1: invalid loop limit `-2`FAILsemantic error at 1:36: break outside loop"
         );
     }
 
@@ -4613,7 +4659,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOK2globalFAILinvalid name `bad?name`FAILinvalid name `.hidden`FAILinvalid name `len`FAILinvalid name `bad?name`FAILduplicate parameter `value`FAILinvalid name `bad?name`FAILduplicate name `item`FAILinvalid name `bad?name`FAILinvalid secretup target `value`FAILinvalid self target `value`FAILunknown variable `go`"
+            "OKOK2globalFAILsemantic error at 1:1: invalid name `bad?name`FAILsemantic error at 1:1: invalid name `.hidden`FAILsemantic error at 1:1: invalid name `len`FAILsemantic error at 1:1: invalid name `bad?name`FAILsemantic error at 1:1: duplicate parameter `value`FAILsemantic error at 1:1: invalid name `bad?name`FAILsemantic error at 1:16: duplicate name `item`FAILsemantic error at 1:1: invalid name `bad?name`FAILsemantic error at 1:39: invalid secretup target `value`FAILsemantic error at 1:36: invalid self target `value`FAILsemantic error at 1:24: unknown variable `go`"
         );
     }
 
@@ -4680,7 +4726,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "OKOKOKFAILprotection downgrade `public`: source ASV, target AVFAILprotection downgrade `public`: source ASV, target AVFAILsecret expression denied `public`FAILsecret expression denied `vault`FAILsecret expression denied `vault`FAILprotection downgrade `list element`: source ASV, target AVFAILsecret expression denied `out`FAILsecret expression denied `out`FAILprotection downgrade `public`: source ASV, target AVFAILsecret expression denied `out`FAILsecret expression denied `out`FAILsecret expression denied `hidden`FAILsecret expression denied `stop`FAILsecret expression denied `fail`FAILsecret expression denied `out`FAILinvalid secretup target `value`FAILsecret expression denied `out`FAILsecret expression denied `out`"
+            "OKOKOKFAILsemantic error at 1:19: protection downgrade `public`: source ASV, target AVFAILsemantic error at 1:36: protection downgrade `public`: source ASV, target AVFAILsemantic error at 1:1: secret expression denied `public`FAILsemantic error at 1:1: secret expression denied `vault`FAILsemantic error at 1:1: secret expression denied `vault`FAILsemantic error at 1:19: protection downgrade `list element`: source ASV, target AVFAILsemantic error at 1:19: secret expression denied `out`FAILsemantic error at 1:19: secret expression denied `out`FAILsemantic error at 1:44: protection downgrade `public`: source ASV, target AVFAILsemantic error at 1:22: secret expression denied `out`FAILsemantic error at 1:22: secret expression denied `out`FAILsemantic error at 1:19: secret expression denied `hidden`FAILsemantic error at 1:19: secret expression denied `stop`FAILsemantic error at 1:19: secret expression denied `fail`FAILsemantic error at 1:33: secret expression denied `out`FAILsemantic error at 1:49: invalid secretup target `value`FAILsemantic error at 1:55: secret expression denied `out`FAILsemantic error at 1:53: secret expression denied `out`"
         );
     }
 
@@ -4698,7 +4744,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "FAILprotection downgrade `stolen`: source SASV, target AV"
+            "FAILsemantic error at 1:83: protection downgrade `stolen`: source SASV, target AV"
         );
     }
 
