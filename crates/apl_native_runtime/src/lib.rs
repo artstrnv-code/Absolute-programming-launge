@@ -10,8 +10,67 @@
 use std::{
     collections::{HashMap, VecDeque},
     io::{self, IsTerminal, Read},
-    ptr, slice,
+    ptr,
+    rc::Rc,
+    slice,
 };
+
+pub const INPUT_PROTOCOL: &[u8] = b"\0APLIN1:";
+
+fn invalid_input_frame(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+fn take_frame_length(bytes: &[u8], cursor: &mut usize) -> io::Result<usize> {
+    let remaining = bytes
+        .get(*cursor..)
+        .ok_or_else(|| invalid_input_frame("truncated APL input frame"))?;
+    let separator = remaining
+        .iter()
+        .position(|byte| *byte == b':')
+        .ok_or_else(|| invalid_input_frame("missing APL input frame separator"))?;
+    if separator == 0 {
+        return Err(invalid_input_frame("empty APL input frame length"));
+    }
+    let value = std::str::from_utf8(&remaining[..separator])
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| invalid_input_frame("invalid APL input frame length"))?;
+    *cursor += separator + 1;
+    Ok(value)
+}
+
+fn decode_input_frame(bytes: &[u8]) -> io::Result<Option<Vec<String>>> {
+    if !bytes.starts_with(INPUT_PROTOCOL) {
+        return Ok(None);
+    }
+    let mut cursor = INPUT_PROTOCOL.len();
+    let count = take_frame_length(bytes, &mut cursor)?;
+    let minimum_frame_bytes = count
+        .checked_mul(2)
+        .ok_or_else(|| invalid_input_frame("APL input frame value count is too large"))?;
+    if minimum_frame_bytes > bytes.len().saturating_sub(cursor) {
+        return Err(invalid_input_frame(
+            "APL input frame value count exceeds payload",
+        ));
+    }
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        let length = take_frame_length(bytes, &mut cursor)?;
+        let end = cursor
+            .checked_add(length)
+            .filter(|end| *end <= bytes.len())
+            .ok_or_else(|| invalid_input_frame("truncated APL input frame value"))?;
+        let value = std::str::from_utf8(&bytes[cursor..end])
+            .map_err(|_| invalid_input_frame("APL input frame value is not UTF-8"))?;
+        values.push(value.to_owned());
+        cursor = end;
+    }
+    if cursor != bytes.len() {
+        return Err(invalid_input_frame("trailing bytes in APL input frame"));
+    }
+    Ok(Some(values))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Protection {
@@ -49,6 +108,23 @@ enum ValueType {
     Json,
 }
 
+#[derive(Debug, PartialEq)]
+struct RuntimeString {
+    text: String,
+    chars: Vec<char>,
+}
+
+impl RuntimeString {
+    fn new(text: String) -> Self {
+        let chars = text.chars().collect();
+        Self { text, chars }
+    }
+
+    fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
 impl ValueType {
     fn name(self) -> &'static str {
         match self {
@@ -67,10 +143,10 @@ enum Data {
     Int(i64),
     Float(f64),
     Bool(bool),
-    Str(String),
+    Str(Rc<RuntimeString>),
     Bytes(Vec<u8>),
     Json(String),
-    List(Vec<Value>),
+    List(Rc<Vec<Value>>),
     None,
 }
 
@@ -95,7 +171,10 @@ impl Value {
     }
 
     fn str(value: impl Into<String>) -> Self {
-        Self::new(Data::Str(value.into()), Protection::Av)
+        Self::new(
+            Data::Str(Rc::new(RuntimeString::new(value.into()))),
+            Protection::Av,
+        )
     }
 
     fn list(values: Vec<Self>) -> Self {
@@ -104,7 +183,7 @@ impl Value {
             .map(|value| value.protection)
             .max()
             .unwrap_or(Protection::Av);
-        Self::new(Data::List(values), protection)
+        Self::new(Data::List(Rc::new(values)), protection)
     }
 
     fn stored(mut self) -> Self {
@@ -147,7 +226,7 @@ impl Value {
                 "false" => Some(Data::Bool(false)),
                 _ => None,
             },
-            ValueType::Str => Some(Data::Str(rendered)),
+            ValueType::Str => Some(Data::Str(Rc::new(RuntimeString::new(rendered)))),
             ValueType::Bytes => Some(Data::Bytes(rendered.into_bytes())),
             ValueType::Json => Some(Data::Json(rendered)),
         };
@@ -160,7 +239,8 @@ impl Value {
             Data::Int(value) => value.to_string(),
             Data::Float(value) => value.to_string(),
             Data::Bool(value) => value.to_string(),
-            Data::Str(value) | Data::Json(value) => value.clone(),
+            Data::Str(value) => value.text.clone(),
+            Data::Json(value) => value.clone(),
             Data::Bytes(value) => format!("{value:?}"),
             Data::List(values) => format!(
                 "[{}]",
@@ -197,12 +277,14 @@ struct AbsoluteSlot {
 struct LoopState {
     limit: i64,
     iterations: i64,
+    call_depth: usize,
 }
 
 #[derive(Debug)]
 struct PickState {
     items: Vec<Value>,
     index: usize,
+    call_depth: usize,
 }
 
 #[derive(Debug)]
@@ -223,8 +305,8 @@ pub struct NativeContext {
     input: VecDeque<String>,
     stdout: String,
     termination: Termination,
-    loops: HashMap<i64, LoopState>,
-    picks: HashMap<i64, PickState>,
+    loops: HashMap<i64, Vec<LoopState>>,
+    picks: HashMap<i64, Vec<PickState>>,
     call_frames: Vec<usize>,
     finished: bool,
     interactive_input: bool,
@@ -254,8 +336,13 @@ impl NativeContext {
             context.interactive_input = true;
             return Ok(context);
         }
-        let mut source = String::new();
-        io::stdin().read_to_string(&mut source)?;
+        let mut source = Vec::new();
+        io::stdin().read_to_end(&mut source)?;
+        if let Some(values) = decode_input_frame(&source)? {
+            return Ok(Self::new(values));
+        }
+        let source =
+            String::from_utf8(source).map_err(|_| invalid_input_frame("APL stdin is not UTF-8"))?;
         Ok(Self::new(source.lines().map(str::to_owned).collect()))
     }
 
@@ -375,9 +462,11 @@ unsafe fn record_value(record: *const AbiRecord) -> Result<Value, String> {
     let data = match (*record).kind {
         1 if bytes.len() == 8 => Data::Int(i64::from_le_bytes(bytes.try_into().unwrap())),
         2 if bytes.len() == 8 => Data::Float(f64::from_le_bytes(bytes.try_into().unwrap())),
-        3 => Data::Str(
-            String::from_utf8(bytes.to_vec()).map_err(|_| "ABI string is not UTF-8".to_owned())?,
-        ),
+        3 => {
+            let value = String::from_utf8(bytes.to_vec())
+                .map_err(|_| "ABI string is not UTF-8".to_owned())?;
+            Data::Str(Rc::new(RuntimeString::new(value)))
+        }
         4 if bytes.len() == 8 => Data::Bool(u64::from_le_bytes(bytes.try_into().unwrap()) != 0),
         kind => return Err(format!("invalid ABI constant kind `{kind}`")),
     };
@@ -440,58 +529,61 @@ fn eval_unary(operator: i64, value: Value) -> Result<Value, String> {
 
 fn eval_binary(operator: i64, left: Value, right: Value) -> Result<Value, String> {
     let protection = left.protection.max(right.protection);
-    let data = match operator {
-        0 => Data::Bool(left.data == right.data),
-        1 => Data::Bool(left.data != right.data),
-        2..=5 => match (left.data, right.data) {
-            (Data::Int(left), Data::Int(right)) => Data::Bool(match operator {
-                2 => left > right,
-                3 => left < right,
-                4 => left >= right,
-                _ => left <= right,
-            }),
-            (Data::Float(left), Data::Float(right)) => Data::Bool(match operator {
-                2 => left > right,
-                3 => left < right,
-                4 => left >= right,
-                _ => left <= right,
-            }),
-            _ => return Err("invalid ordering operands".to_owned()),
-        },
-        6 => match (left.data, right.data) {
-            (Data::Bool(left), Data::Bool(right)) => Data::Bool(left && right),
-            _ => return Err("invalid and operands".to_owned()),
-        },
-        7 => match (left.data, right.data) {
-            (Data::Bool(left), Data::Bool(right)) => Data::Bool(left || right),
-            _ => return Err("invalid or operands".to_owned()),
-        },
-        8 => match (left.data, right.data) {
-            (Data::Int(left), Data::Int(right)) => Data::Int(
-                left.checked_add(right)
-                    .ok_or_else(|| "integer overflow in add".to_owned())?,
-            ),
-            (Data::Float(left), Data::Float(right)) => Data::Float(left + right),
-            (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 + right),
-            (Data::Float(left), Data::Int(right)) => Data::Float(left + right as f64),
-            (Data::Str(left), Data::Str(right)) => Data::Str(left + &right),
-            _ => return Err("invalid add operands".to_owned()),
-        },
-        9 => arithmetic(left.data, right.data, "sub", i64::checked_sub, |a, b| a - b)?,
-        10 => arithmetic(left.data, right.data, "mul", i64::checked_mul, |a, b| a * b)?,
-        11 => match (left.data, right.data) {
-            (Data::Int(_), Data::Int(0)) => return Err("division by zero".to_owned()),
-            (Data::Int(left), Data::Int(right)) => Data::Int(
-                left.checked_div(right)
-                    .ok_or_else(|| "integer overflow in div".to_owned())?,
-            ),
-            (Data::Float(left), Data::Float(right)) => Data::Float(left / right),
-            (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 / right),
-            (Data::Float(left), Data::Int(right)) => Data::Float(left / right as f64),
-            _ => return Err("invalid div operands".to_owned()),
-        },
-        _ => return Err(format!("invalid binary operator id `{operator}`")),
-    };
+    let data =
+        match operator {
+            0 => Data::Bool(left.data == right.data),
+            1 => Data::Bool(left.data != right.data),
+            2..=5 => match (left.data, right.data) {
+                (Data::Int(left), Data::Int(right)) => Data::Bool(match operator {
+                    2 => left > right,
+                    3 => left < right,
+                    4 => left >= right,
+                    _ => left <= right,
+                }),
+                (Data::Float(left), Data::Float(right)) => Data::Bool(match operator {
+                    2 => left > right,
+                    3 => left < right,
+                    4 => left >= right,
+                    _ => left <= right,
+                }),
+                _ => return Err("invalid ordering operands".to_owned()),
+            },
+            6 => match (left.data, right.data) {
+                (Data::Bool(left), Data::Bool(right)) => Data::Bool(left && right),
+                _ => return Err("invalid and operands".to_owned()),
+            },
+            7 => match (left.data, right.data) {
+                (Data::Bool(left), Data::Bool(right)) => Data::Bool(left || right),
+                _ => return Err("invalid or operands".to_owned()),
+            },
+            8 => match (left.data, right.data) {
+                (Data::Int(left), Data::Int(right)) => Data::Int(
+                    left.checked_add(right)
+                        .ok_or_else(|| "integer overflow in add".to_owned())?,
+                ),
+                (Data::Float(left), Data::Float(right)) => Data::Float(left + right),
+                (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 + right),
+                (Data::Float(left), Data::Int(right)) => Data::Float(left + right as f64),
+                (Data::Str(left), Data::Str(right)) => Data::Str(Rc::new(RuntimeString::new(
+                    format!("{}{}", left.as_str(), right.as_str()),
+                ))),
+                _ => return Err("invalid add operands".to_owned()),
+            },
+            9 => arithmetic(left.data, right.data, "sub", i64::checked_sub, |a, b| a - b)?,
+            10 => arithmetic(left.data, right.data, "mul", i64::checked_mul, |a, b| a * b)?,
+            11 => match (left.data, right.data) {
+                (Data::Int(_), Data::Int(0)) => return Err("division by zero".to_owned()),
+                (Data::Int(left), Data::Int(right)) => Data::Int(
+                    left.checked_div(right)
+                        .ok_or_else(|| "integer overflow in div".to_owned())?,
+                ),
+                (Data::Float(left), Data::Float(right)) => Data::Float(left / right),
+                (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 / right),
+                (Data::Float(left), Data::Int(right)) => Data::Float(left / right as f64),
+                _ => return Err("invalid div operands".to_owned()),
+            },
+            _ => return Err(format!("invalid binary operator id `{operator}`")),
+        };
     Ok(Value::new(data, protection))
 }
 
@@ -533,9 +625,9 @@ fn eval_index(target: Value, index: Value) -> Value {
                 .and_then(|index| values.get(index).cloned())
                 .unwrap_or_else(|| Value::none(protection));
         }
-        Data::Str(value) => resolve_index(value.chars().count(), index)
-            .and_then(|index| value.chars().nth(index))
-            .map(|value| Data::Str(value.to_string())),
+        Data::Str(value) => resolve_index(value.chars.len(), index)
+            .and_then(|index| value.chars.get(index).copied())
+            .map(|value| Data::Str(Rc::new(RuntimeString::new(value.to_string())))),
         Data::Bytes(value) => resolve_index(value.len(), index)
             .and_then(|index| value.get(index).copied())
             .map(|value| Data::Int(i64::from(value))),
@@ -590,27 +682,24 @@ fn eval_slice(target: Value, start: Value, end: Value, step: Value) -> Value {
         return Value::none(protection);
     }
     let data = match target.data {
-        Data::Str(value) => {
-            let chars: Vec<char> = value.chars().collect();
-            Data::Str(
-                slice_indices(chars.len(), start, end, step)
-                    .into_iter()
-                    .map(|index| chars[index])
-                    .collect(),
-            )
-        }
+        Data::Str(value) => Data::Str(Rc::new(RuntimeString::new(
+            slice_indices(value.chars.len(), start, end, step)
+                .into_iter()
+                .map(|index| value.chars[index])
+                .collect(),
+        ))),
         Data::Bytes(value) => Data::Bytes(
             slice_indices(value.len(), start, end, step)
                 .into_iter()
                 .map(|index| value[index])
                 .collect(),
         ),
-        Data::List(values) => Data::List(
+        Data::List(values) => Data::List(Rc::new(
             slice_indices(values.len(), start, end, step)
                 .into_iter()
                 .map(|index| values[index].clone())
                 .collect(),
-        ),
+        )),
         _ => return Value::none(protection),
     };
     Value::new(data, protection)
@@ -732,12 +821,13 @@ pub unsafe extern "C" fn apl_rt_builtin_split(
         let (Data::Str(value), Data::Str(separator)) = (&args[0].data, &args[1].data) else {
             return Ok(Value::none(protection));
         };
-        if separator.is_empty() {
+        if separator.as_str().is_empty() {
             return Ok(Value::none(protection));
         }
         Ok(Value::list(
             value
-                .split(separator)
+                .as_str()
+                .split(separator.as_str())
                 .map(|part| Value::str(part).with_protection(protection))
                 .collect(),
         ))
@@ -755,13 +845,13 @@ pub unsafe extern "C" fn apl_rt_builtin_join(
             return Ok(Value::none(protection));
         };
         let mut parts = Vec::with_capacity(values.len());
-        for value in values {
+        for value in values.iter() {
             let Data::Str(value) = &value.data else {
                 return Ok(Value::none(protection));
             };
             parts.push(value.as_str());
         }
-        Ok(Value::str(parts.join(separator)).with_protection(protection))
+        Ok(Value::str(parts.join(separator.as_str())).with_protection(protection))
     })
 }
 
@@ -775,7 +865,10 @@ pub unsafe extern "C" fn apl_rt_builtin_contains(
         let (Data::Str(value), Data::Str(needle)) = (&args[0].data, &args[1].data) else {
             return Ok(Value::none(protection));
         };
-        Ok(Value::new(Data::Bool(value.contains(needle)), protection))
+        Ok(Value::new(
+            Data::Bool(value.as_str().contains(needle.as_str())),
+            protection,
+        ))
     })
 }
 
@@ -827,7 +920,7 @@ pub unsafe extern "C" fn apl_rt_builtin_add(
             return Err(format!("`{name}` is not a list"));
         };
         list.protection = list.protection.max(value.protection);
-        values.push(value);
+        Rc::make_mut(values).push(value);
         Ok(Value::none(Protection::Av))
     })
 }
@@ -840,7 +933,7 @@ pub unsafe extern "C" fn apl_rt_builtin_len(
     builtin(context, 1, |_, args| {
         let protection = args[0].protection;
         let length = match &args[0].data {
-            Data::Str(value) => value.chars().count(),
+            Data::Str(value) => value.chars.len(),
             Data::Bytes(value) => value.len(),
             Data::List(values) => values.len(),
             _ => return Ok(Value::none(protection)),
@@ -860,8 +953,9 @@ pub unsafe extern "C" fn apl_rt_builtin_ord(
             return Ok(Value::none(protection));
         };
         Ok(value
-            .chars()
-            .next()
+            .chars
+            .first()
+            .copied()
             .map(|value| Value::new(Data::Int(i64::from(u32::from(value))), protection))
             .unwrap_or_else(|| Value::none(protection)))
     })
@@ -903,7 +997,9 @@ pub unsafe extern "C" fn apl_rt_builtin_pop(
         let Data::List(values) = &mut list.data else {
             return Ok(Value::none(protection));
         };
-        let value = values.pop().unwrap_or_else(|| Value::none(protection));
+        let value = Rc::make_mut(values)
+            .pop()
+            .unwrap_or_else(|| Value::none(protection));
         list.refresh_list_protection();
         Ok(value)
     })
@@ -1188,11 +1284,20 @@ pub unsafe extern "C" fn apl_rt_fail(context_ptr: *mut NativeContext) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn apl_rt_return(context: *mut NativeContext, _scope_count: i64) -> i32 {
     operation(context, |context| {
+        let call_depth = context.call_frames.len();
         let depth = context
             .call_frames
             .pop()
             .ok_or_else(|| "return outside function".to_owned())?;
         context.scopes.truncate(depth);
+        context.loops.retain(|_, states| {
+            states.retain(|state| state.call_depth < call_depth);
+            !states.is_empty()
+        });
+        context.picks.retain(|_, states| {
+            states.retain(|state| state.call_depth < call_depth);
+            !states.is_empty()
+        });
         Ok(())
     })
 }
@@ -1255,13 +1360,11 @@ pub unsafe extern "C" fn apl_rt_loop_enter(
     limit: i64,
 ) -> i32 {
     operation(context, |context| {
-        context.loops.insert(
-            id,
-            LoopState {
-                limit,
-                iterations: 0,
-            },
-        );
+        context.loops.entry(id).or_default().push(LoopState {
+            limit,
+            iterations: 0,
+            call_depth: context.call_frames.len(),
+        });
         Ok(())
     })
 }
@@ -1272,7 +1375,11 @@ pub unsafe extern "C" fn apl_rt_loop_check(context_ptr: *mut NativeContext, id: 
         Ok(context) => context,
         Err(_) => return -1,
     };
-    let Some(state) = context.loops.get_mut(&id) else {
+    let Some(state) = context
+        .loops
+        .get_mut(&id)
+        .and_then(|states| states.last_mut())
+    else {
         return context.fail(format!("unknown loop `{id}`"));
     };
     if state.limit != -1 && state.iterations >= state.limit {
@@ -1286,7 +1393,14 @@ pub unsafe extern "C" fn apl_rt_loop_check(context_ptr: *mut NativeContext, id: 
 #[no_mangle]
 pub unsafe extern "C" fn apl_rt_loop_exit(context: *mut NativeContext, id: i64) -> i32 {
     operation(context, |context| {
-        context.loops.remove(&id);
+        let states = context
+            .loops
+            .get_mut(&id)
+            .ok_or_else(|| format!("unknown loop `{id}`"))?;
+        states.pop();
+        if states.is_empty() {
+            context.loops.remove(&id);
+        }
         Ok(())
     })
 }
@@ -1297,9 +1411,10 @@ pub unsafe extern "C" fn apl_rt_pick_enter(context: *mut NativeContext, id: i64)
         let value = context.pop()?;
         let protection = value.protection;
         let items = match value.data {
-            Data::List(values) => values,
+            Data::List(values) => values.as_ref().clone(),
             Data::Str(value) => value
-                .chars()
+                .chars
+                .iter()
                 .map(|value| Value::str(value.to_string()).with_protection(protection))
                 .collect(),
             Data::Bytes(value) => value
@@ -1308,7 +1423,11 @@ pub unsafe extern "C" fn apl_rt_pick_enter(context: *mut NativeContext, id: i64)
                 .collect(),
             _ => return Err("value is not pickable".to_owned()),
         };
-        context.picks.insert(id, PickState { items, index: 0 });
+        context.picks.entry(id).or_default().push(PickState {
+            items,
+            index: 0,
+            call_depth: context.call_frames.len(),
+        });
         Ok(())
     })
 }
@@ -1327,7 +1446,11 @@ pub unsafe extern "C" fn apl_rt_pick_next(
         Ok(name) => name,
         Err(error) => return context.fail(error),
     };
-    let Some(state) = context.picks.get_mut(&id) else {
+    let Some(state) = context
+        .picks
+        .get_mut(&id)
+        .and_then(|states| states.last_mut())
+    else {
         return context.fail(format!("unknown pick `{id}`"));
     };
     let Some(value) = state.items.get(state.index).cloned() else {
@@ -1342,7 +1465,14 @@ pub unsafe extern "C" fn apl_rt_pick_next(
 #[no_mangle]
 pub unsafe extern "C" fn apl_rt_pick_exit(context: *mut NativeContext, id: i64) -> i32 {
     operation(context, |context| {
-        context.picks.remove(&id);
+        let states = context
+            .picks
+            .get_mut(&id)
+            .ok_or_else(|| format!("unknown pick `{id}`"))?;
+        states.pop();
+        if states.is_empty() {
+            context.picks.remove(&id);
+        }
         Ok(())
     })
 }
@@ -1407,5 +1537,52 @@ mod tests {
             value.with_protection(Protection::Av).protection,
             Protection::Sasv
         );
+    }
+
+    #[test]
+    fn framed_input_preserves_multiline_unicode_and_empty_values() {
+        let frame = b"\0APLIN1:3:10:first\nline4:\xD0\x90\xD0\x9F0:";
+        assert_eq!(
+            decode_input_frame(frame).unwrap().unwrap(),
+            vec!["first\nline", "\u{410}\u{41f}", ""]
+        );
+        assert!(decode_input_frame(b"ordinary\ninput").unwrap().is_none());
+        assert!(decode_input_frame(b"\0APLIN1:1:4:bad").is_err());
+    }
+
+    #[test]
+    fn loop_state_is_reentrant_for_recursive_function_slots() {
+        let mut context = NativeContext::new(Vec::new());
+        let context_ptr = &mut context as *mut NativeContext;
+        unsafe {
+            assert_eq!(apl_rt_loop_enter(context_ptr, 7, 2), 0);
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 0);
+            assert_eq!(apl_rt_loop_enter(context_ptr, 7, 1), 0);
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 0);
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 1);
+            assert_eq!(apl_rt_loop_exit(context_ptr, 7), 0);
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 0);
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 1);
+            assert_eq!(apl_rt_loop_exit(context_ptr, 7), 0);
+        }
+    }
+
+    #[test]
+    fn return_discards_control_state_owned_by_the_call() {
+        let mut context = NativeContext::new(Vec::new());
+        let context_ptr = &mut context as *mut NativeContext;
+        unsafe {
+            assert_eq!(apl_rt_loop_enter(context_ptr, 7, 3), 0);
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 0);
+            assert_eq!(apl_rt_function_enter(context_ptr, ptr::null(), 0), 0);
+            assert_eq!(apl_rt_loop_enter(context_ptr, 7, 1), 0);
+            context.stack.push(Value::str("xy"));
+            assert_eq!(apl_rt_pick_enter(context_ptr, 9), 0);
+            assert_eq!(apl_rt_return(context_ptr, 0), 0);
+            assert!(context.picks.is_empty());
+            assert_eq!(context.loops.get(&7).map(Vec::len), Some(1));
+            assert_eq!(apl_rt_loop_check(context_ptr, 7), 0);
+            assert_eq!(apl_rt_loop_exit(context_ptr, 7), 0);
+        }
     }
 }

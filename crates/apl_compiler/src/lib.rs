@@ -1,6 +1,8 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     thread,
 };
 
@@ -47,6 +49,8 @@ pub const STANDARD_PRELUDE: &str = concat!(
 
 const BOOTSTRAP_COMPILER_PROTOCOL: &str = "APLCOMP2:";
 const BOOTSTRAP_COMPILER_LIBRARY_REQUEST: &str = "APLCREQ1:";
+const NATIVE_COMPILER_PROTOCOL: &str = "APLNATIVE1:";
+const NATIVE_COMPILER_REQUEST: &str = "APLNREQ1:";
 const LEGACY_BOOTSTRAP_COMPILER_OK: &str = "APLCOMP1:O";
 const LEGACY_BOOTSTRAP_COMPILER_ERROR: &str = "APLCOMP1:E";
 const LINKED_RUN_PROTOCOL: &str = "APLRUN1:";
@@ -57,6 +61,7 @@ pub const WINDOWS_X64_TARGET: &str = "x86_64-pc-windows-msvc";
 pub const LINUX_X64_TARGET: &str = "x86_64-unknown-linux-gnu";
 const LEGACY_LINKED_ARTIFACT_PROTOCOL: &str = "APLLINK2:";
 const LIBRARY_DISCOVERY_PROTOCOL: &str = "APLLIB1:";
+const NATIVE_INPUT_PROTOCOL: &[u8] = b"\0APLIN1:";
 const LIBRARY_DIRECTORY: &str = "libraries";
 const LIBRARY_EXTENSION: &str = "aplmod";
 
@@ -207,6 +212,13 @@ pub fn compile_bootstrap_compiler_artifact() -> Result<String, CompileError> {
     compile_linked_artifact_with_precompiled_module(&standard_module, &driver)
 }
 
+pub fn compile_native_toolchain_artifact() -> Result<String, CompileError> {
+    let standard_module = compile_standard_module_artifact()?;
+    let runtime_module = compile_module_artifact(RUNTIME_PRELUDE)?;
+    let driver = render_native_toolchain_driver(&runtime_module);
+    compile_linked_artifact_with_precompiled_module(&standard_module, &driver)
+}
+
 pub fn emit_bootstrap_compiler_artifact_file(output_path: &Path) -> Result<(), CompileError> {
     fs::write(output_path, compile_bootstrap_compiler_artifact()?)?;
     Ok(())
@@ -229,6 +241,115 @@ pub fn compile_linked_artifact_with_bootstrap_compiler_and_libraries(
         bootstrap_compiler_input(source, libraries),
     )?;
     parse_bootstrap_compiler_output(&output.stdout)
+}
+
+pub fn compile_linked_artifact_with_native_compiler(
+    compiler_executable: &Path,
+    source: &str,
+) -> Result<String, CompileError> {
+    compile_linked_artifact_with_native_compiler_and_libraries(compiler_executable, source, &[])
+}
+
+pub fn compile_linked_artifact_with_native_compiler_and_libraries(
+    compiler_executable: &Path,
+    source: &str,
+    libraries: &[NamedLibrary],
+) -> Result<String, CompileError> {
+    let output = run_native_compiler_process(
+        compiler_executable,
+        &bootstrap_compiler_input(source, libraries),
+    )?;
+    parse_bootstrap_compiler_output(&output)
+}
+
+pub fn compile_assembly_with_native_toolchain(
+    compiler_executable: &Path,
+    source: &str,
+    target: &str,
+) -> Result<String, CompileError> {
+    compile_assembly_with_native_toolchain_and_libraries(compiler_executable, source, target, &[])
+}
+
+pub fn compile_assembly_with_native_toolchain_and_libraries(
+    compiler_executable: &Path,
+    source: &str,
+    target: &str,
+    libraries: &[NamedLibrary],
+) -> Result<String, CompileError> {
+    let input = native_compiler_input(source, target, libraries);
+    let output = run_native_compiler_process(compiler_executable, &input)?;
+    parse_native_compiler_output(&output)
+}
+
+fn run_native_compiler_process(
+    compiler_executable: &Path,
+    values: &[String],
+) -> Result<String, CompileError> {
+    let input = encode_native_input(values);
+    let mut child = Command::new(compiler_executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            CompileError::Bootstrap(format!(
+                "failed to start native APL compiler `{}`: {error}",
+                compiler_executable.display()
+            ))
+        })?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| CompileError::Bootstrap("native compiler stdin unavailable".to_owned()))?
+        .write_all(&input)?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        let diagnostic = String::from_utf8_lossy(&output.stderr);
+        return Err(CompileError::Bootstrap(format!(
+            "native APL compiler exited with {}{}{}",
+            output.status,
+            if diagnostic.is_empty() { "" } else { ": " },
+            diagnostic.trim_end()
+        )));
+    }
+    let stdout = String::from_utf8(output.stdout).map_err(|_| {
+        CompileError::Bootstrap("native APL compiler emitted non-UTF-8 output".to_owned())
+    })?;
+    Ok(stdout)
+}
+
+pub fn emit_linked_artifact_with_native_compiler_file(
+    compiler_executable: &Path,
+    source_path: &Path,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let libraries = resolve_named_libraries(source_path, &source)?;
+    let artifact = compile_linked_artifact_with_native_compiler_and_libraries(
+        compiler_executable,
+        &source,
+        &libraries,
+    )?;
+    fs::write(output_path, artifact)?;
+    Ok(())
+}
+
+pub fn emit_assembly_with_native_toolchain_file(
+    compiler_executable: &Path,
+    source_path: &Path,
+    target: &str,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let libraries = resolve_named_libraries(source_path, &source)?;
+    let assembly = compile_assembly_with_native_toolchain_and_libraries(
+        compiler_executable,
+        &source,
+        target,
+        &libraries,
+    )?;
+    fs::write(output_path, assembly)?;
+    Ok(())
 }
 
 pub fn emit_linked_artifact_with_bootstrap_compiler_file(
@@ -472,7 +593,16 @@ pub fn compile_assembly_for_source(
     source: &str,
     target: &str,
 ) -> Result<String, CompileError> {
-    let abi = compile_native_abi_for_source(source_path, source, target)?;
+    let linked = compile_linked_artifact_for_source(source_path, source)?;
+    compile_assembly_for_linked_artifact(&linked, target)
+}
+
+pub fn compile_assembly_for_linked_artifact(
+    artifact: &str,
+    target: &str,
+) -> Result<String, CompileError> {
+    let low_ir = lower_linked_artifact_to_native_ir(artifact)?;
+    let abi = lower_native_ir_to_abi(&low_ir, target)?;
     emit_assembly_from_native_abi(&abi)
 }
 
@@ -507,6 +637,68 @@ pub fn build_native_executable_package(
     let source = fs::read_to_string(source_path)?;
     let assembly = compile_assembly_for_source(source_path, &source, target)?;
 
+    build_native_package(source_path, output_dir, target, &assembly)
+}
+
+pub fn build_native_linked_executable_package(
+    artifact_path: &Path,
+    output_dir: &Path,
+    target: &str,
+) -> Result<NativeBuildOutput, CompileError> {
+    let artifact = fs::read_to_string(artifact_path)?;
+    let assembly = compile_assembly_for_linked_artifact(&artifact, target)?;
+    let output = build_native_package(artifact_path, output_dir, target, &assembly)?;
+    fs::write(output.package_dir.join("program.apllink"), artifact)?;
+    Ok(output)
+}
+
+pub fn build_native_bootstrap_compiler_package(
+    output_dir: &Path,
+    target: &str,
+) -> Result<NativeBuildOutput, CompileError> {
+    let artifact = compile_bootstrap_compiler_artifact()?;
+    let assembly = compile_assembly_for_linked_artifact(&artifact, target)?;
+    let identity = Path::new("bootstrap_compiler.apl");
+    let output = build_native_package(identity, output_dir, target, &assembly)?;
+    fs::write(output.package_dir.join("program.apllink"), artifact)?;
+    Ok(output)
+}
+
+pub fn build_native_toolchain_package(
+    output_dir: &Path,
+    target: &str,
+) -> Result<NativeBuildOutput, CompileError> {
+    let artifact = compile_native_toolchain_artifact()?;
+    let assembly = compile_assembly_for_linked_artifact(&artifact, target)?;
+    let identity = Path::new("apl_native_toolchain.apl");
+    let output = build_native_package(identity, output_dir, target, &assembly)?;
+    fs::write(output.package_dir.join("program.apllink"), artifact)?;
+    Ok(output)
+}
+
+pub fn build_native_executable_with_native_toolchain(
+    compiler_executable: &Path,
+    source_path: &Path,
+    output_dir: &Path,
+    target: &str,
+) -> Result<NativeBuildOutput, CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let libraries = resolve_named_libraries(source_path, &source)?;
+    let assembly = compile_assembly_with_native_toolchain_and_libraries(
+        compiler_executable,
+        &source,
+        target,
+        &libraries,
+    )?;
+    build_native_package(source_path, output_dir, target, &assembly)
+}
+
+fn build_native_package(
+    identity_path: &Path,
+    output_dir: &Path,
+    target: &str,
+    assembly: &str,
+) -> Result<NativeBuildOutput, CompileError> {
     let package_dir = output_dir.to_path_buf();
     let src_dir = package_dir.join("src");
     fs::create_dir_all(&src_dir)?;
@@ -514,10 +706,10 @@ pub fn build_native_executable_package(
     let manifest_path = package_dir.join("Cargo.toml");
     let generated_source_path = src_dir.join("main.rs");
     let assembly_path = package_dir.join("program.s");
-    let workspace_root = workspace_root_from_source(source_path);
+    let workspace_root = workspace_root_from_source(identity_path);
     let package_name = format!(
         "{}_native",
-        compiled_package_name(source_path.file_stem().and_then(|name| name.to_str()))
+        compiled_package_name(identity_path.file_stem().and_then(|name| name.to_str()))
     );
 
     fs::write(
@@ -715,6 +907,67 @@ VTime aplcompiler.artifact_emitted = aplcompiler.emit_report(vm.FLOW_OK, get(apl
     )
 }
 
+fn render_native_toolchain_driver(runtime_module: &str) -> String {
+    let runtime_module = apl_string_literal(runtime_module);
+    format!(
+        r#"func aplnative.emit_report(status, payload) {{
+  out "{NATIVE_COMPILER_PROTOCOL}"
+  out status
+  out ":"
+  out len(payload)
+  out ":"
+  out payload
+  stop
+}}
+
+AVStr aplnative.runtime_module = {runtime_module}
+AVStr aplnative.request = input
+
+if aplnative.request != "{NATIVE_COMPILER_REQUEST}" {{
+  VTime aplnative.bad_request = aplnative.emit_report(vm.FLOW_FAIL, "invalid native compiler request")
+}}
+
+AVStr aplnative.target = input
+VTime aplnative.library_count = int(input)
+VTime aplnative.libraries = []
+VTime aplnative.library_index = 0
+
+while (aplnative.library_index < aplnative.library_count) (-1) {{
+  VTime aplnative.library_name = input
+  VTime aplnative.library_artifact = input
+  add(aplnative.libraries, [aplnative.library_name, aplnative.library_artifact])
+  aplnative.library_index += 1
+}}
+
+VTime aplnative.source = input
+VTime aplnative.linked = bootstrap.linked_artifact_with_module_and_libraries_report(aplnative.runtime_module, aplnative.libraries, aplnative.source)
+
+if get(aplnative.linked, 0) != vm.FLOW_OK {{
+  VTime aplnative.link_error = aplnative.emit_report(vm.FLOW_FAIL, get(aplnative.linked, 1))
+}}
+
+VTime aplnative.low = native.lower_linked_artifact_report(get(aplnative.linked, 1))
+
+if get(aplnative.low, 0) != vm.FLOW_OK {{
+  VTime aplnative.low_error = aplnative.emit_report(vm.FLOW_FAIL, get(aplnative.low, 1))
+}}
+
+VTime aplnative.abi = abi.lower_encoded_report(get(aplnative.low, 1), aplnative.target)
+
+if get(aplnative.abi, 0) != vm.FLOW_OK {{
+  VTime aplnative.abi_error = aplnative.emit_report(vm.FLOW_FAIL, get(aplnative.abi, 1))
+}}
+
+VTime aplnative.assembly = assembly.emit_encoded_report(get(aplnative.abi, 1))
+
+if get(aplnative.assembly, 0) != vm.FLOW_OK {{
+  VTime aplnative.assembly_error = aplnative.emit_report(vm.FLOW_FAIL, get(aplnative.assembly, 1))
+}}
+
+VTime aplnative.emitted = aplnative.emit_report(vm.FLOW_OK, get(aplnative.assembly, 1))"#
+    )
+}
+
 fn bootstrap_compiler_input(source: &str, libraries: &[NamedLibrary]) -> Vec<String> {
     if libraries.is_empty() {
         return vec![source.to_owned()];
@@ -729,6 +982,33 @@ fn bootstrap_compiler_input(source: &str, libraries: &[NamedLibrary]) -> Vec<Str
     }
     input.push(source.to_owned());
     input
+}
+
+fn native_compiler_input(source: &str, target: &str, libraries: &[NamedLibrary]) -> Vec<String> {
+    let mut input = Vec::with_capacity(libraries.len() * 2 + 4);
+    input.push(NATIVE_COMPILER_REQUEST.to_owned());
+    input.push(target.to_owned());
+    input.push(libraries.len().to_string());
+    for library in libraries {
+        input.push(library.name.clone());
+        input.push(library.artifact.clone());
+    }
+    input.push(source.to_owned());
+    input
+}
+
+fn encode_native_input(values: &[String]) -> Vec<u8> {
+    let payload_len = values.iter().map(String::len).sum::<usize>();
+    let mut encoded = Vec::with_capacity(NATIVE_INPUT_PROTOCOL.len() + payload_len + 32);
+    encoded.extend_from_slice(NATIVE_INPUT_PROTOCOL);
+    encoded.extend_from_slice(values.len().to_string().as_bytes());
+    encoded.push(b':');
+    for value in values {
+        encoded.extend_from_slice(value.len().to_string().as_bytes());
+        encoded.push(b':');
+        encoded.extend_from_slice(value.as_bytes());
+    }
+    encoded
 }
 
 fn apl_string_literal(value: &str) -> String {
@@ -799,8 +1079,43 @@ fn parse_bootstrap_compiler_output(output: &str) -> Result<String, CompileError>
     Err(invalid_bootstrap_compiler_response())
 }
 
+fn parse_native_compiler_output(output: &str) -> Result<String, CompileError> {
+    let Some(mut response) = output.strip_prefix(NATIVE_COMPILER_PROTOCOL) else {
+        return Err(invalid_native_compiler_response());
+    };
+    let Some(status) = take_protocol_field(&mut response) else {
+        return Err(invalid_native_compiler_response());
+    };
+    let Some(char_count) = take_protocol_usize(&mut response) else {
+        return Err(invalid_native_compiler_response());
+    };
+    let Some(payload) = take_protocol_chars(&mut response, char_count) else {
+        return Err(invalid_native_compiler_response());
+    };
+    if !response.is_empty() {
+        return Err(invalid_native_compiler_response());
+    }
+
+    match status {
+        "OK" if payload.starts_with("# APLASM1 runtime-abi=1 target=") => Ok(payload.to_owned()),
+        "OK" => Err(CompileError::Bootstrap(
+            "native APL compiler returned invalid assembly".to_owned(),
+        )),
+        "FAIL" => Err(CompileError::Bootstrap(if payload.is_empty() {
+            "native APL compiler failed without a diagnostic".to_owned()
+        } else {
+            payload.to_owned()
+        })),
+        _ => Err(invalid_native_compiler_response()),
+    }
+}
+
 fn invalid_bootstrap_compiler_response() -> CompileError {
     CompileError::Bootstrap("APL bootstrap compiler returned an invalid response".to_owned())
+}
+
+fn invalid_native_compiler_response() -> CompileError {
+    CompileError::Bootstrap("native APL compiler returned an invalid response".to_owned())
 }
 
 fn is_linked_artifact(value: &str) -> bool {
@@ -1349,6 +1664,19 @@ mod tests {
                 "APLMOD3:memory\n\0".to_owned(),
                 "include >> math out math.answer()".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn native_input_protocol_preserves_value_boundaries() {
+        let values = vec![
+            "line1\nline2".to_owned(),
+            "\u{410}\u{41f}".to_owned(),
+            String::new(),
+        ];
+        assert_eq!(
+            encode_native_input(&values),
+            b"\0APLIN1:3:11:line1\nline24:\xD0\x90\xD0\x9F0:"
         );
     }
 
@@ -1984,6 +2312,49 @@ mod tests {
     }
 
     #[test]
+    fn native_toolchain_protocol_and_driver_are_versioned() {
+        let assembly = "# APLASM1 runtime-abi=1 target=x86_64-pc-windows-msvc\n\0";
+        let encoded = format!(
+            "{NATIVE_COMPILER_PROTOCOL}OK:{}:{assembly}",
+            assembly.chars().count()
+        );
+        assert_eq!(parse_native_compiler_output(&encoded).unwrap(), assembly);
+
+        let diagnostic = "bad source:\nexpected =\0";
+        let encoded = format!(
+            "{NATIVE_COMPILER_PROTOCOL}FAIL:{}:{diagnostic}",
+            diagnostic.chars().count()
+        );
+        let CompileError::Bootstrap(message) = parse_native_compiler_output(&encoded).unwrap_err()
+        else {
+            panic!("expected native compiler diagnostic");
+        };
+        assert_eq!(message, diagnostic);
+
+        for malformed in [
+            "unknown",
+            "APLNATIVE1:MAYBE:0:",
+            "APLNATIVE1:OK:3:bad",
+            "APLNATIVE1:OK:20:# APLASM1 short",
+            "APLNATIVE1:FAIL:0:",
+        ] {
+            assert!(matches!(
+                parse_native_compiler_output(malformed),
+                Err(CompileError::Bootstrap(_))
+            ));
+        }
+
+        let runtime_module = "APLMOD3:line\nquote=\" slash=\\ tab=\t nul=\0";
+        let driver = render_native_toolchain_driver(runtime_module);
+        apl_parser::parse_program(&driver).unwrap();
+        assert!(driver.contains(NATIVE_COMPILER_PROTOCOL));
+        assert!(driver.contains(NATIVE_COMPILER_REQUEST));
+        assert!(driver.contains("native.lower_linked_artifact_report"));
+        assert!(driver.contains("abi.lower_encoded_report"));
+        assert!(driver.contains("assembly.emit_encoded_report"));
+    }
+
+    #[test]
     #[ignore = "expensive compiler-in-VM bootstrap gate"]
     fn bootstrap_compiler_artifact_compiles_inside_apl_vm() {
         let compiler = compile_bootstrap_compiler_artifact().unwrap();
@@ -2033,6 +2404,93 @@ mod tests {
             panic!("expected nested compiler diagnostic");
         };
         assert_eq!(message, "parse error at 1:13: declaration expects =");
+    }
+
+    #[test]
+    #[ignore = "expensive native self-host toolchain gate"]
+    fn native_toolchain_compiles_and_runs_a_host_executable() {
+        if std::env::consts::ARCH != "x86_64" || (!cfg!(windows) && !cfg!(target_os = "linux")) {
+            return;
+        }
+        let target = host_native_target().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "apl_native_toolchain_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        let toolchain_dir = directory.join("toolchain");
+        let program_dir = directory.join("program");
+        fs::create_dir_all(&directory).unwrap();
+
+        let toolchain = build_native_toolchain_package(&toolchain_dir, target).unwrap();
+        let built = Command::new("cargo")
+            .arg("build")
+            .arg("--manifest-path")
+            .arg(&toolchain.manifest_path)
+            .output()
+            .unwrap();
+        assert!(
+            built.status.success(),
+            "{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let toolchain_executable = toolchain_dir.join("target").join("debug").join(format!(
+            "{}{}",
+            toolchain.package_name,
+            std::env::consts::EXE_SUFFIX
+        ));
+
+        let CompileError::Bootstrap(message) =
+            compile_assembly_with_native_toolchain(&toolchain_executable, "AVInt value 1", target)
+                .unwrap_err()
+        else {
+            panic!("expected native toolchain diagnostic");
+        };
+        assert_eq!(message, "parse error at 1:13: declaration expects =");
+
+        let source_path = directory.join("answer.apl");
+        fs::create_dir_all(directory.join("libraries")).unwrap();
+        let math = compile_module_artifact(
+            "func math.hidden(value) { return value + 1 } func math.answer() { return math.hidden(41) }",
+        )
+        .unwrap();
+        fs::write(directory.join("libraries").join("math.aplmod"), math).unwrap();
+        fs::write(
+            &source_path,
+            "include >> math\nexclude \"math.hidden\" << math\nout math.answer()\nstop\n",
+        )
+        .unwrap();
+        let program = build_native_executable_with_native_toolchain(
+            &toolchain_executable,
+            &source_path,
+            &program_dir,
+            target,
+        )
+        .unwrap();
+        let built = Command::new("cargo")
+            .arg("build")
+            .arg("--manifest-path")
+            .arg(&program.manifest_path)
+            .output()
+            .unwrap();
+        assert!(
+            built.status.success(),
+            "{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let executable = program_dir.join("target").join("debug").join(format!(
+            "{}{}",
+            program.package_name,
+            std::env::consts::EXE_SUFFIX
+        ));
+        let output = Command::new(executable).output().unwrap();
+        let _ = fs::remove_dir_all(&directory);
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "42");
     }
 
     #[test]

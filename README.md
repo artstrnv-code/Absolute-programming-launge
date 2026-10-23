@@ -79,10 +79,10 @@ capability-controlled system libraries, allowing ordinary builds to exclude
 them completely. The same library model is intended to cover APL-owned ISO and
 disk-image construction.
 
-Three compiled execution paths exist today. The legacy Rust-hosted path serializes a
-checked `Program` into binary `.aplc`, then lowers it on load to an in-memory
-`CompiledProgram` with linear statement opcodes, jumps, and stack expression
-opcodes. `.aplc` is not a stable emitted bytecode format. The APL-written
+Three compiled execution paths exist today. The legacy Rust-hosted path
+serializes a checked `Program` into binary `.aplc`, then lowers it on load to an
+in-memory `CompiledProgram` with linear statement opcodes, jumps, and stack
+expression opcodes. `.aplc` is not a stable emitted bytecode format. The APL-written
 self-host path serializes list-based IR into `APLMOD3` and `APLLINK3`; its VM is
 the portable semantic reference and bootstrap vehicle, not the final production
 backend. The third path lowers linked programs to APL-owned x86-64 assembly and
@@ -119,6 +119,13 @@ complete current `apl_rt_*` ABI, and `compile-native` assembles and links a host
 PE/ELF executable which runs without the portable VM or an `.apllink` loader.
 The runtime is still a bootstrap Rust library; moving it to APL and adding a
 freestanding profile remain future work.
+
+The compiler itself can now use that native path. `compile-native-toolchain`
+builds an executable containing the APL-written lexer, parser, checker, IR,
+linker, verifier, native lowering, ABI lowering, and assembly emitter.
+`compile-native-selfhost` sends source and selected `APLMOD3` libraries to that
+process and receives `APLASM1`; the Rust CLI only writes the package and invokes
+the platform assembler/linker. No portable VM executes during that compilation.
 
 ## Current Syntax
 
@@ -429,6 +436,21 @@ composition is completed before native lowering, so excluded functions do not
 enter the assembly image. On Windows, `compile_native_apl.bat` is the short
 two-argument wrapper around `compile-native`.
 
+Build the reusable native APL toolchain, then compile through it:
+
+```powershell
+cargo run --release -p apl -- compile-native-toolchain build\native_toolchain
+$toolchain = "build\native_toolchain\target\debug\apl_native_toolchain_compiled_native.exe"
+cargo run --release -p apl -- compile-native-selfhost $toolchain examples\linked_hello.apl build\selfhost_hello
+build\selfhost_hello\target\debug\linked_hello_compiled_native.exe
+```
+
+`compile-native-bootstrap` is the narrower intermediate compiler: it emits
+`APLLINK3` through `emit-linked-native-bootstrap`. The full toolchain instead
+returns assembly through the byte-length-framed `APLIN1` input and
+character-length-framed `APLNATIVE1` output protocols. These frames preserve
+multiline Unicode source, empty values, NULs, and precompiled libraries.
+
 Precompile a reusable APL function module, then link new user source against it
 without tokenizing or parsing the module source again:
 
@@ -492,9 +514,11 @@ versions. For named libraries, the host sends an `APLCREQ1:` request followed
 by the catalog count, `name`/`APLMOD3` pairs, and source as distinct VM input
 values. The compiler validates the modules and includes only libraries selected
 by source directives. The compiler artifact can be reused without rebuilding
-or re-tokenizing its own compiler sources. An outer Rust bootstrap host still loads and runs the APL VM;
-this is compiler-in-VM bootstrap, not native code generation yet. Release mode
-is strongly recommended for both compiler construction and nested compilation.
+or re-tokenizing its own compiler sources. This compiler-in-VM path remains the
+portable semantic gate. The native toolchain closes the same compiler and
+machine backend inside a native process, leaving only file/module transport and
+the platform assembler/linker in the host. Release mode is strongly recommended
+when constructing either compiler image.
 
 The Rust reference frontend/runtime and the APL-written bootstrap path share a
 differential regression corpus. It compares source acceptance, terminal status,
@@ -504,12 +528,15 @@ builtins, protection metadata, and explicit input streams:
 ```powershell
 cargo test --workspace
 cargo test --release -p apl_compiler bootstrap_compiler_artifact_compiles_inside_apl_vm -- --ignored
+cargo test --release -p apl_compiler native_toolchain_compiles_and_runs_a_host_executable -- --ignored
 ```
 
 The second command is the expensive compiler-in-VM gate: a reusable compiler
 artifact is executed inside the APL VM and must compile and run another APL
-program. `run_report` output is always a list of rendered strings, including
-the string `"NONE"` for `out NONE`; exhausted input is `NONE` in both runtimes.
+program. The third builds the native toolchain, asks it for assembly, links the
+result, and runs the resulting executable. `run_report` output is always a list
+of rendered strings, including the string `"NONE"` for `out NONE`; exhausted
+input is `NONE` in both runtimes.
 
 `.aplmod` now uses the `APLMOD3:` portable format. It stores unlinked IR plus a
 verified symbol table for functions, absolute variables, and `List`
@@ -799,8 +826,10 @@ separate symbols such as `apl_rt_builtin_add`, allowing unused builtin runtime
 sections to remain unreferenced. `emit-assembly` writes `.s`. Native-runtime
 entry points are implemented by `apl_native_runtime`; `build-native` creates a
 linkable host package and `compile-native` produces a real platform executable.
-Direct APL-owned object writing, an APL or freestanding runtime, ARM64, Mach-O,
-and packaging formats are the next layers.
+The reusable native toolchain executes every APL-owned compiler pass through
+assembly without the portable VM. Direct APL-owned object writing and platform
+linking, an APL or freestanding runtime, ARM64, Mach-O, and packaging formats
+are the next layers.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,

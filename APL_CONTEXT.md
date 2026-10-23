@@ -69,8 +69,10 @@ interpreter coverage for the current base language, an in-memory Rust-hosted
 opcode runtime, a closed portable self-host compiler/VM loop, and the first
 APL-owned target-neutral lowering, platform ABI, and x86-64 textual assembly
 layers. The bootstrap native runtime and host linker path now run ordinary APL
-programs as x86-64 PE/ELF executables. It does not yet have an APL-written or
-freestanding runtime, direct object writer, ARM64/Mach-O backend, or container
+programs as x86-64 PE/ELF executables. A reusable native compiler executable
+also owns source parsing through final assembly emission without running the
+portable VM. The project does not yet have an APL-written or freestanding
+runtime, direct object/linker implementation, ARM64/Mach-O backend, or container
 bundle system.
 
 There are currently three compiled execution paths. The legacy Rust-hosted path
@@ -109,8 +111,10 @@ entry points; builtins have separate symbols so ordinary platform linkers can
 discard unreferenced implementations. `apl_native_runtime` implements that ABI,
 and `build-native`/`compile-native` generate, assemble, link, and run host PE or
 ELF programs. Tests cover a real executable rather than contract stubs alone.
-The runtime is still written in bootstrap Rust; APL ownership and a
-freestanding profile remain open.
+`compile-native-toolchain` closes the APL-written frontend, linker, native IR,
+ABI, and assembly emitter into a reusable native executable. The runtime is
+still written in bootstrap Rust; APL ownership and a freestanding profile
+remain open.
 
 ## Library Composition
 
@@ -725,13 +729,18 @@ Rust workspace:
   `APLCREQ1:` request as separate input values; the APL compiler validates the
   catalog and links selected modules over its embedded precompiled base module.
   Source-only requests retain the original one-input shape for compatibility.
+  It can also build and invoke two native compiler images: the intermediate
+  compiler returns `APLLINK3`, while the full toolchain executes native/ABI/
+  assembly lowering and returns `APLASM1`. The host then performs only module
+  file transport, generated-package writing, and platform assembly/linking.
 - `apl_cli`: CLI with source `check`/`run`, host-side `.aplc` `emit`/`run-ir`,
   APL-owned portable artifact `emit-linked`/`run-linked`, default
   portable-artifact package `build`/`compile` (plus explicit `-linked`
   aliases), relocatable module `emit-module`/`extend-module`/
   `emit-standard-module`/`emit-linked-module`, compiler-in-VM
-  `emit-bootstrap-compiler`/`emit-linked-bootstrap`, and legacy `.aplc`
-  package `build-host`/`compile-host` commands.
+  `emit-bootstrap-compiler`/`emit-linked-bootstrap`, native compiler/toolchain
+  and self-host package commands, and legacy `.aplc` package
+  `build-host`/`compile-host` commands.
   Portable execution crosses the host boundary through the versioned
   length-framed `APLRUN1` response. `run_linked_artifact_report` exposes the
   exact `OK`/`STOP`/`FAIL` status and original output fragments, including
@@ -782,12 +791,12 @@ The portable bootstrap stage is closed when all of these remain true:
    host target, not the default user execution route.
 
 The repository currently satisfies this portable gate. This is not the native
-bootstrap exit: the outer compiler process and portable VM are still
-Rust-hosted. APL owns target-neutral lowering, concrete x86-64 ABI selection,
-and textual assembly, while the first bootstrap runtime now assembles and links
-ordinary host executables. The next native bootstrap phase moves runtime
-ownership out of Rust, closes a full self-host compiler executable, and adds a
-freestanding profile.
+runtime exit: the portable oracle remains Rust-hosted, and generated programs
+still link `apl_native_runtime`. The compiler bootstrap itself is now closed
+through assembly: the reusable native toolchain executes the APL-written lexer,
+parser, checker, linker, verifier, native IR, ABI, and assembly emitter without
+the portable VM. The next native phase moves runtime and platform-link ownership
+out of Rust and adds a freestanding profile.
 
 APL-owned runtime code:
 
@@ -1032,6 +1041,20 @@ bool payloads occupy eight bytes. Reference tables contain record pointers or
 zero for `NONE` mutation targets. `apl_native_runtime` implements this contract;
 generated assembly sees only the opaque context pointer and ABI records, not
 Rust VM structures.
+
+Native compiler process boundaries use `APLIN1`. The byte-framed stream begins
+with a NUL-prefixed magic, a value count, then byte length and UTF-8 payload for
+each value. This preserves multiline source, empty input, NULs, Unicode, and
+whole `APLMOD3` libraries as distinct APL `input` values. The intermediate
+native bootstrap compiler returns `APLCOMP2`/`APLLINK3`. The full native
+toolchain accepts `APLNREQ1` values and returns character-length-framed
+`APLNATIVE1` containing `APLASM1` or a diagnostic.
+
+`apl_native_runtime` stores strings with cached Unicode characters and uses
+reference-counted copy-on-write lists. Loop and `pick` state is stacked per
+static instruction ID, so recursive calls may re-enter the same generated loop
+without overwriting their caller's state.
+
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`. Its environment is
   `[bindings, inputs, input_index, scope_depth]`, where each compact binding is
@@ -1199,11 +1222,12 @@ Rust VM structures.
   produces the expected public values while static secret outputs are rejected
   by the checker before lowering. Direct VM tests separately verify `DENIED`
   for untrusted or dynamically protected output. A Rust
-  host still loads and executes the outer VM. The native backend now links and
-  runs ordinary programs, but the full compiler has not yet closed over the
-  native runtime, so this remains a self-hosted portable compiler/VM bootstrap
-  rather than the final native bootstrap. Use a release host for the VM-in-VM
-  smoke-test; debug mode is currently impractically slow.
+  host still loads and executes this portable oracle. Separately, the native
+  toolchain closes the complete APL compiler through `APLASM1` inside a native
+  executable; it does not execute the portable VM during user compilation.
+  Generated programs and the compiler still depend on the bootstrap Rust native
+  runtime, so the freestanding/runtime bootstrap remains open. Use a release
+  host for the VM-in-VM smoke-test; debug mode is currently impractically slow.
   A second gate builds that complete compiler/runtime module into a reusable
   compiler `APLLINK3`. `emit-linked-bootstrap` runs the compiler artifact
   inside the APL VM with user source and an optional named-library catalog as
@@ -1260,6 +1284,12 @@ Bootstrap parity gates:
   `bootstrap_compiler_artifact_compiles_inside_apl_vm` remains the final
   compiler-in-VM regression gate because it executes the reusable compiler
   artifact inside the APL VM and is intentionally expensive.
+- The ignored release test
+  `native_toolchain_compiles_and_runs_a_host_executable` builds the reusable
+  native compiler, asks it to compile source through assembly, invokes the host
+  linker, and runs the resulting executable. This is the native compiler
+  bootstrap gate; it is separate from the still-open APL/freestanding runtime
+  gate.
 
 Rust-hosted builtins that support the APL prelude:
 

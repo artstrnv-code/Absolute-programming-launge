@@ -214,6 +214,32 @@ fn main() {
                 Err(error) => exit_compile_error("emit-linked-bootstrap", error),
             }
         }
+        "emit-linked-native-bootstrap" => {
+            let Some(compiler_path) = args.next() else {
+                eprintln!("missing native bootstrap compiler executable path");
+                process::exit(2);
+            };
+            let Some(source_path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_linked_path(&source_path));
+
+            match apl_compiler::emit_linked_artifact_with_native_compiler_file(
+                Path::new(&compiler_path),
+                Path::new(&source_path),
+                &output_path,
+            ) {
+                Ok(()) => println!(
+                    "emitted linked artifact through native bootstrap compiler: {}",
+                    output_path.display()
+                ),
+                Err(error) => exit_compile_error("emit-linked-native-bootstrap", error),
+            }
+        }
         "run-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing linked artifact path");
@@ -328,6 +354,37 @@ fn main() {
                 Err(error) => exit_compile_error("emit-assembly", error),
             }
         }
+        "emit-assembly-native" => {
+            let Some(compiler_path) = args.next() else {
+                eprintln!("missing native toolchain executable path");
+                process::exit(2);
+            };
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let Some(target) = args.next() else {
+                eprintln!("missing native target");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_assembly_path(&path));
+
+            match apl_compiler::emit_assembly_with_native_toolchain_file(
+                Path::new(&compiler_path),
+                Path::new(&path),
+                &target,
+                &output_path,
+            ) {
+                Ok(()) => println!(
+                    "emitted assembly through native APL toolchain: {}",
+                    output_path.display()
+                ),
+                Err(error) => exit_compile_error("emit-assembly-native", error),
+            }
+        }
         "build-native" | "compile-native" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -356,25 +413,81 @@ fn main() {
                 &output_dir,
                 &target,
             ) {
-                Ok(output) => {
-                    println!("generated native package: {}", output.package_dir.display());
-                    println!("target: {}", output.target);
-                    println!("assembly: {}", output.assembly_path.display());
-                    println!("manifest: {}", output.manifest_path.display());
-                    if command == "compile-native" {
-                        compile_generated_package(
-                            &output.package_name,
-                            &output.package_dir,
-                            &output.manifest_path,
-                        );
-                    } else {
-                        println!(
-                            "build with: cargo build --manifest-path {}",
-                            output.manifest_path.display()
-                        );
-                    }
-                }
+                Ok(output) => finish_native_build(output, command == "compile-native"),
                 Err(error) => exit_compile_error("build-native", error),
+            }
+        }
+        "build-native-linked" | "compile-native-linked" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing linked artifact path");
+                process::exit(2);
+            };
+            let output_dir = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_native_build_dir(&path));
+            let target = native_target(args.next(), "build-native-linked");
+            ensure_host_target_for_compile(&command, "compile-native-linked", &target);
+
+            match apl_compiler::build_native_linked_executable_package(
+                Path::new(&path),
+                &output_dir,
+                &target,
+            ) {
+                Ok(output) => finish_native_build(output, command == "compile-native-linked"),
+                Err(error) => exit_compile_error("build-native-linked", error),
+            }
+        }
+        "build-native-bootstrap" | "compile-native-bootstrap" => {
+            let output_dir = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("build").join("native_bootstrap_compiler"));
+            let target = native_target(args.next(), "build-native-bootstrap");
+            ensure_host_target_for_compile(&command, "compile-native-bootstrap", &target);
+
+            match apl_compiler::build_native_bootstrap_compiler_package(&output_dir, &target) {
+                Ok(output) => finish_native_build(output, command == "compile-native-bootstrap"),
+                Err(error) => exit_compile_error("build-native-bootstrap", error),
+            }
+        }
+        "build-native-toolchain" | "compile-native-toolchain" => {
+            let output_dir = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("build").join("native_toolchain"));
+            let target = native_target(args.next(), "build-native-toolchain");
+            ensure_host_target_for_compile(&command, "compile-native-toolchain", &target);
+
+            match apl_compiler::build_native_toolchain_package(&output_dir, &target) {
+                Ok(output) => finish_native_build(output, command == "compile-native-toolchain"),
+                Err(error) => exit_compile_error("build-native-toolchain", error),
+            }
+        }
+        "build-native-selfhost" | "compile-native-selfhost" => {
+            let Some(compiler_path) = args.next() else {
+                eprintln!("missing native toolchain executable path");
+                process::exit(2);
+            };
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_dir = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_native_build_dir(&path));
+            let target = native_target(args.next(), "build-native-selfhost");
+            ensure_host_target_for_compile(&command, "compile-native-selfhost", &target);
+
+            match apl_compiler::build_native_executable_with_native_toolchain(
+                Path::new(&compiler_path),
+                Path::new(&path),
+                &output_dir,
+                &target,
+            ) {
+                Ok(output) => finish_native_build(output, command == "compile-native-selfhost"),
+                Err(error) => exit_compile_error("build-native-selfhost", error),
             }
         }
         "build" | "compile" | "build-linked" | "compile-linked" => {
@@ -465,7 +578,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|emit-assembly|build-native|compile-native|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|emit-linked-native-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|emit-assembly|emit-assembly-native|build-native|compile-native|build-native-linked|compile-native-linked|build-native-bootstrap|compile-native-bootstrap|build-native-toolchain|compile-native-toolchain|build-native-selfhost|compile-native-selfhost|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
@@ -558,6 +671,40 @@ fn exit_compile_error(verb: &str, error: apl_compiler::CompileError) -> ! {
         }
     }
     process::exit(1);
+}
+
+fn native_target(requested: Option<String>, verb: &str) -> String {
+    requested.unwrap_or_else(|| {
+        apl_compiler::host_native_target()
+            .unwrap_or_else(|error| exit_compile_error(verb, error))
+            .to_owned()
+    })
+}
+
+fn ensure_host_target_for_compile(command: &str, compile_command: &str, target: &str) {
+    if command == compile_command && target != apl_compiler::host_native_target().unwrap_or("") {
+        eprintln!("{compile_command} target `{target}` does not match this host");
+        process::exit(2);
+    }
+}
+
+fn finish_native_build(output: apl_compiler::NativeBuildOutput, compile: bool) {
+    println!("generated native package: {}", output.package_dir.display());
+    println!("target: {}", output.target);
+    println!("assembly: {}", output.assembly_path.display());
+    println!("manifest: {}", output.manifest_path.display());
+    if compile {
+        compile_generated_package(
+            &output.package_name,
+            &output.package_dir,
+            &output.manifest_path,
+        );
+    } else {
+        println!(
+            "build with: cargo build --manifest-path {}",
+            output.manifest_path.display()
+        );
+    }
 }
 
 fn compile_generated_package(package_name: &str, package_dir: &Path, manifest_path: &Path) {
