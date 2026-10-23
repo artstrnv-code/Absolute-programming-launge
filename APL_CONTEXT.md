@@ -354,13 +354,14 @@ visible name.
 
 ## Arithmetic
 
-Only four arithmetic operators exist in the base language:
+Five arithmetic operators exist in the base language:
 
 ```apl
 +
 -
 *
 /
+**
 ```
 
 Compound assignments are allowed:
@@ -389,9 +390,12 @@ Rules:
 - roots, trigonometry, and heavy math belong in functions or external
   languages.
 
-Power is exposed as `pow(base, exponent)`. The exponent is an integer; negative
-exponents return `NONE`. `**` is recognized by the lexer for future grammar
-work, but it is not currently an expression operator.
+Power is available as both `base ** exponent` and `pow(base, exponent)`. The
+base must be `Int` or `Float`, and the exponent must be `Int`. The operator is
+right-associative and binds more tightly than `*` and `/`; unary `-` binds to
+its operand first, so `-2 ** 2` means `(-2) ** 2`. Negative or out-of-range
+exponents and integer power overflow return `NONE`. The result preserves the
+base type and the strongest protection level of both operands.
 
 ## Comparisons
 
@@ -1096,7 +1100,7 @@ without overwriting their caller's state.
   VM program, matching the Rust runtime, rather than becoming an ordinary
   `NONE` function result. VM expressions can now evaluate variable loads,
   literals, list literals, builtin calls, indexing, slicing, function calls,
-  unary `-`/`not`, arithmetic operators `+`, `-`, `*`, `/`, comparison
+  unary `-`/`not`, arithmetic operators `+`, `-`, `*`, `/`, `**`, comparison
   operators `==`, `!=`, `>`, `<`, `>=`, `<=`, grouped expressions, and logical
   operators `and`/`or`.
   `=self=` compares the current absolute-variable value against the initial
@@ -1253,7 +1257,8 @@ without overwriting their caller's state.
   `examples/test_vm_stop_fail.apl`,
   `examples/test_vm_logic.apl`, `examples/test_vm_precedence.apl`,
   `examples/test_vm_float.apl`, `examples/test_vm_unary.apl`,
-  `examples/test_vm_pow.apl`, `examples/test_vm_self.apl`,
+  `examples/test_vm_pow.apl`, `examples/test_power.apl`,
+  `examples/test_vm_self.apl`,
   `examples/test_vm_conversions.apl`, `examples/test_vm_secretup.apl`,
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,
   `examples/test_vm_input.apl`, `examples/test_vm_input_stream.apl`, and

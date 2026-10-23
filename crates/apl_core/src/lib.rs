@@ -269,6 +269,7 @@ pub enum BinaryOperator {
     Sub,
     Mul,
     Div,
+    Pow,
     Equal,
     NotEqual,
     Greater,
@@ -1368,7 +1369,8 @@ impl Checker {
                 BinaryOperator::Add
                 | BinaryOperator::Sub
                 | BinaryOperator::Mul
-                | BinaryOperator::Div => Ok(ExpressionInfo {
+                | BinaryOperator::Div
+                | BinaryOperator::Pow => Ok(ExpressionInfo {
                     value_type: DynamicType::VTime,
                     protection,
                 }),
@@ -1376,6 +1378,22 @@ impl Checker {
         }
 
         match operator {
+            BinaryOperator::Pow => {
+                if matches!(
+                    left_info.value_type,
+                    DynamicType::Value(ValueType::Int | ValueType::Float)
+                ) && right_info.value_type == DynamicType::Value(ValueType::Int)
+                {
+                    Ok(ExpressionInfo {
+                        value_type: left_info.value_type,
+                        protection,
+                    })
+                } else {
+                    Err(CheckError::InvalidOperation(format!(
+                        "power requires Int/Float base and Int exponent, got {left_info} and {right_info}"
+                    )))
+                }
+            }
             BinaryOperator::Add
             | BinaryOperator::Sub
             | BinaryOperator::Mul
@@ -1730,6 +1748,43 @@ mod tests {
             },
         )]);
         assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn power_requires_an_integer_exponent_and_preserves_protection() {
+        let valid = Program::new(vec![
+            decl(
+                "base",
+                VariableKind::Asv,
+                ValueType::Float,
+                Expression::Literal(Value::Float(2.0)),
+            ),
+            decl(
+                "result",
+                VariableKind::Asv,
+                ValueType::Float,
+                Expression::Binary {
+                    left: Box::new(Expression::Variable("base".to_owned())),
+                    operator: BinaryOperator::Pow,
+                    right: Box::new(Expression::Literal(Value::Int(3))),
+                },
+            ),
+        ]);
+        assert_eq!(validate_program(&valid), Ok(()));
+
+        let invalid = Program::new(vec![av_decl(
+            "result",
+            ValueType::Int,
+            Expression::Binary {
+                left: Box::new(Expression::Literal(Value::Int(2))),
+                operator: BinaryOperator::Pow,
+                right: Box::new(Expression::Literal(Value::Float(3.0))),
+            },
+        )]);
+        assert!(matches!(
+            validate_program(&invalid),
+            Err(CheckError::InvalidOperation(message)) if message.contains("Int exponent")
+        ));
     }
 
     #[test]

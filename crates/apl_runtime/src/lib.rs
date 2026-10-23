@@ -1371,6 +1371,25 @@ impl<'a> Runtime<'a> {
                 )),
                 _ => Err(RuntimeError::Message("invalid div operands".to_owned())),
             },
+            BinaryOperator::Pow => {
+                let data = match (left.data, right.data) {
+                    (RuntimeData::Int(base), RuntimeData::Int(exponent)) if exponent >= 0 => {
+                        u32::try_from(exponent)
+                            .ok()
+                            .and_then(|exponent| base.checked_pow(exponent))
+                            .map(RuntimeData::Int)
+                    }
+                    (RuntimeData::Float(base), RuntimeData::Int(exponent)) if exponent >= 0 => {
+                        i32::try_from(exponent)
+                            .ok()
+                            .map(|exponent| RuntimeData::Float(base.powi(exponent)))
+                    }
+                    _ => None,
+                };
+                Ok(data
+                    .map(|data| RuntimeValue::new(data, protection))
+                    .unwrap_or_else(|| RuntimeValue::none(protection)))
+            }
             BinaryOperator::Equal => Ok(RuntimeValue::new(
                 RuntimeData::Bool(left.data == right.data),
                 protection,
@@ -2445,6 +2464,34 @@ mod tests {
     }
 
     #[test]
+    fn source_runtime_uses_power_operator() {
+        let output = run_source(
+            r#"
+            AVInt nested = 2 ** 3 ** 2
+            AVInt signed = -2 ** 2
+            AVFloat decimal = 2.0 ** 3
+            AVInt negative = 2 ** -1
+            AVInt overflow = 2 ** 63
+            ASVInt hidden = 3
+            ASVInt protected = hidden ** 2
+            AVStr type_name = ""
+            AVStr protection = ""
+            type_name, protection = info(protected)
+            out nested
+            out signed
+            out decimal
+            out negative
+            out overflow
+            out type_name
+            out protection
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "51248NONENONEIntASV");
+    }
+
+    #[test]
     fn source_runtime_out_appends_and_strings_decode_escapes() {
         let output = run_source(
             r#"
@@ -3273,6 +3320,39 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "48trueNONEDENIED");
+    }
+
+    #[test]
+    fn source_runtime_uses_apl_vm_power_operator_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt nested = 2 ** 3 ** 2 AVInt signed = -2 ** 2 AVFloat decimal = 2.0 ** 3 AVInt negative = 2 ** -1 AVInt overflow = 2 ** 63 out nested out signed out decimal out negative out overflow"
+            VTime vm_output = vm.run_source(source)
+
+            out len(vm_output)
+            pick(vm_output): item {
+              out item
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "551248NONENONE");
+    }
+
+    #[test]
+    fn source_runtime_apl_checker_validates_power_operator_prelude() {
+        assert_eq!(
+            apl_compile_outcomes(&[
+                "AVInt value = 2 ** 8",
+                "AVFloat value = 2.0 ** 8",
+                "AVInt hidden = 2 ASVInt result = hidden ** 8",
+                "AVInt value = true ** 2",
+                "AVInt value = 2 ** 2.0",
+                "ASVInt hidden = 2 AVInt leaked = hidden ** 8",
+            ]),
+            vec!["OK", "OK", "OK", "FAIL", "FAIL", "FAIL"]
+        );
     }
 
     #[test]

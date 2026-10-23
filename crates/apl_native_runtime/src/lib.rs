@@ -529,34 +529,34 @@ fn eval_unary(operator: i64, value: Value) -> Result<Value, String> {
 
 fn eval_binary(operator: i64, left: Value, right: Value) -> Result<Value, String> {
     let protection = left.protection.max(right.protection);
-    let data =
-        match operator {
-            0 => Data::Bool(left.data == right.data),
-            1 => Data::Bool(left.data != right.data),
-            2..=5 => match (left.data, right.data) {
-                (Data::Int(left), Data::Int(right)) => Data::Bool(match operator {
-                    2 => left > right,
-                    3 => left < right,
-                    4 => left >= right,
-                    _ => left <= right,
-                }),
-                (Data::Float(left), Data::Float(right)) => Data::Bool(match operator {
-                    2 => left > right,
-                    3 => left < right,
-                    4 => left >= right,
-                    _ => left <= right,
-                }),
-                _ => return Err("invalid ordering operands".to_owned()),
-            },
-            6 => match (left.data, right.data) {
-                (Data::Bool(left), Data::Bool(right)) => Data::Bool(left && right),
-                _ => return Err("invalid and operands".to_owned()),
-            },
-            7 => match (left.data, right.data) {
-                (Data::Bool(left), Data::Bool(right)) => Data::Bool(left || right),
-                _ => return Err("invalid or operands".to_owned()),
-            },
-            8 => match (left.data, right.data) {
+    let data = match operator {
+        0 => Data::Bool(left.data == right.data),
+        1 => Data::Bool(left.data != right.data),
+        2..=5 => match (left.data, right.data) {
+            (Data::Int(left), Data::Int(right)) => Data::Bool(match operator {
+                2 => left > right,
+                3 => left < right,
+                4 => left >= right,
+                _ => left <= right,
+            }),
+            (Data::Float(left), Data::Float(right)) => Data::Bool(match operator {
+                2 => left > right,
+                3 => left < right,
+                4 => left >= right,
+                _ => left <= right,
+            }),
+            _ => return Err("invalid ordering operands".to_owned()),
+        },
+        6 => match (left.data, right.data) {
+            (Data::Bool(left), Data::Bool(right)) => Data::Bool(left && right),
+            _ => return Err("invalid and operands".to_owned()),
+        },
+        7 => match (left.data, right.data) {
+            (Data::Bool(left), Data::Bool(right)) => Data::Bool(left || right),
+            _ => return Err("invalid or operands".to_owned()),
+        },
+        8 => {
+            match (left.data, right.data) {
                 (Data::Int(left), Data::Int(right)) => Data::Int(
                     left.checked_add(right)
                         .ok_or_else(|| "integer overflow in add".to_owned())?,
@@ -568,22 +568,35 @@ fn eval_binary(operator: i64, left: Value, right: Value) -> Result<Value, String
                     format!("{}{}", left.as_str(), right.as_str()),
                 ))),
                 _ => return Err("invalid add operands".to_owned()),
-            },
-            9 => arithmetic(left.data, right.data, "sub", i64::checked_sub, |a, b| a - b)?,
-            10 => arithmetic(left.data, right.data, "mul", i64::checked_mul, |a, b| a * b)?,
-            11 => match (left.data, right.data) {
-                (Data::Int(_), Data::Int(0)) => return Err("division by zero".to_owned()),
-                (Data::Int(left), Data::Int(right)) => Data::Int(
-                    left.checked_div(right)
-                        .ok_or_else(|| "integer overflow in div".to_owned())?,
-                ),
-                (Data::Float(left), Data::Float(right)) => Data::Float(left / right),
-                (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 / right),
-                (Data::Float(left), Data::Int(right)) => Data::Float(left / right as f64),
-                _ => return Err("invalid div operands".to_owned()),
-            },
-            _ => return Err(format!("invalid binary operator id `{operator}`")),
-        };
+            }
+        }
+        9 => arithmetic(left.data, right.data, "sub", i64::checked_sub, |a, b| a - b)?,
+        10 => arithmetic(left.data, right.data, "mul", i64::checked_mul, |a, b| a * b)?,
+        11 => match (left.data, right.data) {
+            (Data::Int(_), Data::Int(0)) => return Err("division by zero".to_owned()),
+            (Data::Int(left), Data::Int(right)) => Data::Int(
+                left.checked_div(right)
+                    .ok_or_else(|| "integer overflow in div".to_owned())?,
+            ),
+            (Data::Float(left), Data::Float(right)) => Data::Float(left / right),
+            (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 / right),
+            (Data::Float(left), Data::Int(right)) => Data::Float(left / right as f64),
+            _ => return Err("invalid div operands".to_owned()),
+        },
+        12 => match (left.data, right.data) {
+            (Data::Int(base), Data::Int(exponent)) if exponent >= 0 => u32::try_from(exponent)
+                .ok()
+                .and_then(|exponent| base.checked_pow(exponent))
+                .map(Data::Int)
+                .unwrap_or(Data::None),
+            (Data::Float(base), Data::Int(exponent)) if exponent >= 0 => i32::try_from(exponent)
+                .ok()
+                .map(|exponent| Data::Float(base.powi(exponent)))
+                .unwrap_or(Data::None),
+            _ => Data::None,
+        },
+        _ => return Err(format!("invalid binary operator id `{operator}`")),
+    };
     Ok(Value::new(data, protection))
 }
 
@@ -1537,6 +1550,27 @@ mod tests {
             value.with_protection(Protection::Av).protection,
             Protection::Sasv
         );
+    }
+
+    #[test]
+    fn power_operator_uses_stable_id_and_preserves_protection() {
+        let result = eval_binary(
+            12,
+            Value::new(Data::Int(2), Protection::Asv),
+            Value::new(Data::Int(8), Protection::Av),
+        )
+        .unwrap();
+        assert!(matches!(result.data, Data::Int(256)));
+        assert_eq!(result.protection, Protection::Asv);
+
+        let none = eval_binary(
+            12,
+            Value::new(Data::Int(2), Protection::Av),
+            Value::new(Data::Int(-1), Protection::Sasv),
+        )
+        .unwrap();
+        assert!(matches!(none.data, Data::None));
+        assert_eq!(none.protection, Protection::Sasv);
     }
 
     #[test]

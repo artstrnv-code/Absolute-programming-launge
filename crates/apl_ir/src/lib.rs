@@ -426,6 +426,7 @@ impl Writer {
             BinaryOperator::LessEqual => 9,
             BinaryOperator::And => 10,
             BinaryOperator::Or => 11,
+            BinaryOperator::Pow => 12,
         });
     }
 }
@@ -784,6 +785,7 @@ impl<'a> Reader<'a> {
             9 => Ok(BinaryOperator::LessEqual),
             10 => Ok(BinaryOperator::And),
             11 => Ok(BinaryOperator::Or),
+            12 => Ok(BinaryOperator::Pow),
             tag => Err(IrError::InvalidTag {
                 kind: "BinaryOperator",
                 tag,
@@ -829,6 +831,20 @@ mod tests {
         let decoded = decode_program(&encoded).unwrap();
 
         assert_eq!(decoded, program);
+    }
+
+    #[test]
+    fn round_trips_power_without_renumbering_existing_operators() {
+        let program = Program::new(vec![Statement::Out(Expression::Binary {
+            left: Box::new(Expression::Literal(Value::Int(2))),
+            operator: BinaryOperator::Pow,
+            right: Box::new(Expression::Literal(Value::Int(8))),
+        })]);
+
+        assert_eq!(
+            decode_program(&encode_program(&program).unwrap()).unwrap(),
+            program
+        );
     }
 
     #[test]

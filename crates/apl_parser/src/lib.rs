@@ -406,7 +406,7 @@ impl Parser<'_> {
     }
 
     fn parse_factor(&mut self) -> Result<Expression, ParseError> {
-        let mut expression = self.parse_unary()?;
+        let mut expression = self.parse_power()?;
 
         loop {
             let operator = if self.eat_symbol(Symbol::Star) {
@@ -417,7 +417,7 @@ impl Parser<'_> {
                 break;
             };
 
-            let right = self.parse_unary()?;
+            let right = self.parse_power()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator,
@@ -426,6 +426,20 @@ impl Parser<'_> {
         }
 
         Ok(expression)
+    }
+
+    fn parse_power(&mut self) -> Result<Expression, ParseError> {
+        let left = self.parse_unary()?;
+        if !self.eat_symbol(Symbol::Power) {
+            return Ok(left);
+        }
+
+        let right = self.parse_power()?;
+        Ok(Expression::Binary {
+            left: Box::new(left),
+            operator: BinaryOperator::Pow,
+            right: Box::new(right),
+        })
     }
 
     fn parse_unary(&mut self) -> Result<Expression, ParseError> {
@@ -820,6 +834,7 @@ enum Symbol {
     SubAssign,
     MulAssign,
     DivAssign,
+    Power,
     EqualEqual,
     NotEqual,
     Greater,
@@ -851,6 +866,7 @@ impl Symbol {
             Self::SubAssign => "-=",
             Self::MulAssign => "*=",
             Self::DivAssign => "/=",
+            Self::Power => "**",
             Self::EqualEqual => "==",
             Self::NotEqual => "!=",
             Self::Greater => ">",
@@ -1038,6 +1054,7 @@ fn read_symbol(source: &str, cursor: usize) -> Result<(Symbol, usize), ParseErro
         ("-=", Symbol::SubAssign),
         ("*=", Symbol::MulAssign),
         ("/=", Symbol::DivAssign),
+        ("**", Symbol::Power),
         ("==", Symbol::EqualEqual),
         ("!=", Symbol::NotEqual),
         (">=", Symbol::GreaterEqual),
@@ -1297,6 +1314,45 @@ mod tests {
         .unwrap();
 
         assert_eq!(program.statements.len(), 3);
+        assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn parses_power_as_right_associative_above_multiplication() {
+        let program = parse_program("AVInt value = -2 ** 3 ** 2 * 4").unwrap();
+        let Statement::VariableDecl(declaration) = &program.statements[0] else {
+            panic!("expected declaration");
+        };
+        let Expression::Binary {
+            left,
+            operator: BinaryOperator::Mul,
+            ..
+        } = &declaration.initial_value
+        else {
+            panic!("expected multiplication at the expression root");
+        };
+        let Expression::Binary {
+            left: power_base,
+            operator: BinaryOperator::Pow,
+            right: power_exponent,
+        } = left.as_ref()
+        else {
+            panic!("expected power before multiplication");
+        };
+        assert!(matches!(
+            power_base.as_ref(),
+            Expression::Unary {
+                operator: UnaryOperator::Negate,
+                ..
+            }
+        ));
+        assert!(matches!(
+            power_exponent.as_ref(),
+            Expression::Binary {
+                operator: BinaryOperator::Pow,
+                ..
+            }
+        ));
         assert_eq!(validate_program(&program), Ok(()));
     }
 

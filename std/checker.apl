@@ -955,6 +955,20 @@ func checker.expr_type(expression, names) {
     VTime left_type = checker.expr_type(get(expression, 2), names)
     VTime right_type = checker.expr_type(get(expression, 3), names)
 
+    if op == "**" {
+      if right_type == "Int" {
+        if left_type == "Int" {
+          return "Int"
+        }
+
+        if left_type == "Float" {
+          return "Float"
+        }
+      }
+
+      return "VTime"
+    }
+
     if left_type == right_type {
       if left_type == "Int" {
         return "Int"
@@ -1293,6 +1307,10 @@ func checker.binary_is_arithmetic(op) {
   return op == "/"
 }
 
+func checker.binary_is_power(op) {
+  return op == "**"
+}
+
 func checker.binary_is_equality(op) {
   if op == "==" {
     return true
@@ -1369,6 +1387,20 @@ func checker.validate_binary_operand_types(expression, names) {
     }
 
     return checker.fail(names, join(["arithmetic requires matching Int or Float values, got ", left, " and ", right], ""))
+  }
+
+  if checker.binary_is_power(op) {
+    if right == "Int" {
+      if left == "Int" {
+        return checker.ok(names)
+      }
+
+      if left == "Float" {
+        return checker.ok(names)
+      }
+    }
+
+    return checker.fail(names, join(["power requires Int/Float base and Int exponent, got ", left, " and ", right], ""))
   }
 
   if checker.binary_is_equality(op) {

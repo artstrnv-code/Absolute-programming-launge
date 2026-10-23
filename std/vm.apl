@@ -1061,6 +1061,10 @@ func vm.eval_binary(op, left_expr, right_expr, env, output, functions) {
     return vm.expr_ok(left / right, env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
   }
 
+  if op == "**" {
+    return vm.expr_ok(pow(left, right), env, output, vm.max_kind(get(left_state, 3), get(right_state, 3)))
+  }
+
   return vm.expr_ok(NONE, env, output, "AV")
 }
 

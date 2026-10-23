@@ -49,7 +49,7 @@ List parser.DECL_KEYWORDS = ["AVInt", "AVFloat", "AVBool", "AVStr", "AVBytes", "
     "SASVInt", "SASVFloat", "SASVBool", "SASVStr", "SASVBytes", "SASVJson"]
 
 List parser.ASSIGN_OPS = ["=", "+=", "-=", "*=", "/="]
-List parser.BINARY_OPS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/"]
+List parser.BINARY_OPS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/", "**"]
 List parser.STATEMENT_KEYWORDS = ["include", "exclude", "if", "func", "while", "pick", "break", "continue", "return", "secretup", "stop", "fail", "out", "VTime", "List"]
 
 func parser.node_kind(node) {
@@ -613,18 +613,32 @@ func parser.parse_expr_self(tokens, index) {
 }
 
 func parser.parse_expr_factor(tokens, index) {
-  VTime parsed_left = parser.parse_expr_self(tokens, index)
+  VTime parsed_left = parser.parse_expr_power(tokens, index)
   VTime left = get(parsed_left, 0)
   VTime next_index = get(parsed_left, 1)
   VTime token = get(tokens, next_index)
   VTime op = lexer.token_value(token)
 
   while (parser.is_factor_token(token)) (-1) {
-    VTime parsed_right = parser.parse_expr_self(tokens, next_index + 1)
+    VTime parsed_right = parser.parse_expr_power(tokens, next_index + 1)
     left = [parser.EXPR_BINARY, op, left, get(parsed_right, 0)]
     next_index = get(parsed_right, 1)
     token = get(tokens, next_index)
     op = lexer.token_value(token)
+  }
+
+  return [left, next_index]
+}
+
+func parser.parse_expr_power(tokens, index) {
+  VTime parsed_left = parser.parse_expr_self(tokens, index)
+  VTime left = get(parsed_left, 0)
+  VTime next_index = get(parsed_left, 1)
+  VTime token = get(tokens, next_index)
+
+  if parser.is_symbol_token(token, "**") {
+    VTime parsed_right = parser.parse_expr_power(tokens, next_index + 1)
+    return [[parser.EXPR_BINARY, "**", left, get(parsed_right, 0)], get(parsed_right, 1)]
   }
 
   return [left, next_index]
