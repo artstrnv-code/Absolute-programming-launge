@@ -96,7 +96,16 @@ numeric slots, and `break`/`continue` carry explicit scope-unwind counts.
 Mutating `add`/`pop` calls retain their named target descriptors. The low-IR
 codec verifies instruction shapes, label targets, call-slot bounds, function
 tables, manifests, and stack discipline. `APLLOW1` is the input contract for
-future machine backends; it is not assembly, object code, or an executable yet.
+machine backends.
+
+The next APL-owned boundary is also implemented as `APLABI1`. `std/abi.apl`
+interns names and literals into a canonical constant pool, replaces language
+strings with stable numeric opcode/type/protection/operator/builtin IDs, and
+attaches an exact platform ABI descriptor. The initial targets are Windows x64
+(`win64`/COFF, 32-byte shadow space) and Linux x64 (`sysv64`/ELF). Its decoder
+revalidates pool references, calls, labels, stack discipline, function slots,
+and the library manifest. `APLABI1` is ready for assembly emission, but is not
+assembly, object code, or an executable yet.
 
 ## Current Syntax
 
@@ -366,6 +375,20 @@ The `.apllow` file begins with `APLLOW1:` and uses the same tagged,
 length-framed scalar/list codec as other portable artifacts. Named-library
 composition and exclusions are preserved in its `APLMAN1` manifest.
 
+Lower the same program into a concrete runtime ABI image for Windows x64 or
+Linux x64 and inspect the numeric result:
+
+```powershell
+cargo run -p apl -- emit-native-abi examples\linked_hello.apl x86_64-pc-windows-msvc build\linked_hello.aplabi
+cargo run -p apl -- inspect-native-abi build\linked_hello.aplabi
+```
+
+The `.aplabi` file begins with `APLABI1:`. Supported target names are
+`x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu`. The target descriptor
+records the object format, calling convention, word size, stack alignment,
+shadow-space size, and ordered argument registers so the assembly emitter does
+not need to infer platform rules.
+
 Precompile a reusable APL function module, then link new user source against it
 without tokenizing or parsing the module source again:
 
@@ -399,7 +422,7 @@ cargo run --release -p apl -- run-linked build\bootstrap_runtime.apllink
 ```
 
 `emit-standard-module` compiles `runtime`, `lexer`, `parser`, `checker`, `ir`,
-`linker`, `verifier`, `vm`, `artifact`, `native`, and `bootstrap` sequentially
+`linker`, `verifier`, `vm`, `artifact`, `native`, `abi`, and `bootstrap` sequentially
 inside one APL invocation. The combined IR and symbol table stay in memory and
 are encoded once. The current VM-in-VM smoke-test is computationally expensive,
 so release mode is recommended for that final command.
@@ -418,7 +441,7 @@ cargo run --release -p apl -- run-linked build\with_math_selfhost.apllink
 ```
 
 The bootstrap compiler artifact contains the APL-written frontend, checker,
-linker, verifier, artifact codec, VM, native low-IR pass, and an embedded
+linker, verifier, artifact codec, VM, native low-IR and ABI passes, and an embedded
 relocatable runtime module. It accepts source as input and returns either a new
 `APLLINK3` payload
 or a diagnostic through the versioned, length-framed `APLCOMP2` response
@@ -713,8 +736,19 @@ state, pick iterators, and separately lowered function slots. It covers the
 current value, collection, protection, control-flow, and function instruction
 surface. Its verifier rejects malformed opcodes, literals, builtin arities,
 call slots, labels, function records, manifests, stack underflow, and residual
-stack values. The next backend layer will translate this target-neutral low IR
-to platform assembly/object code and provide the native value/runtime ABI.
+stack values.
+
+`std/abi.apl` consumes verified `APLLOW1` and emits versioned `APLABI1` images.
+It defines stable numeric IDs for all 37 current low-IR operations, declaration
+types, protection levels, operators, and builtins; interns names and typed
+literals once; retains function slots and mutation-target references; and
+selects an exact Windows x64 or Linux x64 calling convention descriptor. Its
+codec rejects unsupported or altered target descriptors, duplicate or invalid
+pool entries, wrong reference kinds, bad builtin/function arities, missing or
+duplicate labels, stack errors, and malformed manifests. `emit-native-abi`
+writes `.aplabi`; `inspect-native-abi` renders the target, pool, entry code,
+functions, and manifest. Assembly/object emission and the native runtime are
+the next backend layers.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,

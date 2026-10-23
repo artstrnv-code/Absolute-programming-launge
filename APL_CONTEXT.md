@@ -67,9 +67,9 @@ Current high-level plan:
 Current implementation has parser, checker, CLI, GUI shell, runtime v0.1
 interpreter coverage for the current base language, an in-memory Rust-hosted
 opcode runtime, a closed portable self-host compiler/VM loop, and the first
-APL-owned target-neutral native lowering layer. It does not yet have a machine
-code generator, platform object writer, freestanding runtime, or container
-bundle system.
+APL-owned target-neutral native lowering and platform ABI layers. It does not
+yet have a machine-code generator, platform object writer, freestanding
+runtime, or container bundle system.
 
 There are currently two compiled execution paths. The legacy Rust-hosted path
 stores a checked `Program` in binary `.aplc` form, then lowers it at load time
@@ -87,6 +87,15 @@ operations, turns structured control flow into labels/jumps, records explicit
 scope unwinds, and preserves final function slots and the `APLMAN1` manifest.
 This target-neutral artifact is the contract between language semantics and
 future x86-64/ARM64 emitters. It is not executable machine code.
+
+`APLABI1` is the next native boundary. `std/abi.apl` converts `APLLOW1` strings
+and typed literals into a canonical constant pool plus stable numeric IDs for
+all current operations, types, protections, operators, and builtins. The image
+contains an exact target descriptor instead of leaving calling-convention
+choices to emitters. Current descriptors cover Windows x64 (`win64`, COFF,
+32-byte shadow space) and Linux x64 (`sysv64`, ELF, no shadow space), including
+word size, stack alignment, and argument registers. This is still an
+intermediate artifact, not assembly or machine code.
 
 ## Library Composition
 
@@ -753,10 +762,10 @@ The portable bootstrap stage is closed when all of these remain true:
    host target, not the default user execution route.
 
 The repository currently satisfies this portable gate. This is not the native
-bootstrap exit: the outer process and VM are still Rust-hosted. The next major
-compiler phase is an APL-owned native lowering/backend that emits assembly or
-object code, links platform executables, and eventually supports a freestanding
-runtime without the Rust host.
+bootstrap exit: the outer process and VM are still Rust-hosted. APL now owns
+target-neutral lowering and concrete x86-64 ABI selection; the next major
+compiler phase emits assembly or object code, links platform executables, and
+eventually supports a freestanding runtime without the Rust host.
 
 APL-owned runtime code:
 
@@ -946,8 +955,19 @@ APL-owned runtime code:
   shape, builtin arity, call-slot bounds, unique labels and function records,
   every jump target, the library manifest, and linear stack discipline.
   `emit-native-ir` writes `.apllow`; `inspect-native-ir` renders its entry code,
-  function slots, and manifest. Machine-specific ABI lowering, assembly/object
-  emission, platform linking, and native execution remain the next layers.
+  function slots, and manifest.
+- `std/abi.apl`: the APL-owned runtime/machine ABI pass. It lowers verified
+  `APLLOW1` to `APLABI1`, deduplicates names and typed literals in a constant
+  pool, and replaces language-level strings with stable numeric identifiers.
+  It retains function slots, lexical-control metadata, mutation-target name
+  references, and the `APLMAN1` manifest. Exact target descriptors currently
+  cover Windows x64 COFF/win64 and Linux x64 ELF/sysv64, including word size,
+  stack alignment, shadow space, and argument registers. The verifier rejects
+  altered targets, duplicate/malformed pool entries, wrong pool-reference
+  kinds, bad calls and labels, function-table inconsistencies, stack errors,
+  and malformed manifests. `emit-native-abi` writes `.aplabi`, and
+  `inspect-native-abi` renders it. Assembly/object emission, platform linking,
+  a native runtime, and native execution remain the next layers.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`. Its environment is
   `[bindings, inputs, input_index, scope_depth]`, where each compact binding is

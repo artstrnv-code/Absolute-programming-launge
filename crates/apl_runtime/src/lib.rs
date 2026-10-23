@@ -1911,6 +1911,8 @@ mod tests {
             "\n\n",
             include_str!("../../../std/native.apl"),
             "\n\n",
+            include_str!("../../../std/abi.apl"),
+            "\n\n",
             include_str!("../../../std/bootstrap.apl")
         );
         let source = format!("{}\n\n{}\n", prelude.trim(), source.trim());
@@ -4069,6 +4071,178 @@ mod tests {
         assert_eq!(
             output,
             "OKFAILinvalid low IR headerFAILtrailing low IR dataFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR imageFAILinvalid low IR image"
+        );
+    }
+
+    #[test]
+    fn source_runtime_lowers_native_ir_to_stable_platform_abi_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func twice(value) { return value * 2 } AVInt x = 1 out twice(x + 2)"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime low = native.lower_linked_artifact_report(get(linked, 1))
+            VTime lowered = abi.lower_encoded_report(get(low, 1), abi.TARGET_WINDOWS_X64)
+            VTime decoded = abi.decode_image_report(get(lowered, 1))
+            VTime image = get(decoded, 1)
+            VTime target = get(image, 1)
+            VTime pool = get(image, 2)
+            VTime entry = get(image, 3)
+            VTime functions = get(image, 4)
+            VTime function = get(functions, 0)
+
+            out get(linked, 0)
+            out get(low, 0)
+            out get(lowered, 0)
+            out get(lowered, 1)[:len(abi.HEADER)]
+            out get(decoded, 0)
+            out abi.image_is_valid(image)
+            out get(target, 1)
+            out get(target, 3)
+            out get(target, 4)
+            out get(target, 6)
+            out get(target, 7)
+            out len(pool)
+            out get(get(pool, 0), 0)
+            out get(get(pool, 0), 1)
+            out len(entry)
+            out get(get(entry, 0), 0)
+            out get(get(entry, len(entry) - 1), 0)
+            out len(functions)
+            out abi.pool_value(pool, get(function, 1))
+            out len(get(function, 2))
+            out get(get(function, 3), 0)[0]
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKOKOKAPLABI1:OKtruex86_64-pc-windows-msvccoffwin64163251170211twice14"
+        );
+    }
+
+    #[test]
+    fn source_runtime_native_abi_covers_complete_low_ir_surface_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) VTime last = pop(items) VTime returned = echo(neg + 2) echo(x) if false { fail \"never\" } while (x < 3) (4) { x += 1 if x == 2 { continue } break } pick(items): item { if item == 1 { continue } break } secretup(x) out \"ok\" stop"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime low = native.lower_linked_artifact_report(get(linked, 1))
+            VTime lowered = abi.lower_encoded_report(get(low, 1), abi.TARGET_LINUX_X64)
+
+            if get(lowered, 0) != vm.FLOW_OK {
+              out get(linked, 0)
+              out get(linked, 1)
+              out get(low, 0)
+              out get(low, 1)
+              out get(lowered, 0)
+              out get(lowered, 1)
+              stop
+            }
+
+            VTime image = get(abi.decode_image_report(get(lowered, 1)), 1)
+            VTime target = get(image, 1)
+            VTime pool = get(image, 2)
+            VTime opcodes = []
+            VTime mutation_targets = []
+
+            pick(get(image, 3)): instruction {
+              add(opcodes, get(instruction, 0))
+
+              if get(instruction, 0) == abi.OP_CALL_BUILTIN {
+                VTime builtin_name = get(abi.BUILTINS, get(instruction, 1))
+
+                if (builtin_name == "add") or (builtin_name == "pop") {
+                  add(mutation_targets, abi.pool_value(pool, get(get(instruction, 3), 0)))
+                }
+              }
+            }
+
+            pick(get(image, 4)): function {
+              pick(get(function, 3)): instruction {
+                add(opcodes, get(instruction, 0))
+              }
+            }
+
+            VTime missing = []
+            VTime opcode = 0
+
+            while (opcode < len(abi.OPCODE_NAMES)) (-1) {
+              if checker.value_exists(opcodes, opcode) != true {
+                add(missing, opcode)
+              }
+
+              opcode += 1
+            }
+
+            out get(linked, 0)
+            out get(lowered, 0)
+            out abi.image_is_valid(image)
+            out len(missing)
+            out join(mutation_targets, ",")
+            out get(target, 3)
+            out get(target, 4)
+            out get(target, 7)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "OKOKtrue0items,itemselfsysv640");
+    }
+
+    #[test]
+    fn source_runtime_native_abi_codec_rejects_malformed_images_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            VTime linked = bootstrap.linked_artifact_report("out 1")
+            VTime low = native.lower_linked_artifact_report(get(linked, 1))
+            VTime lowered = abi.lower_encoded_report(get(low, 1), abi.TARGET_WINDOWS_X64)
+            VTime encoded = get(lowered, 1)
+            VTime image = get(abi.decode_image_report(encoded), 1)
+            VTime target = get(image, 1)
+            VTime pool = get(image, 2)
+            VTime entry = get(image, 3)
+            VTime functions = get(image, 4)
+            VTime manifest = get(image, 5)
+            VTime duplicate_pool = pool[:]
+            add(duplicate_pool, get(pool, 0))
+
+            VTime bad_target = [abi.IMAGE_MAGIC, [99, "bad", "x86_64", "coff", "win64", 8, 16, 32, ["rcx"]], pool, entry, functions, manifest]
+            VTime bad_pool = [abi.IMAGE_MAGIC, target, duplicate_pool, entry, functions, manifest]
+            VTime bad_pool_entry = [abi.IMAGE_MAGIC, target, [[99, "bad"]], entry, functions, manifest]
+            VTime bad_ref = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_CONST, len(pool)], [abi.OP_OUT]], functions, manifest]
+            VTime bad_name_ref = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_LOAD, 0], [abi.OP_DROP]], functions, manifest]
+            VTime bad_label = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_JUMP, 7]], functions, manifest]
+            VTime bad_slot = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_CALL_SLOT, 0, 0], [abi.OP_DROP]], functions, manifest]
+            VTime underflow = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_OUT]], functions, manifest]
+            VTime residue = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_CONST, 0]], functions, manifest]
+            VTime bad_builtin = [abi.IMAGE_MAGIC, target, pool, [[abi.OP_CONST, 0], [abi.OP_CONST, 0], [abi.OP_CALL_BUILTIN, abi.index_of(abi.BUILTINS, "len"), 2, [-1, -1]], [abi.OP_DROP]], functions, manifest]
+            VTime invalid_images = [bad_target, bad_pool, bad_pool_entry, bad_ref, bad_name_ref, bad_label, bad_slot, underflow, residue, bad_builtin]
+
+            out get(lowered, 0)
+            out abi.image_is_valid(image)
+
+            pick(invalid_images): invalid_image {
+              out abi.image_is_valid(invalid_image)
+              out get(abi.encode_image_report(invalid_image), 0)
+            }
+
+            VTime bad_ref_text = join([abi.HEADER, artifact.encode_node(artifact.wrap_value(bad_ref))], "")
+            out get(abi.lower_encoded_report(get(low, 1), "unknown-target"), 0)
+            out get(abi.lower_encoded_report(get(low, 1), "unknown-target"), 1)
+            out get(abi.decode_image_report("BAD"), 0)
+            out get(abi.decode_image_report("BAD"), 1)
+            out get(abi.decode_image_report(join([encoded, "x"], "")), 0)
+            out get(abi.decode_image_report(join([encoded, "x"], "")), 1)
+            out get(abi.decode_image_report(bad_ref_text), 0)
+            out get(abi.decode_image_report(bad_ref_text), 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKtruefalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILFAILunsupported native target: unknown-targetFAILinvalid native ABI headerFAILtrailing native ABI dataFAILinvalid native ABI image"
         );
     }
 

@@ -139,4 +139,33 @@ fn default_run_resolves_named_modules_for_the_apl_compiler() {
     assert!(description.contains("low-ir APLLOW1"));
     assert!(description.contains("[CALL_SLOT, 1, 0]"));
     assert!(description.contains("manifest [APLMAN1, [[base, []], [math, [math.internal]]]]"));
+
+    let native_abi = project.path("main.aplabi");
+    let emitted_abi = apl()
+        .arg("emit-native-abi")
+        .arg(&main)
+        .arg(apl_compiler::WINDOWS_X64_TARGET)
+        .arg(&native_abi)
+        .output()
+        .unwrap();
+    assert!(
+        emitted_abi.status.success(),
+        "{}",
+        String::from_utf8_lossy(&emitted_abi.stderr)
+    );
+    assert!(fs::read_to_string(&native_abi)
+        .unwrap()
+        .starts_with(apl_compiler::NATIVE_ABI_PROTOCOL));
+
+    let inspected_abi = apl()
+        .arg("inspect-native-abi")
+        .arg(&native_abi)
+        .output()
+        .unwrap();
+    assert!(inspected_abi.status.success());
+    let abi_description = String::from_utf8(inspected_abi.stdout).unwrap();
+    assert!(abi_description.contains("native-abi APLABI1"));
+    assert!(abi_description.contains("target x86_64-pc-windows-msvc win64"));
+    assert!(abi_description.contains("CALL_SLOT [8, 1, 0]"));
+    assert!(abi_description.contains("manifest [APLMAN1, [[base, []], [math, [math.internal]]]]"));
 }

@@ -275,6 +275,40 @@ fn main() {
                 Err(error) => exit_compile_error("inspect-native-ir", error),
             }
         }
+        "emit-native-abi" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let Some(target) = args.next() else {
+                eprintln!("missing native target");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_native_abi_path(&path));
+
+            match apl_compiler::emit_native_abi_file(Path::new(&path), &target, &output_path) {
+                Ok(()) => println!("emitted native ABI: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-native-abi", error),
+            }
+        }
+        "inspect-native-abi" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing native ABI path");
+                process::exit(2);
+            };
+            let artifact = fs::read_to_string(&path).unwrap_or_else(|error| {
+                eprintln!("failed to read `{path}`: {error}");
+                process::exit(1);
+            });
+
+            match apl_compiler::inspect_native_abi(&artifact) {
+                Ok(description) => print!("{description}"),
+                Err(error) => exit_compile_error("inspect-native-abi", error),
+            }
+        }
         "build" | "compile" | "build-linked" | "compile-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -363,7 +397,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
@@ -397,6 +431,14 @@ fn default_native_ir_path(path: &str) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("program");
     PathBuf::from("build").join(format!("{stem}.apllow"))
+}
+
+fn default_native_abi_path(path: &str) -> PathBuf {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("program");
+    PathBuf::from("build").join(format!("{stem}.aplabi"))
 }
 
 fn default_module_path(path: &str) -> PathBuf {
