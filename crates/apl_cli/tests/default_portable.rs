@@ -168,4 +168,26 @@ fn default_run_resolves_named_modules_for_the_apl_compiler() {
     assert!(abi_description.contains("target x86_64-pc-windows-msvc win64"));
     assert!(abi_description.contains("CALL_SLOT [8, 1, 0]"));
     assert!(abi_description.contains("manifest [APLMAN1, [[base, []], [math, [math.internal]]]]"));
+
+    let assembly_path = project.path("main.s");
+    let emitted_assembly = apl()
+        .arg("emit-assembly")
+        .arg(&main)
+        .arg(apl_compiler::WINDOWS_X64_TARGET)
+        .arg(&assembly_path)
+        .output()
+        .unwrap();
+    assert!(
+        emitted_assembly.status.success(),
+        "{}",
+        String::from_utf8_lossy(&emitted_assembly.stderr)
+    );
+    let assembly = fs::read_to_string(assembly_path).unwrap();
+    assert!(assembly.starts_with(
+        "# APLASM1 runtime-abi=1 target=x86_64-pc-windows-msvc\n.intel_syntax noprefix\n"
+    ));
+    assert!(assembly.contains("call apl_fn_1"));
+    assert!(assembly.contains("call apl_rt_out"));
+    assert!(assembly.contains(".section .rdata,\"dr\""));
+    assert!(!assembly.contains("math.internal"));
 }

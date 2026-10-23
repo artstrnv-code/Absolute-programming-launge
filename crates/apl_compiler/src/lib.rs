@@ -15,6 +15,7 @@ pub const VM_PRELUDE: &str = include_str!("../../../std/vm.apl");
 pub const ARTIFACT_PRELUDE: &str = include_str!("../../../std/artifact.apl");
 pub const NATIVE_PRELUDE: &str = include_str!("../../../std/native.apl");
 pub const ABI_PRELUDE: &str = include_str!("../../../std/abi.apl");
+pub const ASSEMBLY_PRELUDE: &str = include_str!("../../../std/assembly.apl");
 pub const BOOTSTRAP_PRELUDE: &str = include_str!("../../../std/bootstrap.apl");
 pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/runtime.apl"),
@@ -38,6 +39,8 @@ pub const STANDARD_PRELUDE: &str = concat!(
     include_str!("../../../std/native.apl"),
     "\n\n",
     include_str!("../../../std/abi.apl"),
+    "\n\n",
+    include_str!("../../../std/assembly.apl"),
     "\n\n",
     include_str!("../../../std/bootstrap.apl")
 );
@@ -168,6 +171,7 @@ pub fn compile_standard_module_artifact() -> Result<String, CompileError> {
         ARTIFACT_PRELUDE,
         NATIVE_PRELUDE,
         ABI_PRELUDE,
+        ASSEMBLY_PRELUDE,
         BOOTSTRAP_PRELUDE,
     ])
 }
@@ -446,6 +450,31 @@ pub fn emit_native_abi_file(
 pub fn inspect_native_abi(artifact: &str) -> Result<String, CompileError> {
     let output = run_bootstrap_bridge(ABI_INSPECT_BRIDGE, vec![artifact.to_owned()])?;
     Ok(output.stdout)
+}
+
+pub fn emit_assembly_from_native_abi(artifact: &str) -> Result<String, CompileError> {
+    let output = run_bootstrap_bridge(ASSEMBLY_EMIT_BRIDGE, vec![artifact.to_owned()])?;
+    bootstrap_stdout_artifact(output, "assembly")
+}
+
+pub fn compile_assembly_for_source(
+    source_path: &Path,
+    source: &str,
+    target: &str,
+) -> Result<String, CompileError> {
+    let abi = compile_native_abi_for_source(source_path, source, target)?;
+    emit_assembly_from_native_abi(&abi)
+}
+
+pub fn emit_assembly_file(
+    source_path: &Path,
+    target: &str,
+    output_path: &Path,
+) -> Result<(), CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let assembly = compile_assembly_for_source(source_path, &source, target)?;
+    fs::write(output_path, assembly)?;
+    Ok(())
 }
 
 pub fn build_executable_package(
@@ -980,6 +1009,15 @@ if get(aplhost.description, 0) != vm.FLOW_OK {
 
 out get(aplhost.description, 1)"#;
 
+const ASSEMBLY_EMIT_BRIDGE: &str = r#"VTime aplhost.encoded = input
+VTime aplhost.emitted = assembly.emit_encoded_report(aplhost.encoded)
+
+if get(aplhost.emitted, 0) != vm.FLOW_OK {
+  fail get(aplhost.emitted, 1)
+}
+
+out get(aplhost.emitted, 1)"#;
+
 const LIBRARY_DISCOVERY_BRIDGE: &str = r#"func aplhost.emit_library_report(status, values) {
   out "APLLIB1:"
   out status
@@ -1292,6 +1330,8 @@ mod tests {
         assert!(STANDARD_PRELUDE.contains("func abi.lower_image_report"));
         assert!(STANDARD_PRELUDE.contains("func abi.lower_encoded_report"));
         assert!(STANDARD_PRELUDE.contains("func abi.decode_image_report"));
+        assert!(STANDARD_PRELUDE.contains("func assembly.emit_image_report"));
+        assert!(STANDARD_PRELUDE.contains("func assembly.emit_encoded_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.compile_report"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.check_error"));
         assert!(STANDARD_PRELUDE.contains("func bootstrap.located_check_error"));
@@ -1427,6 +1467,143 @@ mod tests {
             Err(CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)))
                 if message == "invalid native ABI header"
         ));
+    }
+
+    #[test]
+    fn native_abi_emits_platform_assembly() {
+        let linked = compile_linked_artifact(
+            "func double(value) { return value * 2 } AVInt answer = double(21) out answer",
+        )
+        .unwrap();
+        let low_ir = lower_linked_artifact_to_native_ir(&linked).unwrap();
+        let native_abi = lower_native_ir_to_abi(&low_ir, WINDOWS_X64_TARGET).unwrap();
+        let assembly = emit_assembly_from_native_abi(&native_abi).unwrap();
+
+        assert!(assembly.starts_with(
+            "# APLASM1 runtime-abi=1 target=x86_64-pc-windows-msvc\n.intel_syntax noprefix\n.text\n"
+        ));
+        assert!(assembly.contains(".globl apl_program_entry"));
+        assert!(assembly.contains("sub rsp, 40"));
+        assert!(assembly.contains("call apl_fn_0"));
+        assert!(assembly.contains("call apl_rt_binary"));
+        assert!(assembly.contains("call apl_rt_finish"));
+        assert!(assembly.contains(".section .rdata,\"dr\""));
+
+        assert!(matches!(
+            emit_assembly_from_native_abi("BAD"),
+            Err(CompileError::Runtime(apl_runtime::RuntimeError::Failed(message)))
+                if message == "invalid native ABI header"
+        ));
+    }
+
+    #[test]
+    fn generated_host_x64_assembly_is_accepted_by_rustc() {
+        if std::env::consts::ARCH != "x86_64" {
+            return;
+        }
+
+        let target = if cfg!(windows) {
+            WINDOWS_X64_TARGET
+        } else {
+            LINUX_X64_TARGET
+        };
+        let source = "func inc(value) { return value + 1 } AVInt x = 0 while (x < 2) (3) { x += 1 } List values = [x] pick(values): item { out inc(item) }";
+        let assembly =
+            compile_assembly_for_source(Path::new("assembly_smoke.apl"), source, target).unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "apl_assembly_smoke_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let assembly_path = directory.join("program.s");
+        let source_path = directory.join("main.rs");
+        let executable_path = directory.join(format!("smoke{}", std::env::consts::EXE_SUFFIX));
+        fs::write(&assembly_path, assembly).unwrap();
+
+        let symbols = [
+            "apl_rt_push_const",
+            "apl_rt_push_none",
+            "apl_rt_input",
+            "apl_rt_secret_input",
+            "apl_rt_load",
+            "apl_rt_unary",
+            "apl_rt_binary",
+            "apl_rt_builtin_get",
+            "apl_rt_builtin_split",
+            "apl_rt_builtin_join",
+            "apl_rt_builtin_contains",
+            "apl_rt_builtin_pow",
+            "apl_rt_builtin_add",
+            "apl_rt_builtin_len",
+            "apl_rt_builtin_ord",
+            "apl_rt_builtin_char",
+            "apl_rt_builtin_pop",
+            "apl_rt_builtin_int",
+            "apl_rt_builtin_float",
+            "apl_rt_builtin_bool",
+            "apl_rt_builtin_str",
+            "apl_rt_builtin_bytes",
+            "apl_rt_builtin_json",
+            "apl_rt_list",
+            "apl_rt_index",
+            "apl_rt_slice",
+            "apl_rt_self",
+            "apl_rt_tag",
+            "apl_rt_declare",
+            "apl_rt_declare_list",
+            "apl_rt_declare_vtime",
+            "apl_rt_assign",
+            "apl_rt_info_assign",
+            "apl_rt_drop",
+            "apl_rt_secretup",
+            "apl_rt_out",
+            "apl_rt_stop",
+            "apl_rt_fail",
+            "apl_rt_return",
+            "apl_rt_branch_false",
+            "apl_rt_scope_enter",
+            "apl_rt_scope_exit",
+            "apl_rt_unwind",
+            "apl_rt_loop_enter",
+            "apl_rt_loop_check",
+            "apl_rt_loop_exit",
+            "apl_rt_pick_enter",
+            "apl_rt_pick_next",
+            "apl_rt_pick_exit",
+            "apl_rt_function_enter",
+            "apl_rt_finish",
+        ];
+        let mut wrapper = format!(
+            "use std::arch::global_asm;\nglobal_asm!(include_str!({:?}));\n",
+            assembly_path.to_string_lossy()
+        );
+        for symbol in symbols {
+            wrapper.push_str(&format!(
+                "#[no_mangle] pub extern \"C\" fn {symbol}() -> i32 {{ 0 }}\n"
+            ));
+        }
+        wrapper.push_str("fn main() {}\n");
+        fs::write(&source_path, wrapper).unwrap();
+
+        let output = std::process::Command::new("rustc")
+            .arg("--edition=2021")
+            .arg(&source_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .output()
+            .unwrap();
+        let _ = fs::remove_dir_all(&directory);
+
+        assert!(
+            output.status.success(),
+            "rustc rejected generated assembly:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]

@@ -1913,6 +1913,8 @@ mod tests {
             "\n\n",
             include_str!("../../../std/abi.apl"),
             "\n\n",
+            include_str!("../../../std/assembly.apl"),
+            "\n\n",
             include_str!("../../../std/bootstrap.apl")
         );
         let source = format!("{}\n\n{}\n", prelude.trim(), source.trim());
@@ -4243,6 +4245,114 @@ mod tests {
         assert_eq!(
             output,
             "OKtruefalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILfalseFAILFAILunsupported native target: unknown-targetFAILinvalid native ABI headerFAILtrailing native ABI dataFAILinvalid native ABI image"
+        );
+    }
+
+    #[test]
+    fn source_runtime_emits_windows_and_linux_x64_assembly_prelude() {
+        let output = run_source_with_prelude(
+            r##"
+            AVStr source = "func increment(value) { return value + 1 } AVStr text = \"AЖ🙂\" out text out increment(41)"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime low = native.lower_linked_artifact_report(get(linked, 1))
+            VTime windows_abi = abi.lower_encoded_report(get(low, 1), abi.TARGET_WINDOWS_X64)
+            VTime linux_abi = abi.lower_encoded_report(get(low, 1), abi.TARGET_LINUX_X64)
+            VTime windows = assembly.emit_encoded_report(get(windows_abi, 1))
+            VTime linux = assembly.emit_encoded_report(get(linux_abi, 1))
+            VTime windows_text = get(windows, 1)
+            VTime linux_text = get(linux, 1)
+
+            out get(linked, 0)
+            out get(windows, 0)
+            out get(linux, 0)
+            out contains(windows_text, "# APLASM1 runtime-abi=1 target=x86_64-pc-windows-msvc")
+            out contains(windows_text, ".def apl_program_entry; .scl 2; .type 32; .endef")
+            out contains(windows_text, "sub rsp, 40")
+            out contains(windows_text, "mov r12, rcx")
+            out contains(windows_text, ".section .rdata,\"dr\"")
+            out contains(windows_text, ".byte 65, 208, 150, 240, 159, 153, 130")
+            out contains(windows_text, "call apl_fn_0")
+            out contains(windows_text, "call apl_rt_function_enter")
+            out contains(windows_text, "call apl_rt_finish")
+            out contains(linux_text, "# APLASM1 runtime-abi=1 target=x86_64-unknown-linux-gnu")
+            out contains(linux_text, ".type apl_program_entry, @function")
+            out contains(linux_text, "sub rsp, 8")
+            out contains(linux_text, "mov r12, rdi")
+            out contains(linux_text, ".section .rodata")
+            out contains(linux_text, ".section .note.GNU-stack,\"\",@progbits")
+            "##,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKOKOKtruetruetruetruetruetruetruetruetruetruetruetruetruetruetrue"
+        );
+    }
+
+    #[test]
+    fn source_runtime_x64_assembly_covers_complete_abi_surface_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) VTime last = pop(items) VTime returned = echo(neg + 2) echo(x) if false { fail \"never\" } while (x < 3) (4) { x += 1 if x == 2 { continue } break } pick(items): item { if item == 1 { continue } break } secretup(x) out \"ok\" stop"
+            VTime linked = bootstrap.linked_artifact_report(source)
+            VTime low = native.lower_linked_artifact_report(get(linked, 1))
+            VTime lowered = abi.lower_encoded_report(get(low, 1), abi.TARGET_WINDOWS_X64)
+            VTime emitted = assembly.emit_encoded_report(get(lowered, 1))
+            VTime text = get(emitted, 1)
+            VTime expected = [
+              "call apl_rt_push_const", "call apl_rt_push_none", "call apl_rt_input",
+              "call apl_rt_secret_input", "call apl_rt_load", "call apl_rt_unary",
+              "call apl_rt_binary", "call apl_rt_builtin_add", "call apl_rt_builtin_pop",
+              "call apl_fn_0", "call apl_rt_list", "call apl_rt_index", "call apl_rt_slice",
+              "call apl_rt_self", "call apl_rt_tag", "call apl_rt_declare",
+              "call apl_rt_declare_list", "call apl_rt_declare_vtime", "call apl_rt_assign",
+              "call apl_rt_info_assign", "call apl_rt_drop", "call apl_rt_secretup",
+              "call apl_rt_out", "call apl_rt_stop", "call apl_rt_fail",
+              "call apl_rt_return", "call apl_rt_branch_false", "call apl_rt_scope_enter",
+              "call apl_rt_scope_exit", "call apl_rt_unwind", "call apl_rt_loop_enter",
+              "call apl_rt_loop_check", "call apl_rt_loop_exit", "call apl_rt_pick_enter",
+              "call apl_rt_pick_next", "call apl_rt_pick_exit", "call apl_rt_function_enter",
+              "call apl_rt_finish", ".Lapl_block_entry_", "jmp .Lapl_block_entry_",
+              ".Lapl_targets_entry_", ".Lapl_params_0", ".quad .Lapl_pool_"
+            ]
+            VTime missing = []
+
+            pick(expected): fragment {
+              if contains(text, fragment) != true {
+                add(missing, fragment)
+              }
+            }
+
+            VTime builtin_index = 0
+            VTime bad_builtin_symbols = 0
+
+            while (builtin_index < len(abi.BUILTINS)) (-1) {
+              VTime expected_symbol = join(["apl_rt_builtin_", get(abi.BUILTINS, builtin_index)], "")
+
+              if assembly.builtin_symbol(builtin_index) != expected_symbol {
+                bad_builtin_symbols += 1
+              }
+
+              builtin_index += 1
+            }
+
+            out get(linked, 0)
+            out get(lowered, 0)
+            out get(emitted, 0)
+            out len(missing)
+            out bad_builtin_symbols
+            out get(assembly.emit_encoded_report("BAD"), 0)
+            out get(assembly.emit_encoded_report("BAD"), 1)
+            out get(assembly.emit_image_report(1), 0)
+            out get(assembly.emit_image_report(1), 1)
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            output,
+            "OKOKOK00FAILinvalid native ABI headerFAILinvalid native ABI image"
         );
     }
 

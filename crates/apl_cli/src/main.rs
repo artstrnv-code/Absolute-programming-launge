@@ -309,6 +309,25 @@ fn main() {
                 Err(error) => exit_compile_error("inspect-native-abi", error),
             }
         }
+        "emit-assembly" | "emit-asm" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let Some(target) = args.next() else {
+                eprintln!("missing native target");
+                process::exit(2);
+            };
+            let output_path = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_assembly_path(&path));
+
+            match apl_compiler::emit_assembly_file(Path::new(&path), &target, &output_path) {
+                Ok(()) => println!("emitted assembly: {}", output_path.display()),
+                Err(error) => exit_compile_error("emit-assembly", error),
+            }
+        }
         "build" | "compile" | "build-linked" | "compile-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -397,7 +416,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|emit-assembly|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
@@ -439,6 +458,14 @@ fn default_native_abi_path(path: &str) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("program");
     PathBuf::from("build").join(format!("{stem}.aplabi"))
+}
+
+fn default_assembly_path(path: &str) -> PathBuf {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("program");
+    PathBuf::from("build").join(format!("{stem}.s"))
 }
 
 fn default_module_path(path: &str) -> PathBuf {
