@@ -1,12 +1,122 @@
 use std::{
     fs,
+    io::Write,
     path::PathBuf,
-    process::Command,
+    process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 struct TestProject {
     root: PathBuf,
+}
+
+#[test]
+#[cfg(all(
+    target_arch = "x86_64",
+    any(target_os = "windows", target_os = "linux")
+))]
+fn compile_native_builds_and_runs_a_real_host_executable() {
+    let project = TestProject::new();
+    let main = project.path("native.apl");
+    let package = project.path("native_package");
+    fs::write(
+        &main,
+        r#"func plus(left, right) { return left + right }
+AVInt value = input
+ASVStr hidden = secret input
+AVBool unchanged = value =self=
+AVStr type_name = ""
+AVStr protection_name = ""
+type_name, protection_name = info(value)
+List items = [1, 2]
+add(items, 3)
+VTime last = pop(items)
+AVInt counter = 0
+while (counter < 3) (5) {
+  counter += 1
+  if counter == 2 { continue }
+}
+if unchanged { out "ok:" } else { fail "self changed" }
+pick("AP"): ch { out ch }
+out ":"
+out counter
+out ":"
+out plus(value, last)
+out ":"
+out items[::-1]
+out ":"
+out type_name
+out ":"
+out protection_name
+out ":"
+out join(split("a,b", ","), "|")
+out ":"
+out contains("APL", "PL")
+out ":"
+out pow(3, 3)
+out ":"
+out char(ord("Z"))
+out ":"
+out get(items, 0)
+out ":"
+out len(items)
+out ":"
+out int("8")
+out ":"
+out float("2.5")
+out ":"
+out bool("true")
+out ":"
+out str(9)
+out ":"
+out bytes("A")
+out ":"
+out json("raw")
+secretup(value)
+stop
+"#,
+    )
+    .unwrap();
+
+    let compiled = apl()
+        .arg("compile-native")
+        .arg(&main)
+        .arg(&package)
+        .output()
+        .unwrap();
+    assert!(
+        compiled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+
+    let executable = package.join("target").join("debug").join(format!(
+        "native_compiled_native{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    assert!(executable.is_file(), "{}", executable.display());
+
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"4\nhidden\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "ok:AP:3:7:[2, 1]:Int:AV:a|b:true:27:Z:1:2:8:2.5:true:9:[65]:raw"
+    );
 }
 
 impl TestProject {

@@ -78,6 +78,16 @@ pub struct LinkedBuildOutput {
     pub source_path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeBuildOutput {
+    pub package_dir: PathBuf,
+    pub package_name: String,
+    pub assembly_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub source_path: PathBuf,
+    pub target: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkedRunStatus {
     Ok,
@@ -475,6 +485,56 @@ pub fn emit_assembly_file(
     let assembly = compile_assembly_for_source(source_path, &source, target)?;
     fs::write(output_path, assembly)?;
     Ok(())
+}
+
+pub fn host_native_target() -> Result<&'static str, CompileError> {
+    if cfg!(all(target_arch = "x86_64", target_os = "windows")) {
+        Ok(WINDOWS_X64_TARGET)
+    } else if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        Ok(LINUX_X64_TARGET)
+    } else {
+        Err(CompileError::Bootstrap(
+            "native executable builds currently require x86-64 Windows or Linux".to_owned(),
+        ))
+    }
+}
+
+pub fn build_native_executable_package(
+    source_path: &Path,
+    output_dir: &Path,
+    target: &str,
+) -> Result<NativeBuildOutput, CompileError> {
+    let source = fs::read_to_string(source_path)?;
+    let assembly = compile_assembly_for_source(source_path, &source, target)?;
+
+    let package_dir = output_dir.to_path_buf();
+    let src_dir = package_dir.join("src");
+    fs::create_dir_all(&src_dir)?;
+
+    let manifest_path = package_dir.join("Cargo.toml");
+    let generated_source_path = src_dir.join("main.rs");
+    let assembly_path = package_dir.join("program.s");
+    let workspace_root = workspace_root_from_source(source_path);
+    let package_name = format!(
+        "{}_native",
+        compiled_package_name(source_path.file_stem().and_then(|name| name.to_str()))
+    );
+
+    fs::write(
+        &manifest_path,
+        render_native_manifest(&workspace_root, &package_name),
+    )?;
+    fs::write(&assembly_path, assembly)?;
+    fs::write(&generated_source_path, render_native_main())?;
+
+    Ok(NativeBuildOutput {
+        package_dir,
+        package_name,
+        assembly_path,
+        manifest_path,
+        source_path: generated_source_path,
+        target: target.to_owned(),
+    })
 }
 
 pub fn build_executable_package(
@@ -1086,6 +1146,48 @@ apl_compiler = {{ path = "{compiler_path}" }}
     )
 }
 
+fn render_native_manifest(workspace_root: &Path, package_name: &str) -> String {
+    let runtime_path = toml_path(&workspace_root.join("crates/apl_native_runtime"));
+
+    format!(
+        r#"[package]
+name = "{package_name}"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+apl_native_runtime = {{ path = "{runtime_path}" }}
+"#
+    )
+}
+
+fn render_native_main() -> String {
+    r#"#![allow(bad_asm_style)]
+
+use std::{arch::global_asm, ffi::c_void, process};
+
+use apl_native_runtime::NativeContext;
+
+global_asm!(include_str!("../program.s"));
+
+extern "C" {
+    fn apl_program_entry(context: *mut c_void) -> i32;
+}
+
+fn main() {
+    let mut context = NativeContext::from_stdin().unwrap_or_else(|error| {
+        eprintln!("APL input error: {error}");
+        process::exit(1);
+    });
+    let status = unsafe { apl_program_entry((&mut context as *mut NativeContext).cast()) };
+    process::exit(status);
+}
+"#
+    .to_owned()
+}
+
 fn render_main(ir: &[u8]) -> String {
     format!(
         r#"use std::{{io::{{IsTerminal, Read}}, process}};
@@ -1172,13 +1274,19 @@ fn render_byte_array(bytes: &[u8]) -> String {
 }
 
 fn workspace_root_from_source(source_path: &Path) -> PathBuf {
+    let find_workspace = |path: &Path| {
+        path.ancestors()
+            .find(|ancestor| ancestor.join("crates/apl_runtime").exists())
+            .map(Path::to_path_buf)
+    };
     source_path
         .canonicalize()
         .ok()
-        .and_then(|path| {
-            path.ancestors()
-                .find(|ancestor| ancestor.join("crates/apl_runtime").exists())
-                .map(Path::to_path_buf)
+        .and_then(|path| find_workspace(&path))
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .and_then(|path| find_workspace(&path))
         })
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."))

@@ -79,14 +79,16 @@ capability-controlled system libraries, allowing ordinary builds to exclude
 them completely. The same library model is intended to cover APL-owned ISO and
 disk-image construction.
 
-Two bootstrap execution paths exist today. The Rust-hosted path serializes a
+Three compiled execution paths exist today. The legacy Rust-hosted path serializes a
 checked `Program` into binary `.aplc`, then lowers it on load to an in-memory
 `CompiledProgram` with linear statement opcodes, jumps, and stack expression
 opcodes. `.aplc` is not a stable emitted bytecode format. The APL-written
 self-host path serializes list-based IR into `APLMOD3` and `APLLINK3`; its VM is
 the portable semantic reference and bootstrap vehicle, not the final production
-backend. A bytecode target may remain useful for portability and debugging, but
-native object and executable output is the primary goal.
+backend. The third path lowers linked programs to APL-owned x86-64 assembly and
+links them with the bootstrap native runtime. A bytecode target may remain
+useful for portability and debugging, but native object and executable output
+is the primary goal.
 
 The first APL-owned native-backend boundary is now implemented as `APLLOW1`.
 `std/native.apl` consumes a verified, reachability-pruned `APLLINK3` image and
@@ -104,17 +106,19 @@ strings with stable numeric opcode/type/protection/operator/builtin IDs, and
 attaches an exact platform ABI descriptor. The initial targets are Windows x64
 (`win64`/COFF, 32-byte shadow space) and Linux x64 (`sysv64`/ELF). Its decoder
 revalidates pool references, calls, labels, stack discipline, function slots,
-and the library manifest. `APLABI1` is ready for assembly emission, but is not
-assembly, object code, or an executable yet.
+and the library manifest. `APLABI1` remains an inspectable intermediate image,
+not assembly, object code, or an executable.
 
 `std/assembly.apl` now consumes `APLABI1` and emits real x86-64 assembly in
 GNU/LLVM Intel syntax. It generates Win64 or SysV64 prologues, direct labels and
 APL function calls, read-only constant records with UTF-8 payloads, parameter
 and mutation-target tables, and references only the native-runtime entry points
 used by the program. The generated host assembly is checked by the LLVM
-integrated assembler during tests. A native runtime implementation, object-file
-driver, and final executable linker are still required before this path runs a
-program independently.
+integrated assembler during tests. `apl_native_runtime` now implements the
+complete current `apl_rt_*` ABI, and `compile-native` assembles and links a host
+PE/ELF executable which runs without the portable VM or an `.apllink` loader.
+The runtime is still a bootstrap Rust library; moving it to APL and adding a
+freestanding profile remain future work.
 
 ## Current Syntax
 
@@ -311,8 +315,9 @@ as redirected lines:
 ```
 
 This terminal-aware behavior is shared by `run`, `run-ir`, `run-linked`, and
-generated bootstrap executables. A future native runtime will provide a truly
-interactive input source instead of pre-collecting redirected lines.
+generated bootstrap executables. A `compile-native` executable reads redirected
+lines with the same semantics and reads terminal input lazily at each `input`
+operation.
 
 Generate a Rust-hosted package whose program payload is compiled by the
 APL-written pipeline into `program.apllink`. The generated executable loads,
@@ -409,6 +414,20 @@ The output starts with an `APLASM1` comment and uses GNU/LLVM Intel syntax.
 Windows output uses COFF `.rdata`, Win64 argument registers, 32 bytes of shadow
 space, and 16-byte call alignment. Linux output uses ELF `.rodata`, SysV64
 argument registers, 16-byte call alignment, and a non-executable-stack note.
+
+Build and run a host-native executable:
+
+```powershell
+cargo run -p apl -- compile-native examples\linked_hello.apl build\linked_hello_native
+build\linked_hello_native\target\debug\linked_hello_compiled_native.exe
+```
+
+`build-native` generates the same Cargo package and `program.s` without
+invoking Cargo. An optional third argument selects an assembly target;
+`compile-native` requires it to match the host. Named `include`/`exclude`
+composition is completed before native lowering, so excluded functions do not
+enter the assembly image. On Windows, `compile_native_apl.bat` is the short
+two-argument wrapper around `compile-native`.
 
 Precompile a reusable APL function module, then link new user source against it
 without tokenizing or parsing the module source again:
@@ -778,8 +797,10 @@ records use `[kind:u64, byte_length:u64, payload]`, with UTF-8 bytes for names
 and strings and eight-byte payloads for numeric/bool values. Builtins use
 separate symbols such as `apl_rt_builtin_add`, allowing unused builtin runtime
 sections to remain unreferenced. `emit-assembly` writes `.s`. Native-runtime
-implementation, direct object emission, platform linking, and execution are
-the next layers.
+entry points are implemented by `apl_native_runtime`; `build-native` creates a
+linkable host package and `compile-native` produces a real platform executable.
+Direct APL-owned object writing, an APL or freestanding runtime, ARM64, Mach-O,
+and packaging formats are the next layers.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
 list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,

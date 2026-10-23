@@ -328,6 +328,55 @@ fn main() {
                 Err(error) => exit_compile_error("emit-assembly", error),
             }
         }
+        "build-native" | "compile-native" => {
+            let Some(path) = args.next() else {
+                eprintln!("missing source path");
+                process::exit(2);
+            };
+            let output_dir = args
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| default_native_build_dir(&path));
+            let target = match args.next() {
+                Some(target) => target,
+                None => apl_compiler::host_native_target()
+                    .unwrap_or_else(|error| exit_compile_error("build-native", error))
+                    .to_owned(),
+            };
+
+            if command == "compile-native"
+                && target != apl_compiler::host_native_target().unwrap_or("")
+            {
+                eprintln!("compile-native target `{target}` does not match this host");
+                process::exit(2);
+            }
+
+            match apl_compiler::build_native_executable_package(
+                Path::new(&path),
+                &output_dir,
+                &target,
+            ) {
+                Ok(output) => {
+                    println!("generated native package: {}", output.package_dir.display());
+                    println!("target: {}", output.target);
+                    println!("assembly: {}", output.assembly_path.display());
+                    println!("manifest: {}", output.manifest_path.display());
+                    if command == "compile-native" {
+                        compile_generated_package(
+                            &output.package_name,
+                            &output.package_dir,
+                            &output.manifest_path,
+                        );
+                    } else {
+                        println!(
+                            "build with: cargo build --manifest-path {}",
+                            output.manifest_path.display()
+                        );
+                    }
+                }
+                Err(error) => exit_compile_error("build-native", error),
+            }
+        }
         "build" | "compile" | "build-linked" | "compile-linked" => {
             let Some(path) = args.next() else {
                 eprintln!("missing source path");
@@ -416,7 +465,7 @@ fn read_input() -> Vec<String> {
 
 fn print_usage() {
     eprintln!(
-        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|emit-assembly|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
+        "usage: apl <check|run|emit|run-ir|emit-module|emit-standard-module|emit-bootstrap-compiler|extend-module|emit-linked|emit-linked-module|emit-linked-bootstrap|run-linked|inspect-linked|emit-native-ir|inspect-native-ir|emit-native-abi|inspect-native-abi|emit-assembly|build-native|compile-native|build|compile|build-linked|compile-linked|build-host|compile-host> <file> [args]"
     );
 }
 
@@ -426,6 +475,14 @@ fn default_build_dir(path: &str) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("program");
     PathBuf::from("build").join(stem)
+}
+
+fn default_native_build_dir(path: &str) -> PathBuf {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("program");
+    PathBuf::from("build").join(format!("{stem}_native"))
 }
 
 fn default_ir_path(path: &str) -> PathBuf {

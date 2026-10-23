@@ -68,18 +68,21 @@ Current implementation has parser, checker, CLI, GUI shell, runtime v0.1
 interpreter coverage for the current base language, an in-memory Rust-hosted
 opcode runtime, a closed portable self-host compiler/VM loop, and the first
 APL-owned target-neutral lowering, platform ABI, and x86-64 textual assembly
-layers. It does not yet have a native runtime implementation, platform object
-writer/link driver, freestanding runtime, or container bundle system.
+layers. The bootstrap native runtime and host linker path now run ordinary APL
+programs as x86-64 PE/ELF executables. It does not yet have an APL-written or
+freestanding runtime, direct object writer, ARM64/Mach-O backend, or container
+bundle system.
 
-There are currently two compiled execution paths. The legacy Rust-hosted path
+There are currently three compiled execution paths. The legacy Rust-hosted path
 stores a checked `Program` in binary `.aplc` form, then lowers it at load time
 to an in-memory `CompiledProgram`: linear statement opcodes with program-counter
 jumps and stack opcodes for expressions. `.aplc` is therefore not itself the
 runtime bytecode format. The APL-written self-host path emits `APLMOD3` and
 `APLLINK3`, which serialize recursive list-based IR interpreted by `std/vm.apl`.
-That portable IR is a bootstrap and semantic-reference format, not the final
-native backend. Bytecode may remain useful as a VM/debugging target, but native
-object and executable output is the primary production goal.
+That portable IR is a bootstrap and semantic-reference format. The third path
+lowers linked programs through `APLLOW1`, `APLABI1`, and `APLASM1` into a host
+native executable backed by `apl_native_runtime`. Bytecode may remain useful as
+a VM/debugging target, but native output is the primary production goal.
 
 The native path now begins with `APLLOW1`. `std/native.apl` consumes a verified
 linked image after reachability and composition, flattens expressions to stack
@@ -103,9 +106,11 @@ Win64/COFF or SysV64/ELF. It owns prologues, stack alignment, direct control
 flow, APL function calls, read-only constant records, UTF-8 encoding, parameter
 tables, and mutation-target tables. Semantic operations call narrow `apl_rt_*`
 entry points; builtins have separate symbols so ordinary platform linkers can
-discard unreferenced implementations. Tests pass the host-target output through
-LLVM's real integrated assembler and linker with contract stubs. The native
-runtime and final object/executable driver remain to be implemented.
+discard unreferenced implementations. `apl_native_runtime` implements that ABI,
+and `build-native`/`compile-native` generate, assemble, link, and run host PE or
+ELF programs. Tests cover a real executable rather than contract stubs alone.
+The runtime is still written in bootstrap Rust; APL ownership and a
+freestanding profile remain open.
 
 ## Library Composition
 
@@ -680,6 +685,11 @@ Rust workspace:
   offset for diagnostics; public `ParseError` values expose one-based `line`
   and Unicode-character `column` coordinates in addition to the byte `offset`.
 - `apl_runtime`: runtime v0.1 interpreter for the current base language.
+- `apl_native_runtime`: bootstrap implementation of the stable `apl_rt_*` ABI
+  used by generated x86-64 assembly. It owns the native operand stack,
+  absolute/VTime/list storage, AV/ASV/SASV propagation, scopes, calls, loops,
+  picks, builtins, input, output, and process status. It does not embed the
+  portable VM or load `.apllink` artifacts.
 - `apl_ir`: binary `.aplc` IR encoder/decoder for checked APL programs.
 - `apl_compiler`: generates Rust-hosted executable packages from portable
   linked artifacts and retains the earlier host `.aplc` package generator for
@@ -772,11 +782,12 @@ The portable bootstrap stage is closed when all of these remain true:
    host target, not the default user execution route.
 
 The repository currently satisfies this portable gate. This is not the native
-bootstrap exit: the outer process and VM are still Rust-hosted. APL now owns
-target-neutral lowering, concrete x86-64 ABI selection, and textual assembly;
-the next major compiler phase implements the native runtime, emits/assembles
-objects, links platform executables, and eventually supports a freestanding
-runtime without the Rust host.
+bootstrap exit: the outer compiler process and portable VM are still
+Rust-hosted. APL owns target-neutral lowering, concrete x86-64 ABI selection,
+and textual assembly, while the first bootstrap runtime now assembles and links
+ordinary host executables. The next native bootstrap phase moves runtime
+ownership out of Rust, closes a full self-host compiler executable, and adds a
+freestanding profile.
 
 APL-owned runtime code:
 
@@ -1018,8 +1029,9 @@ apl_rt_builtin_<get|split|join|contains|pow|add|len|ord|char|pop|
 Constant records have `[kind:u64, byte_length:u64, payload]` layout and
 eight-byte alignment. Name/string payloads are un-terminated UTF-8; numeric and
 bool payloads occupy eight bytes. Reference tables contain record pointers or
-zero for `NONE` mutation targets. This is the contract the native runtime must
-implement next; no Rust VM structures are exposed to generated assembly.
+zero for `NONE` mutation targets. `apl_native_runtime` implements this contract;
+generated assembly sees only the opaque context pointer and ABI records, not
+Rust VM structures.
 - `std/vm.apl`: the first APL-written VM bootstrap. It executes the list-based
   IR from `std/ir.apl`. Its environment is
   `[bindings, inputs, input_index, scope_depth]`, where each compact binding is
@@ -1187,11 +1199,11 @@ implement next; no Rust VM structures are exposed to generated assembly.
   produces the expected public values while static secret outputs are rejected
   by the checker before lowering. Direct VM tests separately verify `DENIED`
   for untrusted or dynamically protected output. A Rust
-  host still loads and executes the outer VM. The native backend reaches
-  assembly but has no linked runtime/executable path yet, so this remains a
-  self-hosted portable compiler/VM bootstrap rather than the final native
-  bootstrap. Use a release host for the VM-in-VM smoke-test; debug mode
-  is currently impractically slow.
+  host still loads and executes the outer VM. The native backend now links and
+  runs ordinary programs, but the full compiler has not yet closed over the
+  native runtime, so this remains a self-hosted portable compiler/VM bootstrap
+  rather than the final native bootstrap. Use a release host for the VM-in-VM
+  smoke-test; debug mode is currently impractically slow.
   A second gate builds that complete compiler/runtime module into a reusable
   compiler `APLLINK3`. `emit-linked-bootstrap` runs the compiler artifact
   inside the APL VM with user source and an optional named-library catalog as
@@ -1278,8 +1290,9 @@ Legacy host-compiled runtime path:
 - CLI `run`, `run-ir`, and `run-linked` commands, plus generated bootstrap
   executables, inspect whether stdin is attached to a terminal. A direct launch
   with no redirected input starts immediately instead of waiting for EOF;
-  redirected lines remain the current input transport. A future native runtime
-  should expose a lazy interactive input source.
+  redirected lines remain the portable paths' current input transport. The
+  native executable runtime additionally reads terminal input lazily when an
+  `input` operation executes.
 - `cargo run -p apl -- build-host examples\compiled_runtime.apl build\compiled_runtime`
   validates the APL prelude plus user source and generates a separate Rust
   package.

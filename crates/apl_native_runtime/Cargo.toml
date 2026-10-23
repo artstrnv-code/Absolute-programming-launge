@@ -1,0 +1,8 @@
+[package]
+name = "apl_native_runtime"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["rlib"]
