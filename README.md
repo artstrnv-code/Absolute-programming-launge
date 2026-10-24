@@ -12,7 +12,7 @@ The core idea is simple:
 - `SASV` variables are runtime-only super-secret values, mainly for keys;
 - variable names are globally unique;
 - types never change after declaration;
-- arithmetic is intentionally small: `+`, `-`, `*`, `/`, `**`;
+- arithmetic is intentionally small: `+`, `-`, `*`, `/`, `%`, `**`;
 - `Int / Int` stays `Int`;
 - strings are not concatenated with `+`;
 - `NONE` is an empty value state, not a type change;
@@ -49,10 +49,10 @@ The core idea is simple:
   `pow(base, exponent)` provide minimal runtime helpers;
 - `base ** exponent` is the right-associative power operator; unary `-` binds
   to its operand first, so `-2 ** 2` is `(-2) ** 2`;
-- integer `+`, `-`, `*`, `/`, and unary negation are checked operations;
-  their overflow and integer division by zero produce runtime errors instead
-  of panicking or depending on the Rust build profile. Integer `**` overflow,
-  an invalid exponent, and a negative exponent produce `NONE`;
+- integer `+`, `-`, `*`, `/`, `%`, and unary negation are checked operations;
+  their overflow, division by zero, and remainder by zero produce runtime
+  errors instead of panicking or depending on the Rust build profile. Integer
+  `**` overflow, an invalid exponent, and a negative exponent produce `NONE`;
 - integer literals cover the full signed `i64` range, including
   `-9223372036854775808`; out-of-range literals are rejected before execution;
 - decimal float literals require digits on both sides of `.`, so `1.0` is
@@ -136,6 +136,7 @@ the platform assembler/linker. No portable VM executes during that compilation.
 AVInt x = 4
 AVInt y = (x + 2) * 3
 AVInt power = 2 ** 3
+AVInt remainder = power % 3
 AVBool same = x =self=
 AVInt age = input
 ASVStr token = secret input

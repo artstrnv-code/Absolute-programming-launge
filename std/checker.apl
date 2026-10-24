@@ -1304,7 +1304,11 @@ func checker.binary_is_arithmetic(op) {
     return true
   }
 
-  return op == "/"
+  if op == "/" {
+    return true
+  }
+
+  return op == "%"
 }
 
 func checker.binary_is_power(op) {

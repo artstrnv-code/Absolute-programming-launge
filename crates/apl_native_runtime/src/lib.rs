@@ -595,6 +595,17 @@ fn eval_binary(operator: i64, left: Value, right: Value) -> Result<Value, String
                 .unwrap_or(Data::None),
             _ => Data::None,
         },
+        13 => match (left.data, right.data) {
+            (Data::Int(_), Data::Int(0)) => return Err("remainder by zero".to_owned()),
+            (Data::Int(left), Data::Int(right)) => Data::Int(
+                left.checked_rem(right)
+                    .ok_or_else(|| "integer overflow in rem".to_owned())?,
+            ),
+            (Data::Float(left), Data::Float(right)) => Data::Float(left % right),
+            (Data::Int(left), Data::Float(right)) => Data::Float(left as f64 % right),
+            (Data::Float(left), Data::Int(right)) => Data::Float(left % right as f64),
+            _ => return Err("invalid rem operands".to_owned()),
+        },
         _ => return Err(format!("invalid binary operator id `{operator}`")),
     };
     Ok(Value::new(data, protection))
@@ -1192,9 +1203,10 @@ pub unsafe extern "C" fn apl_rt_assign(
         let right = context.pop()?;
         let value = if operator == 0 {
             right
-        } else if (1..=4).contains(&operator) {
+        } else if (1..=5).contains(&operator) {
             let current = context.lookup(&name)?;
-            eval_binary(operator + 7, current, right)?
+            let binary_operator = if operator == 5 { 13 } else { operator + 7 };
+            eval_binary(binary_operator, current, right)?
         } else {
             return Err(format!("invalid assignment operator id `{operator}`"));
         };
@@ -1571,6 +1583,27 @@ mod tests {
         .unwrap();
         assert!(matches!(none.data, Data::None));
         assert_eq!(none.protection, Protection::Sasv);
+    }
+
+    #[test]
+    fn remainder_operator_uses_stable_id_and_preserves_protection() {
+        let result = eval_binary(
+            13,
+            Value::new(Data::Int(-17), Protection::Asv),
+            Value::new(Data::Int(5), Protection::Av),
+        )
+        .unwrap();
+        assert!(matches!(result.data, Data::Int(-2)));
+        assert_eq!(result.protection, Protection::Asv);
+
+        assert_eq!(
+            eval_binary(
+                13,
+                Value::new(Data::Int(1), Protection::Av),
+                Value::new(Data::Int(0), Protection::Av),
+            ),
+            Err("remainder by zero".to_owned())
+        );
     }
 
     #[test]

@@ -304,6 +304,7 @@ impl Parser<'_> {
             Some(Token::Symbol(Symbol::SubAssign)) => AssignmentOperator::SubAssign,
             Some(Token::Symbol(Symbol::MulAssign)) => AssignmentOperator::MulAssign,
             Some(Token::Symbol(Symbol::DivAssign)) => AssignmentOperator::DivAssign,
+            Some(Token::Symbol(Symbol::RemAssign)) => AssignmentOperator::RemAssign,
             Some(_) => return Err(self.error_at_previous("expected assignment operator")),
             None => return Err(self.error("expected assignment operator")),
         };
@@ -413,6 +414,8 @@ impl Parser<'_> {
                 BinaryOperator::Mul
             } else if self.eat_symbol(Symbol::Slash) {
                 BinaryOperator::Div
+            } else if self.eat_symbol(Symbol::Percent) {
+                BinaryOperator::Rem
             } else {
                 break;
             };
@@ -834,6 +837,7 @@ enum Symbol {
     SubAssign,
     MulAssign,
     DivAssign,
+    RemAssign,
     Power,
     EqualEqual,
     NotEqual,
@@ -848,6 +852,7 @@ enum Symbol {
     Minus,
     Star,
     Slash,
+    Percent,
     LeftParen,
     RightParen,
     LeftBrace,
@@ -866,6 +871,7 @@ impl Symbol {
             Self::SubAssign => "-=",
             Self::MulAssign => "*=",
             Self::DivAssign => "/=",
+            Self::RemAssign => "%=",
             Self::Power => "**",
             Self::EqualEqual => "==",
             Self::NotEqual => "!=",
@@ -880,6 +886,7 @@ impl Symbol {
             Self::Minus => "-",
             Self::Star => "*",
             Self::Slash => "/",
+            Self::Percent => "%",
             Self::LeftParen => "(",
             Self::RightParen => ")",
             Self::LeftBrace => "{",
@@ -1054,6 +1061,7 @@ fn read_symbol(source: &str, cursor: usize) -> Result<(Symbol, usize), ParseErro
         ("-=", Symbol::SubAssign),
         ("*=", Symbol::MulAssign),
         ("/=", Symbol::DivAssign),
+        ("%=", Symbol::RemAssign),
         ("**", Symbol::Power),
         ("==", Symbol::EqualEqual),
         ("!=", Symbol::NotEqual),
@@ -1078,6 +1086,7 @@ fn read_symbol(source: &str, cursor: usize) -> Result<(Symbol, usize), ParseErro
         '-' => Symbol::Minus,
         '*' => Symbol::Star,
         '/' => Symbol::Slash,
+        '%' => Symbol::Percent,
         '(' => Symbol::LeftParen,
         ')' => Symbol::RightParen,
         '{' => Symbol::LeftBrace,
@@ -1352,6 +1361,45 @@ mod tests {
                 operator: BinaryOperator::Pow,
                 ..
             }
+        ));
+        assert_eq!(validate_program(&program), Ok(()));
+    }
+
+    #[test]
+    fn parses_remainder_with_factor_precedence_and_compound_assignment() {
+        let program =
+            parse_program("AVInt value = 2 + 10 % 4 * 3 AVInt cycle = 17 cycle %= 5").unwrap();
+        let Statement::VariableDecl(declaration) = &program.statements[0] else {
+            panic!("expected declaration");
+        };
+        let Expression::Binary {
+            operator: BinaryOperator::Add,
+            right,
+            ..
+        } = &declaration.initial_value
+        else {
+            panic!("expected addition at the expression root");
+        };
+        assert!(matches!(
+            right.as_ref(),
+            Expression::Binary {
+                operator: BinaryOperator::Mul,
+                left,
+                ..
+            } if matches!(
+                left.as_ref(),
+                Expression::Binary {
+                    operator: BinaryOperator::Rem,
+                    ..
+                }
+            )
+        ));
+        assert!(matches!(
+            &program.statements[2],
+            Statement::Assignment(Assignment {
+                operator: AssignmentOperator::RemAssign,
+                ..
+            })
         ));
         assert_eq!(validate_program(&program), Ok(()));
     }

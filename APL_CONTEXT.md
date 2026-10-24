@@ -354,13 +354,14 @@ visible name.
 
 ## Arithmetic
 
-Five arithmetic operators exist in the base language:
+Six arithmetic operators exist in the base language:
 
 ```apl
 +
 -
 *
 /
+%
 **
 ```
 
@@ -371,6 +372,7 @@ x += 1
 x -= 1
 x *= 2
 x /= 2
+x %= 2
 ```
 
 Rules:
@@ -378,21 +380,21 @@ Rules:
 - `Int / Int` returns `Int`;
 - no implicit `Int` to `Float` conversion;
 - no string concatenation with `+`;
-- integer addition, subtraction, multiplication, division, and unary negation
-  use checked `i64` arithmetic; overflow is a runtime error;
+- integer addition, subtraction, multiplication, division, remainder, and
+  unary negation use checked `i64` arithmetic; overflow is a runtime error;
 - integer literals cover the complete signed `i64` range. The Rust parser and
   APL-written frontend both accept `-9223372036854775808` without evaluating an
   overflowing negation, and reject integer literals outside that range;
 - float literals require decimal digits on both sides of `.`, so `1.` is not a
   valid float literal;
-- integer division by zero is a runtime error; `Float` arithmetic retains
-  IEEE-754 behavior;
+- integer division or remainder by zero is a runtime error; integer remainder
+  follows the dividend's sign. `Float` arithmetic retains IEEE-754 behavior;
 - roots, trigonometry, and heavy math belong in functions or external
   languages.
 
 Power is available as both `base ** exponent` and `pow(base, exponent)`. The
 base must be `Int` or `Float`, and the exponent must be `Int`. The operator is
-right-associative and binds more tightly than `*` and `/`; unary `-` binds to
+right-associative and binds more tightly than `*`, `/`, and `%`; unary `-` binds to
 its operand first, so `-2 ** 2` means `(-2) ** 2`. Negative or out-of-range
 exponents and integer power overflow return `NONE`. The result preserves the
 base type and the strongest protection level of both operands.
@@ -1100,7 +1102,7 @@ without overwriting their caller's state.
   VM program, matching the Rust runtime, rather than becoming an ordinary
   `NONE` function result. VM expressions can now evaluate variable loads,
   literals, list literals, builtin calls, indexing, slicing, function calls,
-  unary `-`/`not`, arithmetic operators `+`, `-`, `*`, `/`, `**`, comparison
+  unary `-`/`not`, arithmetic operators `+`, `-`, `*`, `/`, `%`, `**`, comparison
   operators `==`, `!=`, `>`, `<`, `>=`, `<=`, grouped expressions, and logical
   operators `and`/`or`.
   `=self=` compares the current absolute-variable value against the initial
@@ -1258,6 +1260,7 @@ without overwriting their caller's state.
   `examples/test_vm_logic.apl`, `examples/test_vm_precedence.apl`,
   `examples/test_vm_float.apl`, `examples/test_vm_unary.apl`,
   `examples/test_vm_pow.apl`, `examples/test_power.apl`,
+  `examples/test_remainder.apl`,
   `examples/test_vm_self.apl`,
   `examples/test_vm_conversions.apl`, `examples/test_vm_secretup.apl`,
   `examples/test_vm_string_helpers.apl`, `examples/test_vm_tagged_list.apl`,

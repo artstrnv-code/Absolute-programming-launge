@@ -185,6 +185,7 @@ pub enum AssignmentOperator {
     SubAssign,
     MulAssign,
     DivAssign,
+    RemAssign,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -278,6 +279,7 @@ pub enum BinaryOperator {
     LessEqual,
     And,
     Or,
+    Rem,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -711,7 +713,8 @@ impl Checker {
             AssignmentOperator::AddAssign
             | AssignmentOperator::SubAssign
             | AssignmentOperator::MulAssign
-            | AssignmentOperator::DivAssign => {
+            | AssignmentOperator::DivAssign
+            | AssignmentOperator::RemAssign => {
                 if kind != VariableKind::Av {
                     return Err(CheckError::InvalidAssignmentTarget(assignment.name.clone()));
                 }
@@ -1370,6 +1373,7 @@ impl Checker {
                 | BinaryOperator::Sub
                 | BinaryOperator::Mul
                 | BinaryOperator::Div
+                | BinaryOperator::Rem
                 | BinaryOperator::Pow => Ok(ExpressionInfo {
                     value_type: DynamicType::VTime,
                     protection,
@@ -1397,7 +1401,8 @@ impl Checker {
             BinaryOperator::Add
             | BinaryOperator::Sub
             | BinaryOperator::Mul
-            | BinaryOperator::Div => {
+            | BinaryOperator::Div
+            | BinaryOperator::Rem => {
                 if left_info.value_type == right_info.value_type
                     && matches!(
                         left_info.value_type,

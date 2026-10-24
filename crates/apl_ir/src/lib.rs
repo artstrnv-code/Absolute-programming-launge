@@ -402,6 +402,7 @@ impl Writer {
             AssignmentOperator::SubAssign => 2,
             AssignmentOperator::MulAssign => 3,
             AssignmentOperator::DivAssign => 4,
+            AssignmentOperator::RemAssign => 5,
         });
     }
 
@@ -427,6 +428,7 @@ impl Writer {
             BinaryOperator::And => 10,
             BinaryOperator::Or => 11,
             BinaryOperator::Pow => 12,
+            BinaryOperator::Rem => 13,
         });
     }
 }
@@ -753,6 +755,7 @@ impl<'a> Reader<'a> {
             2 => Ok(AssignmentOperator::SubAssign),
             3 => Ok(AssignmentOperator::MulAssign),
             4 => Ok(AssignmentOperator::DivAssign),
+            5 => Ok(AssignmentOperator::RemAssign),
             tag => Err(IrError::InvalidTag {
                 kind: "AssignmentOperator",
                 tag,
@@ -786,6 +789,7 @@ impl<'a> Reader<'a> {
             10 => Ok(BinaryOperator::And),
             11 => Ok(BinaryOperator::Or),
             12 => Ok(BinaryOperator::Pow),
+            13 => Ok(BinaryOperator::Rem),
             tag => Err(IrError::InvalidTag {
                 kind: "BinaryOperator",
                 tag,
@@ -840,6 +844,33 @@ mod tests {
             operator: BinaryOperator::Pow,
             right: Box::new(Expression::Literal(Value::Int(8))),
         })]);
+
+        assert_eq!(
+            decode_program(&encode_program(&program).unwrap()).unwrap(),
+            program
+        );
+    }
+
+    #[test]
+    fn round_trips_remainder_operator_ids() {
+        let program = Program::new(vec![
+            Statement::VariableDecl(VariableDecl {
+                kind: VariableKind::Av,
+                value_type: ValueType::Int,
+                name: "value".to_owned(),
+                initial_value: Expression::Literal(Value::Int(17)),
+            }),
+            Statement::Assignment(Assignment {
+                name: "value".to_owned(),
+                operator: AssignmentOperator::RemAssign,
+                value: Expression::Literal(Value::Int(5)),
+            }),
+            Statement::Out(Expression::Binary {
+                left: Box::new(Expression::Variable("value".to_owned())),
+                operator: BinaryOperator::Rem,
+                right: Box::new(Expression::Literal(Value::Int(2))),
+            }),
+        ]);
 
         assert_eq!(
             decode_program(&encode_program(&program).unwrap()).unwrap(),

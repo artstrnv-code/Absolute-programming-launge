@@ -20,8 +20,8 @@ List lexer.KEYWORDS = ["include", "exclude", "if", "else", "while", "pick", "bre
     "SASVInt", "SASVFloat", "SASVBool", "SASVStr", "SASVBytes", "SASVJson"]
 
 List lexer.DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
-List lexer.SINGLE_SYMBOLS = ["(", ")", "{", "}", "[", "]", ",", ":", "+", "-", "*", "/", "=", "!", ">", "<"]
-List lexer.DOUBLE_SYMBOLS = ["==", "!=", ">=", "<=", ">>", "<<", "+=", "-=", "*=", "/=", "**"]
+List lexer.SINGLE_SYMBOLS = ["(", ")", "{", "}", "[", "]", ",", ":", "+", "-", "*", "/", "%", "=", "!", ">", "<"]
+List lexer.DOUBLE_SYMBOLS = ["==", "!=", ">=", "<=", ">>", "<<", "+=", "-=", "*=", "/=", "%=", "**"]
 
 func lexer.is_space(value) {
   if value == " " {

@@ -27,8 +27,8 @@ AVInt abi.PROTECTION_SASV = 2
 
 List abi.BUILTINS = ["get", "split", "join", "contains", "pow", "add", "len", "ord", "char", "pop", "int", "float", "bool", "str", "bytes", "json"]
 List abi.UNARY_OPERATORS = ["-", "not"]
-List abi.BINARY_OPERATORS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/", "**"]
-List abi.ASSIGN_OPERATORS = ["=", "+=", "-=", "*=", "/="]
+List abi.BINARY_OPERATORS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/", "**", "%"]
+List abi.ASSIGN_OPERATORS = ["=", "+=", "-=", "*=", "/=", "%="]
 
 AVInt abi.OP_CONST = 0
 AVInt abi.OP_NONE = 1

@@ -2461,7 +2461,7 @@ mod tests {
         fs::write(directory.join("libraries").join("math.aplmod"), math).unwrap();
         fs::write(
             &source_path,
-            "include >> math\nexclude \"math.hidden\" << math\nout 2 ** 3 ** 2\nout \"\\n\"\nout math.answer()\nstop\n",
+            "include >> math\nexclude \"math.hidden\" << math\nAVInt cycle = 17\ncycle %= 5\nout 2 ** 3 ** 2\nout \":\"\nout cycle\nout \"\\n\"\nout math.answer()\nstop\n",
         )
         .unwrap();
         let program = build_native_executable_with_native_toolchain(
@@ -2490,7 +2490,7 @@ mod tests {
         let output = Command::new(executable).output().unwrap();
         let _ = fs::remove_dir_all(&directory);
         assert!(output.status.success());
-        assert_eq!(String::from_utf8(output.stdout).unwrap(), "512\n42");
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "512:2\n42");
     }
 
     #[test]

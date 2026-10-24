@@ -1371,6 +1371,28 @@ impl<'a> Runtime<'a> {
                 )),
                 _ => Err(RuntimeError::Message("invalid div operands".to_owned())),
             },
+            BinaryOperator::Rem => match (left.data, right.data) {
+                (RuntimeData::Int(a), RuntimeData::Int(b)) => {
+                    if b == 0 {
+                        return Err(RuntimeError::Message("remainder by zero".to_owned()));
+                    }
+                    a.checked_rem(b)
+                        .map(|value| RuntimeValue::new(RuntimeData::Int(value), protection))
+                        .ok_or_else(|| RuntimeError::Message("integer overflow in rem".to_owned()))
+                }
+                (RuntimeData::Float(a), RuntimeData::Float(b)) => {
+                    Ok(RuntimeValue::new(RuntimeData::Float(a % b), protection))
+                }
+                (RuntimeData::Int(a), RuntimeData::Float(b)) => Ok(RuntimeValue::new(
+                    RuntimeData::Float(a as f64 % b),
+                    protection,
+                )),
+                (RuntimeData::Float(a), RuntimeData::Int(b)) => Ok(RuntimeValue::new(
+                    RuntimeData::Float(a % b as f64),
+                    protection,
+                )),
+                _ => Err(RuntimeError::Message("invalid rem operands".to_owned())),
+            },
             BinaryOperator::Pow => {
                 let data = match (left.data, right.data) {
                     (RuntimeData::Int(base), RuntimeData::Int(exponent)) if exponent >= 0 => {
@@ -1460,6 +1482,7 @@ impl<'a> Runtime<'a> {
             AssignmentOperator::SubAssign => BinaryOperator::Sub,
             AssignmentOperator::MulAssign => BinaryOperator::Mul,
             AssignmentOperator::DivAssign => BinaryOperator::Div,
+            AssignmentOperator::RemAssign => BinaryOperator::Rem,
         };
         self.eval_binary(current, binary, right)
     }
@@ -2099,6 +2122,9 @@ mod tests {
             ("out len([1, 2, 3])", true),
             ("out len(1)", false),
             ("out pow(2)", false),
+            ("AVInt value = 7 % 3 out value", true),
+            ("AVInt value = 7 % 3.0", false),
+            ("AVStr value = \"x\" value %= 2", false),
             ("AVInt value = true", false),
             ("ASVInt hidden = 1 out hidden", false),
             ("while true (-2) { break }", false),
@@ -2180,6 +2206,12 @@ mod tests {
     fn rust_and_apl_runtimes_agree_on_core_public_programs() {
         let cases = [
             ("arithmetic", "out (2 + 3) * 4", "OK", "20"),
+            (
+                "remainder",
+                "AVInt value = 17 value %= 5 out 2 + 10 % 4 * 3 out value out -17 % 5 out 2 ** 5 % 5",
+                "OK",
+                "82-22",
+            ),
             ("float", "AVFloat value = -1.5 out value", "OK", "-1.5"),
             (
                 "escapes",
@@ -2489,6 +2521,46 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "51248NONENONEIntASV");
+    }
+
+    #[test]
+    fn source_runtime_uses_remainder_operator() {
+        let output = run_source(
+            r#"
+            AVInt cycle = 17
+            cycle %= 5
+            AVFloat decimal = 5.5 % 2.0
+            ASVInt hidden = -17
+            ASVInt protected = hidden % 5
+            AVStr type_name = ""
+            AVStr protection = ""
+            type_name, protection = info(protected)
+            out 2 + 10 % 4 * 3
+            out cycle
+            out decimal
+            out type_name
+            out protection
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "821.5IntASV");
+    }
+
+    #[test]
+    fn integer_remainder_errors_are_explicit() {
+        for (source, expected) in [
+            ("out 1 % 0", "remainder by zero"),
+            (
+                "AVInt value = -9223372036854775808 out value % -1",
+                "integer overflow in rem",
+            ),
+        ] {
+            assert_eq!(
+                run_source(source),
+                Err(RuntimeError::Message(expected.to_owned()))
+            );
+        }
     }
 
     #[test]
@@ -3338,6 +3410,45 @@ mod tests {
         .unwrap();
 
         assert_eq!(output, "551248NONENONE");
+    }
+
+    #[test]
+    fn source_runtime_uses_apl_vm_remainder_operator_prelude() {
+        let output = run_source_with_prelude(
+            r#"
+            AVStr source = "AVInt cycle = 17 cycle %= 5 AVFloat decimal = 5.5 % 2.0 out 2 + 10 % 4 * 3 out cycle out -17 % 5 out decimal"
+            VTime vm_output = vm.run_source(source)
+
+            out len(vm_output)
+            pick(vm_output): item {
+              out item
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(output, "482-21.5");
+    }
+
+    #[test]
+    fn source_runtime_apl_vm_propagates_remainder_errors_prelude() {
+        for (driver, expected) in [
+            (
+                r#"AVStr source = "out 1 % 0" VTime output = vm.run_source(source) out output"#,
+                "remainder by zero",
+            ),
+            (
+                r#"AVStr source = "AVInt value = -9223372036854775808 out value % -1" VTime output = vm.run_source(source) out output"#,
+                "integer overflow in rem",
+            ),
+        ] {
+            let error = run_source_with_prelude(driver).unwrap_err();
+            let RuntimeError::Message(message) = error else {
+                panic!("expected runtime error");
+            };
+            assert!(message.starts_with(expected), "unexpected error: {message}");
+            assert!(message.contains("in `vm.eval_binary`"));
+        }
     }
 
     #[test]

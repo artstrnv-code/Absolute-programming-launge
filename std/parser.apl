@@ -48,8 +48,8 @@ List parser.DECL_KEYWORDS = ["AVInt", "AVFloat", "AVBool", "AVStr", "AVBytes", "
     "ASVInt", "ASVFloat", "ASVBool", "ASVStr", "ASVBytes", "ASVJson",
     "SASVInt", "SASVFloat", "SASVBool", "SASVStr", "SASVBytes", "SASVJson"]
 
-List parser.ASSIGN_OPS = ["=", "+=", "-=", "*=", "/="]
-List parser.BINARY_OPS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/", "**"]
+List parser.ASSIGN_OPS = ["=", "+=", "-=", "*=", "/=", "%="]
+List parser.BINARY_OPS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/", "**", "%"]
 List parser.STATEMENT_KEYWORDS = ["include", "exclude", "if", "func", "while", "pick", "break", "continue", "return", "secretup", "stop", "fail", "out", "VTime", "List"]
 
 func parser.node_kind(node) {
@@ -176,7 +176,7 @@ func parser.is_factor_op(value) {
     return true
   }
 
-  return false
+  return value == "%"
 }
 
 func parser.is_term_op(value) {
