@@ -330,6 +330,16 @@ func vm.list_kind_after_add(kind, item_kind) {
   return vm.max_kind(kind, item_kind)
 }
 
+func vm.list_kind_after_set(kind, index, item_kind) {
+  if vm.is_list_kind(kind) {
+    VTime kinds = vm.list_kind_values(kind)
+    set(kinds, index, item_kind)
+    return vm.list_kind(kinds)
+  }
+
+  return vm.max_kind(kind, item_kind)
+}
+
 func vm.list_kind_after_pop(kind) {
   if vm.is_list_kind(kind) {
     VTime kinds = vm.list_kind_values(kind)
@@ -792,6 +802,10 @@ func vm.is_builtin_call(name) {
     return true
   }
 
+  if name == "set" {
+    return true
+  }
+
   if name == "int" {
     return true
   }
@@ -862,6 +876,41 @@ func vm.call_builtin(name, arg_exprs, env, output, functions) {
       VTime target = vm.env_get(env, add_name)
       add(target, value)
       return vm.expr_ok(NONE, vm.env_put_meta(env, add_name, target, vm.list_kind_after_add(vm.env_kind(env, add_name), get(value_state, 3)), vm.env_type(env, add_name)), output, "AV")
+    }
+
+    return vm.expr_ok(NONE, env, output, "AV")
+  }
+
+  if name == "set" {
+    VTime list_expr = get(arg_exprs, 0)
+
+    if ir.expr_opcode(list_expr) == ir.EXPR_LOAD {
+      VTime set_name = ir.expr_value(list_expr)
+
+      if vm.target_allows_list_mutation(env, set_name) != true {
+        return vm.expr_ok(NONE, env, output, "AV")
+      }
+
+      VTime index_state = vm.eval_expr(get(arg_exprs, 1), env, output, functions)
+      env = get(index_state, 1)
+      output = get(index_state, 2)
+
+      if vm.expr_is_ok(index_state) != true {
+        return vm.expr_flow(get(index_state, 4), env, output)
+      }
+
+      VTime value_state = vm.eval_expr(get(arg_exprs, 2), env, output, functions)
+      env = get(value_state, 1)
+      output = get(value_state, 2)
+
+      if vm.expr_is_ok(value_state) != true {
+        return vm.expr_flow(get(value_state, 4), env, output)
+      }
+
+      VTime index = get(index_state, 0)
+      VTime target = vm.env_get(env, set_name)
+      set(target, index, get(value_state, 0))
+      return vm.expr_ok(NONE, vm.env_put_meta(env, set_name, target, vm.list_kind_after_set(vm.env_kind(env, set_name), index, get(value_state, 3)), vm.env_type(env, set_name)), output, "AV")
     }
 
     return vm.expr_ok(NONE, env, output, "AV")

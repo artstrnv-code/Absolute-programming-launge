@@ -157,8 +157,8 @@ runtime IR is emitted. Duplicate directives, nested directives, unknown
 libraries, and unknown exports are compile errors. A call to an excluded
 builtin is rejected before lowering; `exclude "pick" << base` similarly gates
 the parser-level `pick` construct before its opcode can be emitted. Current
-removable base exports are `pick`, `add`, `get`, `pop`, conversions, string/list
-helpers, `ord`, `char`, and `pow`.
+removable base exports are `pick`, `add`, `set`, `get`, `pop`, conversions,
+string/list helpers, `ord`, `char`, and `pow`.
 
 The portable `APLLINK3` result contains neither composition AST nodes nor
 unreachable user functions. Its base builtin implementations still live in the
@@ -510,22 +510,27 @@ Explicit labels:
 ```apl
 List items = [1:SASV, "abc":ASV, true:AV]
 add(items, "hidden":ASV)
+set(items, 0, "vault":SASV)
 ```
 
 Minimal list operations:
 
 ```apl
 add(items, value)
+set(items, index, value)
 VTime x = get(items, 0)
 VTime y = pop(items)
 ```
 
 `get` and `pop` return `VTime` values carrying the element protection label.
-`add` is statement-only because it has no value result. Both `add` and `pop`
-require a named `List` or list-valued `VTime`; list literals, slices, calls, and
-other temporary expressions cannot be mutation targets. Adding an `ASV` or
-`SASV` value to a `VTime` list raises the protection tracked for the complete
-dynamic value and prevents later public output or assignment.
+`add` and `set` are statement-only because they have no value result. `add`,
+`set`, and `pop` require a named `List` or list-valued `VTime`; list literals,
+slices, calls, and other temporary expressions cannot be mutation targets.
+`set` accepts negative indexes (`-1` is the last element). An out-of-range
+index leaves the list unchanged. Adding or replacing with an `ASV` or `SASV`
+value raises the protection tracked for the complete dynamic value and prevents
+later public output or assignment. Replacing an element also replaces its own
+protection label, so subsequent `get` and `pick` observe the new label.
 
 ## Indexing And Slices
 
@@ -986,7 +991,7 @@ APL-owned runtime code:
   Expressions become postorder stack operations. `if`, bounded `while`, and
   `pick` become explicit labels and jumps; `break`/`continue` become unwind
   jumps carrying the exact number of lexical scopes to remove. Function bodies
-  are stored by final slot, and mutating `add`/`pop` calls keep named target
+  are stored by final slot, and mutating `add`/`set`/`pop` calls keep named target
   descriptors so a native runtime updates the correct binding rather than a
   copied value. The decoder validates opcodes and arities, literal/operator
   shape, builtin arity, call-slot bounds, unique labels and function records,
@@ -1038,7 +1043,7 @@ apl_rt_loop_enter / loop_check / loop_exit
 apl_rt_pick_enter / pick_next / pick_exit
 apl_rt_branch_false / function_enter / finish
 apl_rt_builtin_<get|split|join|contains|pow|add|len|ord|char|pop|
-               int|float|bool|str|bytes|json>
+               int|float|bool|str|bytes|json|set>
 ```
 
 Constant records have `[kind:u64, byte_length:u64, payload]` layout and
@@ -1072,7 +1077,7 @@ without overwriting their caller's state.
   the same local names, block locals do not leak, and absolute/list uniqueness
   remains global. It supports declarations with `AV`/`ASV`/`SASV` metadata,
   dynamic `VTime` values,
-  lists, `get`/`len`/`add`/`pop`, `info()` metadata reads, assignments, nested
+  lists, `get`/`len`/`add`/`set`/`pop`, `info()` metadata reads, assignments, nested
   `if/else if/else` blocks, bounded `while` blocks, loop flow with `break`/`continue`,
   `pick` iteration with scoped item cleanup, function tables, function calls,
   `return`, `secretup`, `out`, `stop`, and `fail`, and returns captured output
@@ -1089,8 +1094,8 @@ without overwriting their caller's state.
   an empty output list. Assignment and `secretup` against unknown names are
   rejected by the VM instead of creating implicit variables. Compound assignment
   in the VM is limited to `VTime` or public numeric absolute variables, matching
-  the Rust checker contract. `add`/`pop` only mutate existing `List` or `VTime`
-  targets; invalid list mutation returns `NONE` without changing VM state.
+  the Rust checker contract. `add`/`set`/`pop` only mutate existing `List` or
+  `VTime` targets; invalid list mutation returns `NONE` without changing VM state.
   `info()` in the VM requires existing `AVStr` targets and rejects `VTime`
   sources; `info(SASV)` remains allowed because it exposes metadata, not value.
   The same external-channel rule is applied to `stop`/`fail` reasons: public
@@ -1395,7 +1400,7 @@ Runtime v0.1 covers:
 - `if/else if/else`;
 - `while(condition)(limit)`, `break`, `continue`;
 - `pick`;
-- list literals, nested lists, `add`, `get`, `pop`;
+- list literals, nested lists, `add`, `set`, `get`, `pop`;
 - indexing and slicing;
 - string/list helper builtins: `split`, `len`, `contains`, `join`, `ord`,
   `char`, `pow`;

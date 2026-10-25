@@ -1985,6 +1985,7 @@ mod tests {
             "apl_rt_builtin_str",
             "apl_rt_builtin_bytes",
             "apl_rt_builtin_json",
+            "apl_rt_builtin_set",
             "apl_rt_list",
             "apl_rt_index",
             "apl_rt_slice",

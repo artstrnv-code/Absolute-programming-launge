@@ -131,6 +131,16 @@ impl Writer {
                 self.string(list_name)?;
                 self.list_element(element)
             }
+            Statement::SetListElement {
+                list_name,
+                index,
+                element,
+            } => {
+                self.u8(20);
+                self.string(list_name)?;
+                self.expression(index)?;
+                self.list_element(element)
+            }
             Statement::Expression(expression) => {
                 self.u8(19);
                 self.expression(expression)
@@ -549,6 +559,11 @@ impl<'a> Reader<'a> {
                 library: self.string()?,
             }),
             19 => Ok(Statement::Expression(self.expression()?)),
+            20 => Ok(Statement::SetListElement {
+                list_name: self.string()?,
+                index: self.expression()?,
+                element: self.list_element()?,
+            }),
             tag => Err(IrError::InvalidTag {
                 kind: "Statement",
                 tag,
@@ -819,6 +834,14 @@ mod tests {
                 name: "apl.id".to_owned(),
                 args: vec![Expression::Literal(Value::Int(7))],
             }),
+            Statement::SetListElement {
+                list_name: "items".to_owned(),
+                index: Expression::Literal(Value::Int(-1)),
+                element: ListElement {
+                    value: Expression::Literal(Value::Int(9)),
+                    protection: Some(ProtectionLevel::Asv),
+                },
+            },
             Statement::VariableDecl(VariableDecl {
                 kind: VariableKind::Av,
                 value_type: ValueType::Int,

@@ -638,6 +638,18 @@ fn resolve_index(length: usize, index: i64) -> Option<usize> {
     usize::try_from(index).ok().filter(|index| *index < length)
 }
 
+fn replace_list_value(list: &mut Value, index: i64, value: Value) -> bool {
+    let Data::List(values) = &mut list.data else {
+        return false;
+    };
+    let Some(index) = resolve_index(values.len(), index) else {
+        return false;
+    };
+    Rc::make_mut(values)[index] = value;
+    list.refresh_list_protection();
+    true
+}
+
 fn eval_index(target: Value, index: Value) -> Value {
     let protection = target.protection.max(index.protection);
     let Data::Int(index) = index.data else {
@@ -945,6 +957,32 @@ pub unsafe extern "C" fn apl_rt_builtin_add(
         };
         list.protection = list.protection.max(value.protection);
         Rc::make_mut(values).push(value);
+        Ok(Value::none(Protection::Av))
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn apl_rt_builtin_set(
+    context_ptr: *mut NativeContext,
+    targets: *const *const AbiRecord,
+) -> i32 {
+    let name = match target_name(targets, 0) {
+        Ok(Some(name)) => name,
+        Ok(None) => {
+            return context(context_ptr).map_or(-1, |ctx| ctx.fail("set expects list name"))
+        }
+        Err(error) => return context(context_ptr).map_or(-1, |ctx| ctx.fail(error)),
+    };
+    builtin(context_ptr, 3, |context, args| {
+        let Data::Int(index) = args[1].data else {
+            return Ok(Value::none(Protection::Av));
+        };
+        let value = args[2].clone().stored();
+        let list = context.mutate_list(&name)?;
+        if !matches!(&list.data, Data::List(_)) {
+            return Err(format!("`{name}` is not a list"));
+        }
+        replace_list_value(list, index, value);
         Ok(Value::none(Protection::Av))
     })
 }
@@ -1604,6 +1642,30 @@ mod tests {
             ),
             Err("remainder by zero".to_owned())
         );
+    }
+
+    #[test]
+    fn list_replacement_supports_negative_indexes_and_refreshes_protection() {
+        let mut value = Value::list(vec![
+            Value::new(Data::Int(1), Protection::Sasv),
+            Value::new(Data::Int(2), Protection::Av),
+        ]);
+        assert!(replace_list_value(
+            &mut value,
+            -2,
+            Value::new(Data::Int(9), Protection::Av)
+        ));
+
+        assert_eq!(value.protection, Protection::Av);
+        let Data::List(values) = value.data else {
+            unreachable!();
+        };
+        assert!(matches!(values[0].data, Data::Int(9)));
+        assert!(!replace_list_value(
+            &mut Value::list(values.as_ref().clone()),
+            99,
+            Value::new(Data::Int(5), Protection::Av)
+        ));
     }
 
     #[test]

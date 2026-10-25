@@ -73,6 +73,10 @@ impl Parser<'_> {
             return self.parse_add_to_list();
         }
 
+        if self.check_ident("set") {
+            return self.parse_set_list_element();
+        }
+
         if self.eat_keyword("break") {
             return Ok(Statement::Break);
         }
@@ -254,6 +258,23 @@ impl Parser<'_> {
         self.expect_symbol(Symbol::RightParen)?;
 
         Ok(Statement::AddToList { list_name, element })
+    }
+
+    fn parse_set_list_element(&mut self) -> Result<Statement, ParseError> {
+        self.expect_ident()?;
+        self.expect_symbol(Symbol::LeftParen)?;
+        let list_name = self.expect_ident()?;
+        self.expect_symbol(Symbol::Comma)?;
+        let index = self.parse_expression()?;
+        self.expect_symbol(Symbol::Comma)?;
+        let element = self.parse_list_element()?;
+        self.expect_symbol(Symbol::RightParen)?;
+
+        Ok(Statement::SetListElement {
+            list_name,
+            index,
+            element,
+        })
     }
 
     fn parse_if(&mut self) -> Result<IfStatement, ParseError> {
@@ -1575,6 +1596,8 @@ mod tests {
             List matrix = [[1, 2], [3, 4]]
             add(public_items, "c")
             add(secret_items, "hidden":ASV)
+            set(public_items, 0, "A")
+            set(secret_items, -1, "classified":SASV)
             VTime first = get(public_items, 0)
             VTime last = pop(public_items)
             pick(public_items): item {

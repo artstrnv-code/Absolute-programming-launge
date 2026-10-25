@@ -29,6 +29,11 @@ pub enum Statement {
         list_name: String,
         element: ListElement,
     },
+    SetListElement {
+        list_name: String,
+        index: Expression,
+        element: ListElement,
+    },
     Expression(Expression),
     SecretUp(String),
     Out(Expression),
@@ -545,6 +550,14 @@ impl Checker {
                 self.require_base_export("add")?;
                 self.check_add_to_list(list_name, element)
             }
+            Statement::SetListElement {
+                list_name,
+                index,
+                element,
+            } => {
+                self.require_base_export("set")?;
+                self.check_set_list_element(list_name, index, element)
+            }
             Statement::Expression(expression) => {
                 self.check_expression(expression)?;
                 Ok(())
@@ -748,6 +761,42 @@ impl Checker {
         list_name: &str,
         element: &ListElement,
     ) -> Result<(), CheckError> {
+        if self.is_vtime(list_name) {
+            let info = self.check_list_element(element)?;
+            let protection = self
+                .vtime_protection(list_name)
+                .unwrap_or(ProtectionLevel::Av)
+                .max(info.protection);
+            self.update_vtime(list_name, protection);
+            return Ok(());
+        }
+
+        if !matches!(self.symbols.get(list_name), Some(Symbol::List { .. })) {
+            return Err(CheckError::InvalidAssignmentTarget(list_name.to_owned()));
+        }
+        let info = self.check_list_element(element)?;
+        if let Some(Symbol::List { protection }) = self.symbols.get_mut(list_name) {
+            *protection = (*protection).max(info.protection);
+        }
+        Ok(())
+    }
+
+    fn check_set_list_element(
+        &mut self,
+        list_name: &str,
+        index: &Expression,
+        element: &ListElement,
+    ) -> Result<(), CheckError> {
+        let index = self.check_expression(index)?;
+        if !matches!(
+            index.value_type,
+            DynamicType::Value(ValueType::Int) | DynamicType::VTime
+        ) {
+            return Err(CheckError::InvalidOperation(
+                "set(list, index, value) requires List and Int".to_owned(),
+            ));
+        }
+
         if self.is_vtime(list_name) {
             let info = self.check_list_element(element)?;
             let protection = self
@@ -992,6 +1041,11 @@ impl Checker {
             "add" => {
                 return Err(CheckError::InvalidOperation(
                     "add(list, value) is only valid as a statement".to_owned(),
+                ));
+            }
+            "set" => {
+                return Err(CheckError::InvalidOperation(
+                    "set(list, index, value) is only valid as a statement".to_owned(),
                 ));
             }
             "int" | "float" | "bool" | "str" | "bytes" | "json" => {
@@ -1597,6 +1651,7 @@ fn is_base_export(name: &str) -> bool {
         name,
         "pick"
             | "add"
+            | "set"
             | "get"
             | "pop"
             | "int"
@@ -1654,6 +1709,7 @@ fn is_reserved_word(name: &str) -> bool {
             | "ASV"
             | "SASV"
             | "add"
+            | "set"
             | "get"
             | "pop"
             | "int"
@@ -2219,6 +2275,47 @@ mod tests {
             validate_program(&expression_add),
             Err(CheckError::InvalidOperation(
                 "add(list, value) is only valid as a statement".to_owned()
+            ))
+        );
+
+        let protected_set = Program::new(vec![
+            Statement::ListDecl(ListDecl {
+                name: "items".to_owned(),
+                elements: vec![ListElement {
+                    value: Expression::Literal(Value::Int(1)),
+                    protection: None,
+                }],
+            }),
+            Statement::SetListElement {
+                list_name: "items".to_owned(),
+                index: Expression::Literal(Value::Int(-1)),
+                element: ListElement {
+                    value: Expression::Literal(Value::Int(2)),
+                    protection: Some(ProtectionLevel::Asv),
+                },
+            },
+            Statement::Out(Expression::Variable("items".to_owned())),
+        ]);
+        assert!(matches!(
+            validate_program(&protected_set),
+            Err(CheckError::SecretExpressionDenied(_))
+        ));
+
+        let expression_set = Program::new(vec![Statement::VTimeDecl(VTimeDecl {
+            name: "result".to_owned(),
+            initial_value: Expression::Call {
+                name: "set".to_owned(),
+                args: vec![
+                    Expression::ListLiteral(vec![]),
+                    Expression::Literal(Value::Int(0)),
+                    Expression::Literal(Value::Int(1)),
+                ],
+            },
+        })]);
+        assert_eq!(
+            validate_program(&expression_set),
+            Err(CheckError::InvalidOperation(
+                "set(list, index, value) is only valid as a statement".to_owned()
             ))
         );
     }

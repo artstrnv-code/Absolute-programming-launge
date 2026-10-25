@@ -25,7 +25,7 @@ AVInt abi.PROTECTION_AV = 0
 AVInt abi.PROTECTION_ASV = 1
 AVInt abi.PROTECTION_SASV = 2
 
-List abi.BUILTINS = ["get", "split", "join", "contains", "pow", "add", "len", "ord", "char", "pop", "int", "float", "bool", "str", "bytes", "json"]
+List abi.BUILTINS = ["get", "split", "join", "contains", "pow", "add", "len", "ord", "char", "pop", "int", "float", "bool", "str", "bytes", "json", "set"]
 List abi.UNARY_OPERATORS = ["-", "not"]
 List abi.BINARY_OPERATORS = ["==", "!=", ">", "<", ">=", "<=", "and", "or", "+", "-", "*", "/", "**", "%"]
 List abi.ASSIGN_OPERATORS = ["=", "+=", "-=", "*=", "/=", "%="]
@@ -556,7 +556,7 @@ func abi.instruction_is_valid(instruction, pool, function_arities) {
 
     VTime builtin_name = get(abi.BUILTINS, builtin_id)
 
-    if (builtin_name == "add") or (builtin_name == "pop") {
+    if ((builtin_name == "add") or (builtin_name == "pop")) or (builtin_name == "set") {
       if get(targets, 0) == -1 {
         return false
       }

@@ -78,6 +78,10 @@ func verifier.builtin_arity(name) {
     return 2
   }
 
+  if name == "set" {
+    return 3
+  }
+
   if name == "len" {
     return 1
   }

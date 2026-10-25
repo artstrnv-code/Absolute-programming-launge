@@ -639,6 +639,10 @@ func checker.builtin_arity(name) {
     return 2
   }
 
+  if name == "set" {
+    return 3
+  }
+
   if name == "len" {
     return 1
   }
@@ -1604,6 +1608,14 @@ func checker.validate_builtin_argument_types(expression, names) {
 
   VTime second_type = checker.expr_type(get(args, 1), names)
 
+  if name == "set" {
+    if (checker.type_allows(first_type, "List")) and (checker.type_allows(second_type, "Int")) {
+      return checker.validate_named_list_target(get(args, 0), names, "set(list, index, value)")
+    }
+
+    return checker.fail(names, "set(list, index, value) requires List and Int")
+  }
+
   if name == "get" {
     if (checker.type_allows(first_type, "List")) and (checker.type_allows(second_type, "Int")) {
       return checker.ok(names)
@@ -1804,7 +1816,9 @@ func checker.apply_mutating_call_protection(expression, names) {
     return checker.ok(names)
   }
 
-  if get(expression, 1) != "add" {
+  VTime operation = get(expression, 1)
+
+  if (operation != "add") and (operation != "set") {
     return checker.ok(names)
   }
 
@@ -1822,7 +1836,13 @@ func checker.apply_mutating_call_protection(expression, names) {
     return checker.ok(names)
   }
 
-  VTime protection = checker.max_protection(checker.entry_protection(entry), checker.expr_protection(get(args, 1), names))
+  VTime value_index = 1
+
+  if operation == "set" {
+    value_index = 2
+  }
+
+  VTime protection = checker.max_protection(checker.entry_protection(entry), checker.expr_protection(get(args, value_index), names))
   return checker.ok(checker.update_name_protection(names, name, protection))
 }
 
@@ -1916,6 +1936,10 @@ func checker.validate_expr(expression, names) {
   if kind == parser.EXPR_CALL {
     if get(expression, 1) == "add" {
       return checker.fail(names, "add(list, value) is only valid as a statement")
+    }
+
+    if get(expression, 1) == "set" {
+      return checker.fail(names, "set(list, index, value) is only valid as a statement")
     }
 
     VTime call_state = checker.validate_call_target(expression, names)
@@ -2140,7 +2164,7 @@ func checker.validate_statement(node, names, allow_predeclared_func, in_function
     VTime expression = get(node, 1)
 
     if parser.expr_kind(expression) == parser.EXPR_CALL {
-      if get(expression, 1) == "add" {
+      if (get(expression, 1) == "add") or (get(expression, 1) == "set") {
         VTime call_state = checker.validate_call_target(expression, names)
 
         if get(call_state, 0) != checker.STATUS_OK {

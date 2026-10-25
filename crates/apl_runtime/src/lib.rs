@@ -60,6 +60,11 @@ enum StatementOp {
         list_name: String,
         element: CompiledListElement,
     },
+    SetListElement {
+        list_name: String,
+        index: CompiledExpression,
+        element: CompiledListElement,
+    },
     Expression(CompiledExpression),
     SecretUp(String),
     Out(CompiledExpression),
@@ -276,6 +281,15 @@ impl StatementCompiler {
             }
             Statement::AddToList { list_name, element } => StatementOp::AddToList {
                 list_name: list_name.clone(),
+                element: compile_list_element(element),
+            },
+            Statement::SetListElement {
+                list_name,
+                index,
+                element,
+            } => StatementOp::SetListElement {
+                list_name: list_name.clone(),
+                index: compile_expression(index),
                 element: compile_list_element(element),
             },
             Statement::Expression(expression) => {
@@ -723,6 +737,16 @@ impl<'a> Runtime<'a> {
             StatementOp::AddToList { list_name, element } => {
                 let value = self.eval_list_element(element)?;
                 self.add_to_list(list_name, value)?;
+                Ok(Flow::None)
+            }
+            StatementOp::SetListElement {
+                list_name,
+                index,
+                element,
+            } => {
+                let index = self.eval_expression(index)?;
+                let value = self.eval_list_element(element)?;
+                self.set_list_element(list_name, index, value)?;
                 Ok(Flow::None)
             }
             StatementOp::Expression(expression) => {
@@ -1506,6 +1530,21 @@ impl<'a> Runtime<'a> {
         push_list_value(name, list, value)
     }
 
+    fn set_list_element(
+        &mut self,
+        name: &str,
+        index: RuntimeValue,
+        value: RuntimeValue,
+    ) -> Result<(), RuntimeError> {
+        if let Some(list) = self.vtime_mut(name) {
+            return replace_list_value(name, list, index, value);
+        }
+        let Some(list) = self.lists.get_mut(name) else {
+            return Err(RuntimeError::Message(format!("unknown list `{name}`")));
+        };
+        replace_list_value(name, list, index, value)
+    }
+
     fn vtime_mut(&mut self, name: &str) -> Option<&mut RuntimeValue> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(value) = scope.get_mut(name) {
@@ -1662,6 +1701,26 @@ fn push_list_value(
     };
     list.protection = list.protection.max(value.effective_protection());
     Rc::make_mut(values).push(value);
+    Ok(())
+}
+
+fn replace_list_value(
+    name: &str,
+    list: &mut RuntimeValue,
+    index: RuntimeValue,
+    value: RuntimeValue,
+) -> Result<(), RuntimeError> {
+    let RuntimeData::Int(index) = index.data else {
+        return Ok(());
+    };
+    let RuntimeData::List(values) = &mut list.data else {
+        return Err(RuntimeError::Message(format!("`{name}` is not a list")));
+    };
+    let Some(index) = resolve_raw_index(values.len(), index) else {
+        return Ok(());
+    };
+    Rc::make_mut(values)[index] = value;
+    list.refresh_list_protection();
     Ok(())
 }
 
@@ -1833,11 +1892,12 @@ fn resolve_index<T>(values: &[T], index: i64) -> Option<&T> {
 }
 
 fn resolve_raw_index(len: usize, index: i64) -> Option<usize> {
-    if index < 0 {
+    let index = if index < 0 {
         len.checked_sub(index.unsigned_abs() as usize)
     } else {
-        Some(index as usize)
-    }
+        usize::try_from(index).ok()
+    }?;
+    (index < len).then_some(index)
 }
 
 fn slice_indices(len: usize, start: Option<i64>, end: Option<i64>, step: i64) -> Vec<usize> {
@@ -2120,6 +2180,9 @@ mod tests {
             ("AVInt value = 1 out missing", false),
             ("VTime value = 1 value = str(value) out value", true),
             ("out len([1, 2, 3])", true),
+            ("List values = [1] set(values, -1, 2) out values[0]", true),
+            ("List values = [1] set(values, true, 2)", false),
+            ("List values = [1] VTime result = set(values, 0, 2)", false),
             ("out len(1)", false),
             ("out pow(2)", false),
             ("AVInt value = 7 % 3 out value", true),
@@ -2134,6 +2197,10 @@ mod tests {
             ("include >> base out 1", true),
             ("exclude \"len\" << base out 1", true),
             ("exclude \"len\" << base out len([1])", false),
+            (
+                "exclude \"set\" << base List values = [1] set(values, 0, 2)",
+                false,
+            ),
             (
                 "exclude \"pick\" << base pick(\"A\"): item { out item }",
                 false,
@@ -2263,6 +2330,12 @@ mod tests {
                 "List values = [1, 2] add(values, 3) out pop(values) out len(values)",
                 "OK",
                 "32",
+            ),
+            (
+                "list replacement",
+                "List values = [1, 2, 3] set(values, 0, 9) set(values, -1, 7) set(values, 99, 5) out values[0] out values[2] out len(values)",
+                "OK",
+                "973",
             ),
             (
                 "info",
@@ -3568,7 +3641,7 @@ mod tests {
     fn source_runtime_uses_apl_vm_tagged_list_elements_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = join(["AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " List items = [1:SASV, ", char(34), "public", char(34), "] add(items, ", char(34), "hidden", char(34), ":ASV) typ, level = info(items) out typ out level out items out get(items, 0) out get(items, 1) out get(items, 2) pick(items): item { out item }"], "")
+            AVStr source = join(["AVStr typ = ", char(34), char(34), " AVStr level = ", char(34), char(34), " List items = [1:SASV, ", char(34), "public", char(34), "] add(items, ", char(34), "hidden", char(34), ":ASV) set(items, 1, ", char(34), "replaced", char(34), ":ASV) typ, level = info(items) out typ out level out items out get(items, 0) out get(items, 1) out get(items, 2) pick(items): item { out item }"], "")
             VTime vm_output = vm.run_source(source)
 
             out len(vm_output)
@@ -3587,7 +3660,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "9ListSASVDENIEDDENIEDpublicDENIEDDENIEDpublicDENIED"
+            "9ListSASVDENIEDDENIEDDENIEDDENIEDDENIEDDENIEDDENIED"
         );
     }
 
@@ -4126,7 +4199,7 @@ mod tests {
     fn source_runtime_native_ir_covers_current_value_and_statement_surface_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) VTime last = pop(items) VTime returned = echo(neg + 2) secretup(x) if false { fail \"never\" } out \"ok\" stop"
+            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) set(items, 0, 4) VTime last = pop(items) VTime returned = echo(neg + 2) secretup(x) if false { fail \"never\" } out \"ok\" stop"
             VTime linked = bootstrap.linked_artifact_report(source)
             VTime lowered = native.lower_linked_artifact_report(get(linked, 1))
             VTime image = get(native.decode_image_report(get(lowered, 1)), 1)
@@ -4140,6 +4213,10 @@ mod tests {
                 VTime name = get(instruction, 1)
 
                 if (name == "add") or (name == "pop") {
+                  add(mutation_targets, get(get(instruction, 3), 0))
+                }
+
+                if name == "set" {
                   add(mutation_targets, get(get(instruction, 3), 0))
                 }
               }
@@ -4196,7 +4273,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "OKOKtrue0items,items");
+        assert_eq!(output, "OKOKtrue0items,items,items");
     }
 
     #[test]
@@ -4318,7 +4395,7 @@ mod tests {
     fn source_runtime_native_abi_covers_complete_low_ir_surface_prelude() {
         let output = run_source_with_prelude(
             r#"
-            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) VTime last = pop(items) VTime returned = echo(neg + 2) echo(x) if false { fail \"never\" } while (x < 3) (4) { x += 1 if x == 2 { continue } break } pick(items): item { if item == 1 { continue } break } secretup(x) out \"ok\" stop"
+            AVStr source = "func echo(value) { return value } AVInt x = input AVFloat ratio = 2.5 ASVStr hidden = secret input AVBool same = x =self= AVStr type_name = \"\" AVStr protection = \"\" type_name, protection = info(x) List items = [1:ASV, 2] VTime first = items[0] VTime part = items[:] VTime neg = -x x += 1 add(items, 3) set(items, 0, 4) VTime last = pop(items) VTime returned = echo(neg + 2) echo(x) if false { fail \"never\" } while (x < 3) (4) { x += 1 if x == 2 { continue } break } pick(items): item { if item == 1 { continue } break } secretup(x) out \"ok\" stop"
             VTime linked = bootstrap.linked_artifact_report(source)
             VTime low = native.lower_linked_artifact_report(get(linked, 1))
             VTime lowered = abi.lower_encoded_report(get(low, 1), abi.TARGET_LINUX_X64)
@@ -4346,6 +4423,10 @@ mod tests {
                 VTime builtin_name = get(abi.BUILTINS, get(instruction, 1))
 
                 if (builtin_name == "add") or (builtin_name == "pop") {
+                  add(mutation_targets, abi.pool_value(pool, get(get(instruction, 3), 0)))
+                }
+
+                if builtin_name == "set" {
                   add(mutation_targets, abi.pool_value(pool, get(get(instruction, 3), 0)))
                 }
               }
@@ -4380,7 +4461,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(output, "OKOKtrue0items,itemselfsysv640");
+        assert_eq!(output, "OKOKtrue0items,items,itemselfsysv640");
     }
 
     #[test]
@@ -5062,6 +5143,7 @@ mod tests {
             r#"
             List binary_builtins = ["get", "split", "join", "contains", "pow", "add"]
             List unary_builtins = ["len", "ord", "char", "pop", "int", "float", "bool", "str", "bytes", "json"]
+            List ternary_builtins = ["set"]
             AVBool builtin_arity_matches = true
 
             pick(binary_builtins): builtin_name {
@@ -5076,6 +5158,16 @@ mod tests {
 
             pick(unary_builtins): builtin_name {
               if checker.builtin_arity(builtin_name) != 1 {
+                builtin_arity_matches = false
+              }
+
+              if checker.builtin_arity(builtin_name) != verifier.builtin_arity(builtin_name) {
+                builtin_arity_matches = false
+              }
+            }
+
+            pick(ternary_builtins): builtin_name {
+              if checker.builtin_arity(builtin_name) != 3 {
                 builtin_arity_matches = false
               }
 
@@ -5775,6 +5867,35 @@ mod tests {
                 element: ListElement {
                     value: Expression::Literal(Value::Str("hidden".to_owned())),
                     protection: Some(ProtectionLevel::Asv),
+                },
+            },
+            Statement::Out(Expression::Variable("items".to_owned())),
+        ]);
+
+        assert_eq!(
+            run_program(&program, vec![]),
+            Err(RuntimeError::Message(
+                "refusing to output secret value".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn runtime_keeps_dynamically_replaced_secret_list_values_off_output() {
+        let program = Program::new(vec![
+            Statement::ListDecl(ListDecl {
+                name: "items".to_owned(),
+                elements: vec![ListElement {
+                    value: Expression::Literal(Value::Int(1)),
+                    protection: None,
+                }],
+            }),
+            Statement::SetListElement {
+                list_name: "items".to_owned(),
+                index: Expression::Literal(Value::Int(0)),
+                element: ListElement {
+                    value: Expression::Literal(Value::Str("hidden".to_owned())),
+                    protection: Some(ProtectionLevel::Sasv),
                 },
             },
             Statement::Out(Expression::Variable("items".to_owned())),

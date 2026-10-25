@@ -40,10 +40,11 @@ The core idea is simple:
   representable;
 - list elements carry protection labels, not the list itself;
 - `value:ASV` and `value:SASV` tag list elements explicitly;
-- `add(list, value)`, `get(list, index)`, and `pop(list)` provide minimal stack
-  operations;
+- `add(list, value)`, `set(list, index, value)`, `get(list, index)`, and
+  `pop(list)` provide minimal mutable-list operations;
 - `VTime` values can hold local lists, and `add(vtime_list, value)` /
-  `pop(vtime_list)` work inside functions and loops;
+  `set(vtime_list, index, value)` / `pop(vtime_list)` work inside functions and
+  loops;
 - `split(value, separator)`, `join(values, separator)`, `len(value)`,
   `contains(value, needle)`, `ord(value)`, `char(value)`, and
   `pow(base, exponent)` provide minimal runtime helpers;
@@ -98,7 +99,7 @@ The first APL-owned native-backend boundary is now implemented as `APLLOW1`.
 lowers every current expression to linear stack operations. Structured
 `if`/`while`/`pick` blocks become labels and jumps, functions retain their final
 numeric slots, and `break`/`continue` carry explicit scope-unwind counts.
-Mutating `add`/`pop` calls retain their named target descriptors. The low-IR
+Mutating `add`/`set`/`pop` calls retain their named target descriptors. The low-IR
 codec verifies instruction shapes, label targets, call-slot bounds, function
 tables, manifests, and stack discipline. `APLLOW1` is the input contract for
 machine backends.
@@ -689,14 +690,15 @@ tags, mutations, `secretup`, function calls, and block merges. It rejects
 protection downgrades, secret values sent to `out`/`stop`/`fail`, public
 `=self=` checks on secret values, and invalid input/protection combinations
 before IR lowering. Successful checks export protection-aware symbols for
-`APLMOD3` modules. `add(list, value)` is a statement-only mutation, while both
-`add` and `pop` require a named `List` or `VTime` target. Adding a protected
-value to a `VTime` list raises the dynamic list protection, so later public
-output or assignment cannot lose the element's protection. Compound assignment
-to `VTime` keeps the maximum protection of its previous value and the right-hand
-side; arithmetic on a secret temporary therefore cannot launder it back to
-`AV`. The runtime independently refuses declaration and assignment downgrades,
-so this invariant still holds if static checking is bypassed.
+`APLMOD3` modules. `add(list, value)` and `set(list, index, value)` are
+statement-only mutations, while `add`, `set`, and `pop` require a named `List`
+or `VTime` target. Adding or replacing with a protected value raises the
+dynamic list protection, so later public output or assignment cannot lose the
+element's protection. Compound assignment to `VTime` keeps the maximum
+protection of its previous value and the right-hand side; arithmetic on a
+secret temporary therefore cannot launder it back to `AV`. The runtime
+independently refuses declaration and assignment downgrades, so this invariant
+still holds if static checking is bypassed.
 
 Function calls may also stand alone when their result is intentionally ignored:
 
@@ -837,7 +839,7 @@ linking, an APL or freestanding runtime, ARM64, Mach-O, and packaging formats
 are the next layers.
 
 The first APL-written VM bootstrap lives in `std/vm.apl`. It executes that
-list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`pop`,
+list-based IR for declarations, `VTime`, lists, `get`/`len`/`add`/`set`/`pop`,
 indexing/slicing, `info()` metadata reads, assignments, `if/else if/else` blocks,
 bounded `while`, loop flow with `break`/`continue`, `pick`, functions, `return`,
 `out`, `stop`, and `fail`. It also denies direct and derived `out` of
@@ -845,8 +847,8 @@ bounded `while`, loop flow with `break`/`continue`, `pick`, functions, `return`,
 same rule to `stop`/`fail` reasons. It rejects duplicate runtime declarations
 instead of silently shadowing absolute/list names, and rejects assignment or
 `secretup` against unknown names. Compound assignment in the VM is limited to
-`VTime` or public numeric absolute variables. `add`/`pop` only mutate existing
-`List` or `VTime` targets. `info()` requires existing public string targets and
+`VTime` or public numeric absolute variables. `add`/`set`/`pop` only mutate
+existing `List` or `VTime` targets. `info()` requires existing public string targets and
 rejects `VTime` sources. Conditions can use comparisons and grouped
 logical operators such as `(a == true) and (b != true)`. Expressions support
 `=self=` checks against the initial absolute-variable value and explicit
