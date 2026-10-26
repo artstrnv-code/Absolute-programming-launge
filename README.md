@@ -1,6 +1,6 @@
 # APL
 
-APL, Absoluta Programming Language, is a small strict base language for
+APL, Absolute Programming Language, is a small strict base language for
 contract-based communication between isolated language containers.
 
 The core idea is simple:
@@ -80,75 +80,7 @@ native object and executable output is the primary goal.
 ## Current Syntax
 
 ```apl
-AVInt x = 4
-AVInt y = (x + 2) * 3
-AVBool same = x =self=
-AVInt age = input
-ASVStr token = secret input
-SASVStr master_key = "raw"
-AVStr type_name = ""
-AVStr protection = ""
-List public_items = ["A", "P"]
-List secret_items = [1:SASV, "abc":ASV]
-List matrix = [[1, 2], [3, 4]]
-
-func parse_age(raw) {
-  VTime parsed = int(raw)
-
-  if parsed == NONE {
-    return NONE
-  }
-
-  return parsed
-}
-
-age = parse_age(str(age))
-type_name, protection = info(master_key)
-secretup(type_name)
-add(public_items, "L")
-add(secret_items, "hidden":ASV)
-
-if (x < y) and (same == true) {
-  x += 1
-} else if x =self= {
-  x = 10
-} else {
-  x /= 2
-}
-
-if age != NONE {
-  out age
-} else {
-  out "bad age"
-}
-
-while (x < 20) (100) {
-  x += 1
-
-  if x == 12 {
-    continue
-  }
-
-  if x == 15 {
-    break
-  }
-}
-
-pick("APL"): ch {
-  VTime current = ch
-  out current
-}
-
-VTime first = get(public_items, 0)
-VTime last = pop(public_items)
-VTime cell = matrix[0][1]
-VTime head = public_items[:2]
-VTime every_second = public_items[::2]
-out first
-out last
-out cell
-
-stop
+# sorry, this example need to rewrite. language now has the main func (AVInt std::main(){}). Aslo many of functions now needs prefix std::
 ```
 
 Containers, Docker execution, and binary `.aplb` bundles come after the language
